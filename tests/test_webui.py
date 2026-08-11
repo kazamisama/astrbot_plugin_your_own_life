@@ -96,6 +96,21 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["summary"]["total"], 1)
         self.assertEqual(result["items"][0]["status"], "done")
 
+    async def test_events_handler(self):
+        self.db.append_event(
+            "shelly", "observe", {"n": 1}, [{"url": "https://x"}],
+            "e/1", ts="2026-08-12 10:00:00",
+        )
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=None, config=self.config)
+        result = await handlers["events"]()
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["items"][0]["kind"], "observe")
+        self.assertEqual(len(result["replay"]["items"]), 1)
+        self.assertTrue(result["replay"]["read_only"])
+        filtered = await handlers["events"]()
+        self.assertEqual(filtered["items"][0]["idempotency_key"], "e/1")
+
     async def test_timeline_handler(self):
         self.db.add_note("shelly", None, "hn", "https://x", "T", "s", url_hash="tl")
         handlers = build_handlers(self.db, service=None, share_gate=None,
@@ -132,7 +147,8 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/astrbot_plugin_your_own_life/api/change_log", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/injection_log", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/plans", routes)
-        self.assertEqual(len(routes), 21)
+        self.assertIn("/astrbot_plugin_your_own_life/api/events", routes)
+        self.assertEqual(len(routes), 22)
 
 
 if __name__ == "__main__":

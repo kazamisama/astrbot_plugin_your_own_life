@@ -367,6 +367,9 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual([e["kind"] for e in replay], ["observe", "think", "change"])
         self.assertEqual(self.db.replay_events("shelly"), replay)
         self.assertEqual(len(self.db.list_events("shelly")), 3)
+        self.assertEqual(self.db.count_events("shelly"), 3)
+        self.assertEqual(self.db.count_events("shelly", kinds=["think"]), 1)
+        self.assertEqual(self.db.count_events("shelly", kinds=["recall"]), 0)
 
     def test_soft_delete_and_restore_emit_change_rollback_events(self):
         note_id = self.db.add_note("shelly", None, "hn", "https://a", "A", "s",

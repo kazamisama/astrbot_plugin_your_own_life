@@ -1301,8 +1301,8 @@ class LifeDB:
     def replay_events(
         self,
         persona_id: str,
-        limit: int = 1000,
         kinds: Optional[list[str]] = None,
+        limit: int = 1000,
     ) -> list[dict]:
         if kinds:
             placeholders = ",".join("?" for _ in kinds)
@@ -1316,6 +1316,23 @@ class LifeDB:
             "ORDER BY ts ASC, id ASC LIMIT ?",
             (persona_id, max(0, int(limit))),
         )
+
+    def count_events(
+        self, persona_id: str, kinds: Optional[list[str]] = None
+    ) -> int:
+        if kinds:
+            placeholders = ",".join("?" for _ in kinds)
+            row = self._one(
+                f"SELECT COUNT(*) AS n FROM event_chain WHERE persona_id = ? "
+                f"AND kind IN ({placeholders})",
+                (persona_id, *kinds),
+            )
+        else:
+            row = self._one(
+                "SELECT COUNT(*) AS n FROM event_chain WHERE persona_id = ?",
+                (persona_id,),
+            )
+        return int(row["n"] or 0) if row else 0
 
     # ----- life plans -----
 

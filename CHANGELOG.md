@@ -2,6 +2,15 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.4.3] - 2026-08-12
+
+### Added
+
+- L1.5-06 事件链可视化：WebUI 新增“事件链”tab 与 `GET /events` 接口，按时间倒序展示事件流，支持 kind 过滤与分页；事件显示类型徽标、payload 摘要、`source_refs` 与幂等键；底部提供只读重放元数据视图，不提供写入口。
+
+### Notes
+
+- 测试：169 passed（新增 count_events、事件链 WebUI 接口与分页/重放用例）；JS 语法检查通过。
 ## [0.4.2] - 2026-08-12
 
 ### Added

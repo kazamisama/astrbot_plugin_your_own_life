@@ -2,6 +2,14 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L1.5-06 事件链可视化落地（L1.5 完成）
+
+- 目标：WebUI 按时间倒序展示事件流，事件带类型徽标、来源与可下钻 payload；只读视图支持 kind 过滤、分页与重放元数据。
+- 决策：DB 新增 `count_events`；WebUI 新增 `GET /events`（kinds/limit/offset + `replay.read_only` 只读重放前 20 条）；页面新增“事件链”tab：类型徽标、payload 摘要、`source_refs`、幂等键与“重放元数据（只读）”面板；顺手统一 `replay_events(persona_id, kinds, limit)` 参数顺序。
+- 改动：`life/db.py`、`life/webui.py`、`pages/life/index.html`、`tests/test_db.py`、`tests/test_webui.py`；版本 v0.4.2 → v0.4.3；README / CHANGELOG / features.md L1.5-06 / design.md / roadmap.md 同步（L1.5 整族标记完成）。
+- 验证：unittest 169 passed（skipped=1；新增 count_events 与事件链 WebUI 接口/重放用例）；JS 语法检查通过。
+- 遗留：事件 payload 目前按文本摘要展示，未做结构化下钻渲染；重放为只读列表，重建状态机待 L2 检查点。
+- 下一步：L2 需先对齐上游 `_PUBLIC_API.md`（统一记忆库/engram_core）并整族协调；L1-03 精力预算继续等 ESM `consume_energy` 契约。
 ## 2026-08-12 L1.5-05 系统裁决落地
 
 - 目标：预算、精力、依赖校验与睡眠窗口始终是硬约束；越界动作拒绝并回退计划；所有拒绝写事件链。

@@ -165,6 +165,31 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
             "items": db.list_plans(persona, date, status or None),
         }
 
+    async def events():
+        args = await _query_args()
+        persona = str(args.get("persona") or _first_persona(config))
+        kinds = [k for k in str(args.get("kinds") or "").split(",") if k]
+        try:
+            limit = max(1, min(int(args.get("limit", 50)), 200))
+        except (TypeError, ValueError):
+            limit = 50
+        try:
+            offset = max(0, int(args.get("offset", 0)))
+        except (TypeError, ValueError):
+            offset = 0
+        return {
+            "persona_id": persona,
+            "kinds": kinds,
+            "limit": limit,
+            "offset": offset,
+            "total": db.count_events(persona, kinds or None),
+            "items": db.list_events(persona, kinds or None, limit, offset),
+            "replay": {
+                "read_only": True,
+                "items": db.replay_events(persona, kinds or None, limit=20),
+            },
+        }
+
     async def injection_log():
         persona = await _persona_arg()
         return {"persona_id": persona, "logs": db.list_injection_log(persona)}
@@ -249,6 +274,7 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         "change_log": change_log,
         "injection_log": injection_log,
         "plans": plans,
+        "events": events,
         "share": share,
         "share_note": share_note,
         "wishlist": wishlist,
@@ -279,6 +305,7 @@ def register_api(context: Any, db: Any, service: Any, share_gate: Any,
         (f"{API_PREFIX}/change_log", "change_log", ["GET"], "Change log"),
         (f"{API_PREFIX}/injection_log", "injection_log", ["GET"], "Injection audit log"),
         (f"{API_PREFIX}/plans", "plans", ["GET"], "Daily plan board"),
+        (f"{API_PREFIX}/events", "events", ["GET"], "Event chain stream"),
         (f"{API_PREFIX}/personas", "personas", ["GET"], "Persona cache list"),
         (f"{API_PREFIX}/persona_refresh", "persona_refresh", ["POST"], "Refresh persona cache"),
         (f"{API_PREFIX}/share", "share", ["GET"], "Share log and pending"),

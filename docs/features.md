@@ -241,6 +241,7 @@
 
 ### L1.5-06 事件链可视化
 
+- 状态：已实现（v0.4.3）。
 - 目标：WebUI 按时间倒序展示事件流，事件带类型徽标、来源与可下钻 payload。
 - 依赖：事件链（L1.5-01）。
 - 模块：`life/db.py`（查询接口）、`life/webui.py`、`pages/life/index.html`。

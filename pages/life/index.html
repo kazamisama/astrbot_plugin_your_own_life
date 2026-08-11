@@ -222,6 +222,7 @@ select, input[type="date"], input[type="text"] {
     <button class="tab" data-tab="share">分享</button>
     <button class="tab" data-tab="timeline">时间轴</button>
     <button class="tab" data-tab="plans">排期</button>
+    <button class="tab" data-tab="events">事件链</button>
   </nav>
 
   <section id="tab-life">
@@ -328,6 +329,24 @@ select, input[type="date"], input[type="text"] {
       <ul class="note-list" id="planList"></ul>
     </div>
   </section>
+
+  <section id="tab-events" hidden>
+    <div class="stats">
+      <div class="stat"><span class="label">事件总数</span><span class="value" id="eventTotal">-</span></div>
+      <div class="stat"><span class="label">当前页</span><span class="value" id="eventPage">-</span></div>
+      <div class="stat"><span class="label">重放</span><span class="value" id="eventReplay">只读</span></div>
+      <div class="stat"><span class="label">写入口</span><span class="value" id="eventWrite">无</span></div>
+    </div>
+    <div class="panel">
+      <div class="chip-row" id="eventFilters"></div>
+      <ul class="note-list timeline-list" id="eventList"></ul>
+      <button class="btn" id="eventMore">加载更多</button>
+    </div>
+    <div class="panel">
+      <h2>重放元数据（只读）</h2>
+      <ul class="note-list" id="eventReplayList"></ul>
+    </div>
+  </section>
 </div>
 
 <script>
@@ -338,7 +357,9 @@ var state = {
   category: "",
   timelineTypes: "",
   timelineOffset: 0,
-  planStatus: ""
+  planStatus: "",
+  eventKinds: "",
+  eventOffset: 0
 };
 
 var dateInput = document.getElementById("dateInput");
@@ -434,10 +455,12 @@ function switchTab(name) {
   document.getElementById("tab-share").hidden = name !== "share";
   document.getElementById("tab-timeline").hidden = name !== "timeline";
   document.getElementById("tab-plans").hidden = name !== "plans";
+  document.getElementById("tab-events").hidden = name !== "events";
   if (name === "memory") { loadMemory(); loadWishlist(); }
   if (name === "share") loadShare();
   if (name === "timeline") { renderTimelineFilters(); loadTimeline(true); }
   if (name === "plans") { renderPlanFilters(); loadPlans(); }
+  if (name === "events") { renderEventFilters(); loadEvents(true); }
 }
 
 function loadPersonas() {
@@ -791,6 +814,118 @@ function loadPlans() {
     .catch(function () { showError("排期板加载失败。"); });
 }
 
+function renderEventFilters() {
+  var box = document.getElementById("eventFilters");
+  box.innerHTML = "";
+  var opts = [
+    ["", "全部"], ["observe", "观察"], ["express", "表达"], ["think", "思考"],
+    ["change", "更改"], ["recall", "召回"], ["rollback", "回滚"]
+  ];
+  opts.forEach(function (opt) {
+    var chip = document.createElement("button");
+    chip.className = "chip" + (state.eventKinds === opt[0] ? " active" : "");
+    chip.textContent = opt[1];
+    chip.addEventListener("click", function () {
+      state.eventKinds = opt[0];
+      renderEventFilters();
+      loadEvents(true);
+    });
+    box.appendChild(chip);
+  });
+}
+
+function eventPayloadText(payload) {
+  if (!payload) return "";
+  try {
+    var parsed = typeof payload === "string" ? JSON.parse(payload) : payload;
+    var keys = Object.keys(parsed || {});
+    return keys.length ? keys.map(function (k) { return k + "=" + JSON.stringify(parsed[k]); }).join(" · ") : "";
+  } catch (e) {
+    return String(payload);
+  }
+}
+
+function loadEvents(reset) {
+  if (reset) state.eventOffset = 0;
+  var params = { persona: state.persona, limit: 50, offset: state.eventOffset };
+  if (state.eventKinds) params.kinds = state.eventKinds;
+  fetch(API + "/events?" + qs(params), { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var labels = {
+        observe: "观察", express: "表达", think: "思考",
+        change: "更改", recall: "召回", rollback: "回滚"
+      };
+      document.getElementById("eventTotal").textContent = data.total || 0;
+      document.getElementById("eventPage").textContent = data.items ? data.items.length : 0;
+      var ul = document.getElementById("eventList");
+      if (reset) ul.innerHTML = "";
+      var items = data.items || [];
+      items.forEach(function (item) {
+        var li = document.createElement("li");
+        li.className = "timeline-item";
+        var head = document.createElement("div");
+        head.className = "note-title";
+        head.textContent = "[" + (labels[item.kind] || item.kind) + "] " + (item.ts || "");
+        li.appendChild(head);
+        var payloadText = eventPayloadText(item.payload);
+        if (payloadText) {
+          var text = document.createElement("div");
+          text.className = "diary-text";
+          text.textContent = payloadText;
+          li.appendChild(text);
+        }
+        var refs = [];
+        try { refs = JSON.parse(item.source_refs || "[]"); } catch (e) { refs = []; }
+        if (refs.length) {
+          var refBox = document.createElement("div");
+          refBox.className = "note-src";
+          refBox.textContent = "来源 " + refs.map(function (r) {
+            return r.url || r.note_id || r.date || r.entity || JSON.stringify(r);
+          }).join(" · ");
+          li.appendChild(refBox);
+        }
+        var meta = document.createElement("div");
+        meta.className = "note-src";
+        meta.textContent = "幂等键 " + item.idempotency_key;
+        li.appendChild(meta);
+        ul.appendChild(li);
+      });
+      if (!items.length) {
+        var empty = document.createElement("li");
+        empty.className = "empty";
+        empty.textContent = "事件链还没有记录。";
+        ul.appendChild(empty);
+      }
+      state.eventOffset += items.length;
+      document.getElementById("eventMore").hidden = items.length < 50;
+      var replay = data.replay || {};
+      var replayItems = replay.items || [];
+      var replayUl = document.getElementById("eventReplayList");
+      replayUl.innerHTML = "";
+      replayItems.forEach(function (item) {
+        var li = document.createElement("li");
+        li.className = "timeline-item";
+        var head = document.createElement("div");
+        head.className = "note-title";
+        head.textContent = "[" + (labels[item.kind] || item.kind) + "] " + (item.ts || "");
+        li.appendChild(head);
+        var meta = document.createElement("div");
+        meta.className = "note-src";
+        meta.textContent = "幂等键 " + item.idempotency_key;
+        li.appendChild(meta);
+        replayUl.appendChild(li);
+      });
+      if (!replayItems.length) {
+        var replayEmpty = document.createElement("li");
+        replayEmpty.className = "empty";
+        replayEmpty.textContent = "暂无重放元数据。";
+        replayUl.appendChild(replayEmpty);
+      }
+    })
+    .catch(function () { showError("事件链加载失败。"); });
+}
+
 function loadWishlist() {
   fetch(API + "/wishlist?" + qs({ persona: state.persona }), { headers: { "Accept": "application/json" } })
     .then(function (r) { return r.json(); })
@@ -973,6 +1108,7 @@ function load() {
     if (state.tab === "share") loadShare();
     if (state.tab === "timeline") { renderTimelineFilters(); loadTimeline(true); }
     if (state.tab === "plans") { renderPlanFilters(); loadPlans(); }
+    if (state.tab === "events") { renderEventFilters(); loadEvents(true); }
   });
 }
 
@@ -997,6 +1133,7 @@ document.getElementById("memoryQuery").addEventListener("keydown", function (e) 
   if (e.key === "Enter") loadMemory();
 });
 document.getElementById("timelineMore").addEventListener("click", function () { loadTimeline(false); });
+document.getElementById("eventMore").addEventListener("click", function () { loadEvents(false); });
 
 dateInput.value = today();
 load();
