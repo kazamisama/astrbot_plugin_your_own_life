@@ -8,6 +8,7 @@ from datetime import datetime, time, timedelta
 from typing import Any, Callable, Optional, Sequence
 
 from life.config import LifeConfig
+from life.timeutil import local_now
 
 
 def _parse_hhmm(raw: str) -> Optional[time]:
@@ -111,18 +112,25 @@ class LifeScheduler:
                         best = (slot, persona_id, kind)
         return best
 
+    def _current_target(
+        self, personas: Sequence[str]
+    ) -> Optional[tuple[datetime, str, str]]:
+        now_local = local_now(self.config.timezone, self.now_fn())
+        return self.next_target(now_local, personas)
+
     async def _run(self) -> None:
         personas = list(self.config.life_personas or [])
         while not self._stop.is_set():
             if not personas:
                 await self._stop.wait()
                 break
-            target = self.next_target(self.now_fn(), personas)
+            target = self._current_target(personas)
             if target is None:
                 await self._stop.wait()
                 break
             slot, persona_id, kind = target
-            wait = max(1.0, (slot - self.now_fn()).total_seconds())
+            now_local = local_now(self.config.timezone, self.now_fn())
+            wait = max(1.0, (slot - now_local).total_seconds())
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=wait)
             except asyncio.TimeoutError:

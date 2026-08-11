@@ -2,6 +2,21 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L1-12 时区落地
+
+- 目标：按 `docs/features.md` 开发顺序推进工程基线第一项，睡眠窗口、槽位日期与“今日”边界按 persona 本地时间计算。
+- 决策：`timezone` 为全局配置，默认 `Asia/Shanghai`；非法配置回退默认并置 `timezone_error` 告警；服务器本地 naive 时间统一经 `life/timeutil.py` 换算为配置时区。
+- 改动：
+  - 新增 `life/timeutil.py`（normalize / is_valid / to_local / local_now / local_today）。
+  - `life/config.py` 增加 `timezone` / `timezone_error`；`_conf_schema.json` 补配置项。
+  - `life/db.py` 接受 timezone，全部时间戳/日期边界走 `self._now()` / `self._today()`。
+  - `life/scheduler.py` 新增 `_current_target`，调度按配置时区换算槽位。
+  - `life/browser.py`、`life/share.py`、`life/webui.py`、`main.py` 的“今日”与睡眠边界统一走配置时区。
+  - 版本 v0.2.4 → v0.2.5；README / CHANGELOG / features.md L1-12 状态同步。
+- 验证：unittest 74 passed（新增 8 个时区用例）；网络冒烟按配置跳过。
+- 遗留：`life/persona.py` 缓存过期判断仍用服务器本地时间（不涉及“今日”边界，未纳入本次）。
+- 下一步：工程基线下一项 L1-11 预算/重试/崩溃（含 db 事务化前置改造）。
+
 ## 2026-08-12 第五轮 review 修复
 
 - 修正：`docs/workflow.md` 提交信息规则与 AGENTS.md 对齐——纯文档 `docs: ...` 不 bump 版本，功能/修复 `chore(release): ...` 同步版本与 CHANGELOG。

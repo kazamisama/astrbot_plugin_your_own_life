@@ -13,6 +13,7 @@ from life.esm_adapter import ESMAdapter
 from life.llm import LLMClient
 from life.persona import PersonaService, PersonaUnavailable
 from life.prompts import build_share_prompt
+from life.timeutil import local_now
 
 
 @dataclass
@@ -60,7 +61,7 @@ class ShareGate:
             self.db.log_share_attempt(persona_id, note_id, "blocked", "invalid_target", target)
             return ShareResult("blocked", "invalid_target")
 
-        now = self.now_fn()
+        now = local_now(self.config.timezone, self.now_fn())
         if self.config.sleep_window.contains(now):
             self.db.log_share_attempt(persona_id, note_id, "blocked", "sleep_window", target)
             return ShareResult("blocked", "sleep_window")

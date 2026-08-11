@@ -8,6 +8,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+from life.timeutil import (
+    DEFAULT_TIMEZONE,
+    local_now,
+    local_today,
+    normalize_timezone,
+    to_local,
+)
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS browse_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,19 +122,20 @@ _LEGACY_TABLES = (
 )
 
 
-def _now_str() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def _now_str(tz_name: str = DEFAULT_TIMEZONE) -> str:
+    return local_now(tz_name).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _today_str() -> str:
-    return datetime.now().strftime("%Y-%m-%d")
+def _today_str(tz_name: str = DEFAULT_TIMEZONE) -> str:
+    return local_today(tz_name)
 
 
 class LifeDB:
     """Per-persona sqlite wrapper with automatic v0.1 -> v2 migration."""
 
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, timezone: str = DEFAULT_TIMEZONE):
         self.path = Path(path)
+        self.timezone = normalize_timezone(timezone)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
@@ -140,6 +149,12 @@ class LifeDB:
     def close(self) -> None:
         with self._lock:
             self._conn.close()
+
+    def _now(self) -> str:
+        return _now_str(self.timezone)
+
+    def _today(self) -> str:
+        return _today_str(self.timezone)
 
     # ----- schema helpers -----
 
@@ -232,7 +247,7 @@ class LifeDB:
         cur = self._execute(
             "INSERT INTO browse_sessions (persona_id, started_at, trigger, status, energy_before, mood_before) "
             "VALUES (?, ?, ?, 'running', ?, ?)",
-            (persona_id, _now_str(), trigger, energy_before, mood_before),
+            (persona_id, self._now(), trigger, energy_before, mood_before),
         )
         return int(cur.lastrowid)
 
@@ -247,7 +262,7 @@ class LifeDB:
         self._execute(
             "UPDATE browse_sessions SET ended_at = ?, status = ?, notes_count = ?, reason = ?, error = ? "
             "WHERE id = ?",
-            (_now_str(), status, notes_count, reason, error, session_id),
+            (self._now(), status, notes_count, reason, error, session_id),
         )
 
     def list_sessions(
@@ -295,7 +310,7 @@ class LifeDB:
             (
                 persona_id,
                 session_id,
-                _now_str(),
+                self._now(),
                 source,
                 url,
                 title,
@@ -404,7 +419,7 @@ class LifeDB:
             "VALUES (?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(persona_id, date) DO UPDATE SET content = excluded.content, mood = excluded.mood, "
             "energy = excluded.energy, interest_top = excluded.interest_top",
-            (persona_id, date, content, mood, energy, interest_top, _now_str()),
+            (persona_id, date, content, mood, energy, interest_top, self._now()),
         )
 
     def get_diary(self, persona_id: str, date: str) -> Optional[dict]:
@@ -451,7 +466,7 @@ class LifeDB:
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (persona_id, key, name, weight,
                  seen_count if seen_count is not None else 1,
-                 last_seen_at or _now_str()),
+                 last_seen_at or self._now()),
             )
             return
         self._execute(
@@ -459,7 +474,7 @@ class LifeDB:
             "WHERE persona_id = ? AND key = ?",
             (name, weight,
              seen_count if seen_count is not None else current["seen_count"] + 1,
-             last_seen_at or _now_str(), persona_id, key),
+             last_seen_at or self._now(), persona_id, key),
         )
 
     def decay_interests(
@@ -486,7 +501,7 @@ class LifeDB:
         cur = self._execute(
             "INSERT INTO state_snapshots (persona_id, ts, activity, energy, mood, curiosity, extra) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (persona_id, _now_str(), activity, energy, mood, curiosity, extra),
+            (persona_id, self._now(), activity, energy, mood, curiosity, extra),
         )
         return int(cur.lastrowid)
 
@@ -519,7 +534,7 @@ class LifeDB:
     def mark_seen(self, persona_id: str, url_hash: str, now_str: Optional[str] = None) -> None:
         self._execute(
             "INSERT OR IGNORE INTO seen_items (persona_id, url_hash, first_seen_at) VALUES (?, ?, ?)",
-            (persona_id, url_hash, now_str or _now_str()),
+            (persona_id, url_hash, now_str or self._now()),
         )
 
     # ----- share log -----
@@ -536,7 +551,7 @@ class LifeDB:
         cur = self._execute(
             "INSERT INTO share_log (persona_id, note_id, attempted_at, status, reason, target_sid, message) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (persona_id, note_id, _now_str(), status, reason, target_sid, message),
+            (persona_id, note_id, self._now(), status, reason, target_sid, message),
         )
         return int(cur.lastrowid)
 
@@ -585,7 +600,7 @@ class LifeDB:
         rows = self._rows(
             "SELECT n.url_hash AS h FROM share_log s JOIN notes n ON n.id = s.note_id "
             "WHERE s.persona_id = ? AND s.status = 'sent' AND s.attempted_at >= ?",
-            (persona_id, datetime.fromtimestamp(threshold).strftime("%Y-%m-%d %H:%M:%S")),
+            (persona_id, to_local(datetime.fromtimestamp(threshold), self.timezone).strftime("%Y-%m-%d %H:%M:%S")),
         )
         return {row["h"] for row in rows if row["h"]}
 
@@ -604,7 +619,7 @@ class LifeDB:
         status: str = "ok",
         error: str = "",
     ) -> None:
-        now = _now_str()
+        now = self._now()
         self._execute(
             "INSERT INTO persona_prompts (persona_id, system_prompt, fetched_at, source, status, error, updated_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?) "
@@ -620,7 +635,7 @@ class LifeDB:
     # ----- queries used by commands / webui -----
 
     def get_overview(self, persona_id: str, date: Optional[str] = None) -> dict[str, Any]:
-        date = date or _today_str()
+        date = date or self._today()
         sessions = self.list_sessions(persona_id, date, limit=20)
         notes = self.list_notes(persona_id, date, limit=20)
         diary = self.get_diary(persona_id, date)

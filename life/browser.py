@@ -21,6 +21,7 @@ from life.prompts import (
     build_diary_prompt,
     build_select_prompt,
 )
+from life.timeutil import local_now, local_today
 
 logger = logging.getLogger("your_own_life.browser")
 
@@ -83,7 +84,7 @@ class LifeService:
     ) -> BrowseResult:
         if not self.config.enabled:
             return BrowseResult(None, "disabled", 0, "disabled")
-        now = self.now_fn()
+        now = local_now(self.config.timezone, self.now_fn())
         if not force and self.config.sleep_window.contains(now):
             return BrowseResult(None, "skipped", 0, "sleep_window")
 
@@ -295,10 +296,10 @@ class LifeService:
         try:
             persona = await self._resolve_persona(persona_id)
         except PersonaUnavailable:
-            return {"date": self.now_fn().strftime("%Y-%m-%d"),
+            return {"date": local_today(self.config.timezone, self.now_fn()),
                     "notes": 0, "fallback": True, "skipped": "persona_unavailable"}
 
-        now = self.now_fn()
+        now = local_now(self.config.timezone, self.now_fn())
         date = now.strftime("%Y-%m-%d")
         if self.share_gate is not None:
             await self.share_gate.recheck_pending(persona_id)

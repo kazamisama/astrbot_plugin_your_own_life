@@ -140,6 +140,15 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(db.get_interests("default")[0]["key"], "ai")
         db.close()
 
+    def test_timezone_normalization(self):
+        db = LifeDB(Path(self.tmp.name) / "tz.db", timezone="Mars/Olympus")
+        self.assertEqual(db.timezone, "Asia/Shanghai")
+        db.close()
+        db = LifeDB(Path(self.tmp.name) / "tz2.db", timezone="UTC")
+        self.assertEqual(db.timezone, "UTC")
+        self.assertRegex(db._today(), r"^\d{4}-\d{2}-\d{2}$")
+        db.close()
+
 
 if __name__ == "__main__":
     unittest.main()

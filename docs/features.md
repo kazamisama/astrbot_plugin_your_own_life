@@ -134,6 +134,7 @@
 
 ### L1-12 时区
 
+- 状态：已实现（v0.2.5）。
 - 目标：睡眠窗口、槽位日期与“今日”边界按 persona 本地时间计算。
 - 依赖：调度器（L0）。
 - 模块：`life/config.py`、`life/scheduler.py`、`life/db.py`。

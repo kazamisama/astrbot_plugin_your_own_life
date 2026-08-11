@@ -46,6 +46,7 @@ from life.llm import LLMClient  # noqa: E402
 from life.persona import PersonaService, PersonaUnavailable  # noqa: E402
 from life.scheduler import LifeScheduler  # noqa: E402
 from life.share import ShareGate  # noqa: E402
+from life.timeutil import DEFAULT_TIMEZONE, local_today  # noqa: E402
 from life import webui  # noqa: E402
 
 PLUGIN_NAME = "astrbot_plugin_your_own_life"
@@ -57,8 +58,10 @@ class LifeStar(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self._cfg: LifeConfig = load_config(config)
+        if self._cfg.timezone_error:
+            logger.warning("timezone 配置非法，已回退默认时区 %s", DEFAULT_TIMEZONE)
         db_path = self._cfg.db_path or _DEFAULT_DB
-        self.db = LifeDB(db_path)
+        self.db = LifeDB(db_path, timezone=self._cfg.timezone)
         self.personas = PersonaService(context, self.db, self._cfg, logger=logger)
         self.esm = ESMAdapter(
             context,
@@ -212,7 +215,7 @@ class LifeStar(Star):
             event.set_result(event.plain_result("日期格式应为 YYYY-MM-DD，例如 /life_archive 2026-08-10"))
             return
         persona = self._default_persona()
-        date = datetime.now().strftime("%Y-%m-%d")
+        date = local_today(self._cfg.timezone)
         if args and _DATE_RE.match(args[0]):
             date = args[0]
             if len(args) > 1:

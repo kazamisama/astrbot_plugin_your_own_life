@@ -43,6 +43,17 @@ class ConfigTest(unittest.TestCase):
         cfg = load_config({"notes_min": 5, "notes_max": 2})
         self.assertGreaterEqual(cfg.notes_max, cfg.notes_min)
 
+    def test_timezone_config(self):
+        cfg = load_config({"timezone": "UTC"})
+        self.assertEqual(cfg.timezone, "UTC")
+        self.assertFalse(cfg.timezone_error)
+        invalid = load_config({"timezone": "Mars/Olympus"})
+        self.assertEqual(invalid.timezone, "Asia/Shanghai")
+        self.assertTrue(invalid.timezone_error)
+        default = load_config({})
+        self.assertEqual(default.timezone, "Asia/Shanghai")
+        self.assertFalse(default.timezone_error)
+
 
 if __name__ == "__main__":
     unittest.main()

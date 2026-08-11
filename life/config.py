@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, time
 from typing import Any, Mapping, Sequence
 
+from life.timeutil import DEFAULT_TIMEZONE, is_valid_timezone
+
 
 def _as_str(value: Any, default: str = "") -> str:
     if value is None:
@@ -139,6 +141,8 @@ class LifeConfig:
     sleep_window: SleepWindow = field(
         default_factory=lambda: SleepWindow(time(0, 0), time(7, 0))
     )
+    timezone: str = DEFAULT_TIMEZONE
+    timezone_error: bool = False
     owner_ids: list[str] = field(default_factory=list)
     life_llm: str = ""
     energy_gate: float = 0.3
@@ -181,8 +185,12 @@ def load_config(cfg: Any) -> LifeConfig:
     ]
     notes_min = max(1, _as_int(_get(cfg, "notes_min"), 3))
     notes_max = max(notes_min, _as_int(_get(cfg, "notes_max"), 5))
+    raw_timezone = _as_str(_get(cfg, "timezone"), DEFAULT_TIMEZONE)
+    timezone_valid = is_valid_timezone(raw_timezone)
     return LifeConfig(
         enabled=_as_bool(_get(cfg, "enabled"), True),
+        timezone=raw_timezone if timezone_valid else DEFAULT_TIMEZONE,
+        timezone_error=not timezone_valid,
         browse_times=_as_list(
             _get(cfg, "browse_times"), ["10:00", "15:00"]
         ),

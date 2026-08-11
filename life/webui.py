@@ -4,10 +4,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime
 from typing import Any, Callable, Optional
 
 from life.life_tool import search_life_memory
+from life.timeutil import DEFAULT_TIMEZONE, local_today
 
 PLUGIN_NAME = "astrbot_plugin_your_own_life"
 API_PREFIX = f"/{PLUGIN_NAME}/api"
@@ -32,8 +32,8 @@ async def _json_body() -> dict:
         return {}
 
 
-def _today() -> str:
-    return datetime.now().strftime("%Y-%m-%d")
+def _today(config: Any) -> str:
+    return local_today(getattr(config, "timezone", DEFAULT_TIMEZONE))
 
 
 def _first_persona(config: Any) -> str:
@@ -50,13 +50,13 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
     async def overview():
         args = await _query_args()
         persona = str(args.get("persona") or _first_persona(config))
-        date = args.get("date") or _today()
+        date = args.get("date") or _today(config)
         return db.get_overview(persona, date)
 
     async def archive():
         args = await _query_args()
         persona = str(args.get("persona") or _first_persona(config))
-        date = args.get("date") or _today()
+        date = args.get("date") or _today(config)
         return db.archive_for_date(persona, date)
 
     async def interests():
@@ -102,7 +102,7 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
     async def share():
         args = await _query_args()
         persona = str(args.get("persona") or _first_persona(config))
-        date = args.get("date") or _today()
+        date = args.get("date") or _today(config)
         return {
             "persona_id": persona,
             "date": date,

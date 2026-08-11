@@ -46,6 +46,20 @@ class SchedulerTest(unittest.TestCase):
         self.assertTrue(window.contains(datetime(2026, 8, 10, 0, 30)))
         self.assertFalse(window.contains(datetime(2026, 8, 10, 12, 0)))
 
+    def test_current_target_uses_configured_timezone(self):
+        cfg = LifeConfig(
+            browse_times=["10:00", "15:00"], diary_time="23:00",
+            browse_jitter_minutes=0, diary_jitter_minutes=0,
+            life_personas=["shelly"], timezone="America/New_York",
+        )
+        scheduler = LifeScheduler(
+            service=None, config=cfg,
+            now_fn=lambda: datetime(2026, 8, 12, 23, 30),
+        )
+        target = scheduler._current_target(["shelly"])
+        self.assertEqual(target[0], datetime(2026, 8, 12, 15, 0))
+        self.assertEqual(target[2], "browse")
+
 
 if __name__ == "__main__":
     unittest.main()

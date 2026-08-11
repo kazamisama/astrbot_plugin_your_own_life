@@ -26,6 +26,12 @@
     "hint": "窗口内不触发定时漫游，手动 /life_now 不受限",
     "default": "00:00-07:00"
   },
+  "timezone": {
+    "type": "string",
+    "description": "生活任务时区（IANA 名称）",
+    "hint": "睡眠窗口、槽位日期与“今日”边界按此时间计算；非法配置回退 Asia/Shanghai",
+    "default": "Asia/Shanghai"
+  },
   "owner_ids": {
     "type": "list",
     "description": "允许执行命令的主人 ID",
