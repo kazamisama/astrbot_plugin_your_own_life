@@ -167,6 +167,24 @@
     "hint": "波动后日记仍锚定原始槽位日期",
     "default": 60
   },
+  "daily_llm_call_limit": {
+    "type": "int",
+    "description": "每日 LLM 调用上限",
+    "hint": "0 = 无上限；达到上限后当天剩余任务跳过并记录 budget_exhausted",
+    "default": 0
+  },
+  "daily_token_budget": {
+    "type": "int",
+    "description": "每日 token 预算",
+    "hint": "0 = 无上限；provider 不返回 usage 时只执行调用次数上限",
+    "default": 0
+  },
+  "llm_retry_limit": {
+    "type": "int",
+    "description": "LLM 失败重试上限",
+    "hint": "指数退避重试，耗尽后任务标记 failed 并报 error",
+    "default": 3
+  },
   "share_enabled": {
     "type": "bool",
     "description": "启用感悟分享",

@@ -123,12 +123,13 @@
 
 ### L1-11 预算、重试与崩溃语义
 
+- 状态：已实现（v0.2.6）。
 - 目标：LLM 调用有预算与重试上限，崩溃不污染档案，宁缺毋滥。
 - 依赖：漫游/复盘流程（L0）。
 - 模块：`life/llm.py`、`life/browser.py`、`life/db.py`、`life/webui.py`。
 - 配置：`daily_llm_call_limit`（默认 `0` 无上限）、`daily_token_budget`（默认 `0` 无上限）、`llm_retry_limit`（默认 3）。
 - 验收：重试 3 次耗尽后任务标记 `failed` 并报 error，不生成伪造内容；run 级暂存，崩溃丢弃未提交数据；现有确定性 fallback 从 L1 起移除（现状 v0.2.4 仍保留）。
-- 前置改造：run 级原子性采用暂存区（staging）优先——漫游/复盘先写暂存表，全部成功后一次落库；SQLite 写事务只包住最终落库阶段，避免写锁横跨网络/LLM await。现状 `db._execute` 默认每条语句独立 commit，需要改造；同步更新现有 fallback 相关测试。
+- 前置改造（已完成）：run 级原子性采用暂存区（staging）优先——漫游/复盘先写暂存表，全部成功后一次落库；SQLite 写事务只包住最终落库阶段，避免写锁横跨网络/LLM await。`db._execute` 支持 `commit=False`，最终落库走 `BEGIN IMMEDIATE` 事务；fallback 相关测试已按新语义更新。
 - 计量说明：`daily_token_budget` 依赖 AstrBot provider 是否返回 usage；拿不到 token 用量时只执行调用次数上限，并在 WebUI 标注“token 计量不可用”。
 - 用量落点：每日 LLM 调用与 token 用量写入 `daily_usage` 表（persona_id / date / llm_calls / tokens），WebUI 用量视图读取该表。
 

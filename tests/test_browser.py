@@ -13,7 +13,7 @@ from life.db import LifeDB
 from life.esm_adapter import ESMAdapter
 from life.fetchers import FetchedItem
 from life.interests import InterestStore
-from life.llm import LLMError
+from life.llm import BudgetExhausted, LLMError
 from life.persona import PersonaPrompt, PersonaUnavailable
 
 
@@ -21,11 +21,20 @@ class _FakeLLM:
     def __init__(self, payload=None, error=None):
         self.payload = payload
         self.error = error
+        self.calls = 0
 
-    async def chat_json(self, prompt):
+    async def chat_json_managed(self, prompt, retry_limit=3, can_call=None, on_usage=None):
+        self.calls += 1
+        if can_call is not None:
+            can_call()
         if self.error:
             raise self.error
+        if on_usage is not None:
+            on_usage(None)
         return self.payload
+
+    async def chat_json(self, prompt, retries=2):
+        return await self.chat_json_managed(prompt, retry_limit=retries)
 
 
 class _FakePersonas:
@@ -112,7 +121,10 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         notes = self.db.list_notes("shelly")
         self.assertEqual({n["opinion"] for n in notes}, {"o1", "o2"})
         self.assertEqual(notes[0]["category"], "observation")
-        self.assertEqual(len(self.share_gate.attempts), 2)
+        self.assertEqual(len(self.share_gate.attempts), 1)
+        usage = self.db.get_daily_usage("shelly", datetime.now().strftime("%Y-%m-%d"))
+        self.assertIsNotNone(usage)
+        self.assertGreaterEqual(usage["llm_calls"], 1)
 
         diary_payload = {
             "diary_text": "今天看到了一些有趣的东西。",
@@ -128,14 +140,34 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         diary = self.db.get_diary("shelly", today)
         self.assertEqual(diary["content"], "今天看到了一些有趣的东西。")
 
-    async def test_llm_fallback_still_writes_notes(self):
+    async def test_diary_llm_failure_does_not_write_diary(self):
+        self.db.add_note("shelly", None, "hn", "https://x", "X", "s", url_hash="dx")
+        self.service.llm = _FakeLLM(error=LLMError("boom"))
+        result = await self.service.run_nightly_diary("shelly")
+        self.assertIn("error", result)
+        today = datetime.now().strftime("%Y-%m-%d")
+        self.assertIsNone(self.db.get_diary("shelly", today))
+        self.assertEqual(self.db._rows("SELECT COUNT(*) AS n FROM staging_diary")[0]["n"], 0)
+
+    async def test_llm_failure_marks_error_without_fallback(self):
         self.service.llm = _FakeLLM(error=LLMError("boom"))
         result = await self.service.run_browse_session("shelly", "scheduled")
-        self.assertEqual(result.status, "completed")
-        self.assertEqual(result.reason, "llm_fallback")
-        self.assertEqual(result.notes_count, 2)
-        notes = self.db.list_notes("shelly")
-        self.assertEqual(notes[0]["category"], "observation")
+        self.assertEqual(result.status, "error")
+        self.assertIn("boom", result.error)
+        self.assertEqual(self.db.list_notes("shelly"), [])
+        sessions = self.db.list_sessions("shelly")
+        self.assertEqual(sessions[0]["status"], "failed")
+        self.assertIn("boom", sessions[0]["error"])
+
+    async def test_budget_exhausted_skips_session(self):
+        self.service.config.daily_llm_call_limit = 1
+        today = datetime.now().strftime("%Y-%m-%d")
+        self.db.increment_llm_usage("shelly", today, calls=1, tokens=0)
+        result = await self.service.run_browse_session("shelly", "scheduled")
+        self.assertEqual(result.status, "skipped")
+        self.assertEqual(result.reason, "budget_exhausted")
+        self.assertEqual(self.db.list_notes("shelly"), [])
+        self.assertEqual(self.db.list_sessions("shelly")[0]["status"], "skipped")
 
     async def test_persona_unavailable_skips(self):
         self.service.personas = _FakePersonas(unavailable=True)

@@ -54,6 +54,20 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(default.timezone, "Asia/Shanghai")
         self.assertFalse(default.timezone_error)
 
+    def test_llm_budget_defaults(self):
+        cfg = load_config({})
+        self.assertEqual(cfg.daily_llm_call_limit, 0)
+        self.assertEqual(cfg.daily_token_budget, 0)
+        self.assertEqual(cfg.llm_retry_limit, 3)
+        cfg = load_config({
+            "daily_llm_call_limit": "5",
+            "daily_token_budget": "1000",
+            "llm_retry_limit": "4",
+        })
+        self.assertEqual(cfg.daily_llm_call_limit, 5)
+        self.assertEqual(cfg.daily_token_budget, 1000)
+        self.assertEqual(cfg.llm_retry_limit, 4)
+
 
 if __name__ == "__main__":
     unittest.main()

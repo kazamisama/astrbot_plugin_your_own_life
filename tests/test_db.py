@@ -149,6 +149,48 @@ class LifeDBTest(unittest.TestCase):
         self.assertRegex(db._today(), r"^\d{4}-\d{2}-\d{2}$")
         db.close()
 
+    def test_staging_commit_moves_data(self):
+        sid = self.db.start_browse_session("shelly", "scheduled")
+        self.db.stage_note("shelly", sid, "hn", "https://a", "A", "s", url_hash="h1")
+        self.db.stage_seen("shelly", sid, "h1")
+        self.db.stage_snapshot("shelly", sid, "browse", energy=0.5, mood="curious")
+        notes = self.db.commit_staged("shelly", sid, status="completed", notes_count=1)
+        self.assertEqual(len(notes), 1)
+        self.assertTrue(self.db.is_seen("shelly", "h1"))
+        self.assertEqual(len(self.db.list_state_snapshots("shelly")), 1)
+        self.assertEqual(self.db.list_sessions("shelly")[0]["status"], "completed")
+        self.assertEqual(self.db._rows("SELECT COUNT(*) AS n FROM staging_notes")[0]["n"], 0)
+        self.assertEqual(self.db._rows("SELECT COUNT(*) AS n FROM staging_seen")[0]["n"], 0)
+
+    def test_staging_discard_keeps_archive_clean(self):
+        sid = self.db.start_browse_session("shelly", "scheduled")
+        self.db.stage_note("shelly", sid, "hn", "https://a", "A", "s", url_hash="h1")
+        self.db.discard_staged("shelly", sid, "boom")
+        self.assertEqual(self.db.list_notes("shelly"), [])
+        sessions = self.db.list_sessions("shelly")
+        self.assertEqual(sessions[0]["status"], "failed")
+        self.assertIn("boom", sessions[0]["error"])
+        self.assertEqual(self.db._rows("SELECT COUNT(*) AS n FROM staging_notes")[0]["n"], 0)
+
+    def test_daily_usage_increment(self):
+        self.db.increment_llm_usage("shelly", "2026-08-12", calls=1, tokens=100)
+        self.db.increment_llm_usage("shelly", "2026-08-12", calls=2, tokens=50)
+        row = self.db.get_daily_usage("shelly", "2026-08-12")
+        self.assertEqual(row["llm_calls"], 3)
+        self.assertEqual(row["tokens"], 150)
+        self.assertEqual(self.db.list_daily_usage("shelly")[0]["date"], "2026-08-12")
+
+    def test_recover_stale_runs(self):
+        sid = self.db.start_browse_session("shelly", "scheduled")
+        self.db.stage_note("shelly", sid, "hn", "https://a", "A", "s", url_hash="h1")
+        db2 = LifeDB(Path(self.tmp.name) / "life.db")
+        sessions = db2.list_sessions("shelly")
+        self.assertEqual(sessions[0]["status"], "failed")
+        self.assertEqual(sessions[0]["reason"], "stale_run_recovered")
+        self.assertEqual(db2.list_notes("shelly"), [])
+        self.assertEqual(db2._rows("SELECT COUNT(*) AS n FROM staging_notes")[0]["n"], 0)
+        db2.close()
+
 
 if __name__ == "__main__":
     unittest.main()

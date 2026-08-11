@@ -45,6 +45,14 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["items"][0]["title"], "AI story")
 
+    async def test_usage_handler(self):
+        self.db.increment_llm_usage("shelly", "2026-08-12", calls=2, tokens=10)
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=None, config=self.config)
+        result = await handlers["usage"]()
+        self.assertEqual(result["persona_id"], "shelly")
+        self.assertEqual(result["usage"][0]["llm_calls"], 2)
+
     def test_register_api(self):
         context = _FakeContext()
         ok = register_api(context, self.db, service=None, share_gate=None,
@@ -53,7 +61,8 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         routes = [r[0] for r in context.registrations]
         self.assertIn("/astrbot_plugin_your_own_life/api/overview", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/memory_search", routes)
-        self.assertEqual(len(routes), 10)
+        self.assertIn("/astrbot_plugin_your_own_life/api/usage", routes)
+        self.assertEqual(len(routes), 11)
 
 
 if __name__ == "__main__":

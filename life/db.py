@@ -4,9 +4,10 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 from life.timeutil import (
     DEFAULT_TIMEZONE,
@@ -106,6 +107,72 @@ CREATE TABLE IF NOT EXISTS persona_prompts (
     error TEXT DEFAULT '',
     updated_at TEXT DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS staging_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    persona_id TEXT NOT NULL DEFAULT 'default',
+    session_id INTEGER,
+    fetched_at TEXT NOT NULL,
+    source TEXT NOT NULL,
+    url TEXT NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    opinion TEXT DEFAULT '',
+    mood TEXT DEFAULT '',
+    interest_level REAL DEFAULT 0.5,
+    interest_key TEXT DEFAULT '',
+    interest_name TEXT DEFAULT '',
+    category TEXT DEFAULT 'other',
+    tags TEXT DEFAULT '[]',
+    share_decision TEXT DEFAULT '',
+    share_status TEXT DEFAULT '',
+    url_hash TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS staging_diary (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    persona_id TEXT NOT NULL DEFAULT 'default',
+    session_id INTEGER,
+    date TEXT NOT NULL,
+    content TEXT NOT NULL,
+    mood TEXT DEFAULT '',
+    energy REAL,
+    interest_top TEXT DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS staging_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    persona_id TEXT NOT NULL DEFAULT 'default',
+    session_id INTEGER,
+    ts TEXT NOT NULL,
+    activity TEXT NOT NULL,
+    energy REAL,
+    mood TEXT DEFAULT '',
+    curiosity REAL,
+    extra TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS staging_seen (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    persona_id TEXT NOT NULL DEFAULT 'default',
+    session_id INTEGER,
+    url_hash TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS staging_interests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    persona_id TEXT NOT NULL DEFAULT 'default',
+    session_id INTEGER,
+    key TEXT NOT NULL,
+    name TEXT NOT NULL,
+    weight REAL NOT NULL DEFAULT 0.5,
+    seen_count INTEGER NOT NULL DEFAULT 0,
+    last_seen_at TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS daily_usage (
+    persona_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    llm_calls INTEGER NOT NULL DEFAULT 0,
+    tokens INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (persona_id, date)
+);
 CREATE INDEX IF NOT EXISTS idx_notes_persona_fetched ON notes(persona_id, fetched_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_persona_started ON browse_sessions(persona_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_snapshots_persona_ts ON state_snapshots(persona_id, ts);
@@ -145,6 +212,7 @@ class LifeDB:
                 self._migrate_legacy()
             self._conn.executescript(_SCHEMA)
             self._conn.commit()
+        self.recover_stale_runs()
 
     def close(self) -> None:
         with self._lock:
@@ -230,6 +298,17 @@ class LifeDB:
         with self._lock:
             cur = self._conn.execute(sql, params)
             return [dict(row) for row in cur.fetchall()]
+
+    @contextmanager
+    def _transaction(self) -> Iterator[None]:
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                yield
+                self._conn.commit()
+            except BaseException:
+                self._conn.rollback()
+                raise
 
     def _one(self, sql: str, params: tuple = ()) -> Optional[dict]:
         rows = self._rows(sql, params)
@@ -537,6 +616,247 @@ class LifeDB:
             (persona_id, url_hash, now_str or self._now()),
         )
 
+    # ----- run staging (crash-safe run writes) -----
+
+    def stage_note(
+        self,
+        persona_id: str,
+        session_id: int,
+        source: str,
+        url: str,
+        title: str,
+        summary: str,
+        opinion: str = "",
+        mood: str = "",
+        interest_level: float = 0.5,
+        interest_key: str = "",
+        interest_name: str = "",
+        category: str = "other",
+        tags: Optional[list[str]] = None,
+        share_decision: Optional[dict] = None,
+        url_hash: str = "",
+    ) -> int:
+        share_json = ""
+        if share_decision and share_decision.get("should_share"):
+            share_json = json.dumps(share_decision, ensure_ascii=False)
+        cur = self._execute(
+            "INSERT INTO staging_notes "
+            "(persona_id, session_id, fetched_at, source, url, title, summary, opinion, mood, "
+            "interest_level, interest_key, interest_name, category, tags, share_decision, share_status, url_hash) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?)",
+            (
+                persona_id,
+                session_id,
+                self._now(),
+                source,
+                url,
+                title,
+                summary,
+                opinion,
+                mood,
+                interest_level,
+                interest_key,
+                interest_name,
+                category,
+                json.dumps(tags or [], ensure_ascii=False),
+                share_json,
+                url_hash,
+            ),
+        )
+        return int(cur.lastrowid)
+
+    def stage_diary(
+        self,
+        persona_id: str,
+        session_id: Optional[int],
+        date: str,
+        content: str,
+        mood: str = "",
+        energy: Optional[float] = None,
+        interest_top: str = "",
+    ) -> int:
+        cur = self._execute(
+            "INSERT INTO staging_diary "
+            "(persona_id, session_id, date, content, mood, energy, interest_top, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (persona_id, session_id, date, content, mood, energy, interest_top, self._now()),
+        )
+        return int(cur.lastrowid)
+
+    def stage_snapshot(
+        self,
+        persona_id: str,
+        session_id: Optional[int],
+        activity: str,
+        energy: Optional[float] = None,
+        mood: str = "",
+        curiosity: Optional[float] = None,
+        extra: str = "",
+    ) -> int:
+        cur = self._execute(
+            "INSERT INTO staging_snapshots "
+            "(persona_id, session_id, ts, activity, energy, mood, curiosity, extra) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (persona_id, session_id, self._now(), activity, energy, mood, curiosity, extra),
+        )
+        return int(cur.lastrowid)
+
+    def stage_seen(self, persona_id: str, session_id: int, url_hash: str) -> int:
+        cur = self._execute(
+            "INSERT INTO staging_seen (persona_id, session_id, url_hash, first_seen_at) "
+            "VALUES (?, ?, ?, ?)",
+            (persona_id, session_id, url_hash, self._now()),
+        )
+        return int(cur.lastrowid)
+
+    def stage_interest(
+        self,
+        persona_id: str,
+        session_id: Optional[int],
+        key: str,
+        name: str,
+        weight: float,
+        seen_count: int,
+        last_seen_at: Optional[str] = None,
+    ) -> int:
+        cur = self._execute(
+            "INSERT INTO staging_interests "
+            "(persona_id, session_id, key, name, weight, seen_count, last_seen_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (persona_id, session_id, key, name, weight, seen_count, last_seen_at or self._now()),
+        )
+        return int(cur.lastrowid)
+
+    def commit_staged(
+        self,
+        persona_id: str,
+        session_id: int,
+        status: str = "completed",
+        notes_count: int = 0,
+        reason: str = "",
+        error: str = "",
+    ) -> list[dict]:
+        with self._transaction():
+            self._conn.execute(
+                "INSERT INTO notes "
+                "(persona_id, session_id, fetched_at, source, url, title, summary, opinion, mood, "
+                "interest_level, interest_key, interest_name, category, tags, share_decision, share_status, url_hash) "
+                "SELECT persona_id, session_id, fetched_at, source, url, title, summary, opinion, mood, "
+                "interest_level, interest_key, interest_name, category, tags, share_decision, share_status, url_hash "
+                "FROM staging_notes WHERE persona_id = ? AND "
+                "(session_id = ? OR (session_id IS NULL AND ? IS NULL))",
+                (persona_id, session_id, session_id),
+            )
+            self._conn.execute(
+                "INSERT INTO diary_entries "
+                "(persona_id, date, content, mood, energy, interest_top, created_at) "
+                "SELECT persona_id, date, content, mood, energy, interest_top, created_at "
+                "FROM staging_diary WHERE persona_id = ? AND "
+                "(session_id = ? OR (session_id IS NULL AND ? IS NULL)) "
+                "ON CONFLICT(persona_id, date) DO UPDATE SET content = excluded.content, mood = excluded.mood, "
+                "energy = excluded.energy, interest_top = excluded.interest_top",
+                (persona_id, session_id, session_id),
+            )
+            self._conn.execute(
+                "INSERT INTO state_snapshots "
+                "(persona_id, ts, activity, energy, mood, curiosity, extra) "
+                "SELECT persona_id, ts, activity, energy, mood, curiosity, extra "
+                "FROM staging_snapshots WHERE persona_id = ? AND "
+                "(session_id = ? OR (session_id IS NULL AND ? IS NULL))",
+                (persona_id, session_id, session_id),
+            )
+            self._conn.execute(
+                "INSERT OR IGNORE INTO seen_items (persona_id, url_hash, first_seen_at) "
+                "SELECT persona_id, url_hash, first_seen_at FROM staging_seen "
+                "WHERE persona_id = ? AND "
+                "(session_id = ? OR (session_id IS NULL AND ? IS NULL))",
+                (persona_id, session_id, session_id),
+            )
+            interest_rows = self._conn.execute(
+                "SELECT persona_id, key, name, weight, seen_count, last_seen_at "
+                "FROM staging_interests WHERE persona_id = ? AND "
+                "(session_id = ? OR (session_id IS NULL AND ? IS NULL))",
+                (persona_id, session_id, session_id),
+            ).fetchall()
+            for row in interest_rows:
+                self._conn.execute(
+                    "INSERT INTO interests (persona_id, key, name, weight, seen_count, last_seen_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(persona_id, key) DO UPDATE SET name = excluded.name, weight = excluded.weight, "
+                    "seen_count = excluded.seen_count, last_seen_at = excluded.last_seen_at",
+                    (row["persona_id"], row["key"], row["name"], row["weight"], row["seen_count"], row["last_seen_at"]),
+                )
+            self._conn.execute(
+                "UPDATE browse_sessions SET ended_at = ?, status = ?, notes_count = ?, reason = ?, error = ? "
+                "WHERE id = ?",
+                (self._now(), status, notes_count, reason, error, session_id),
+            )
+            self._delete_staging(persona_id, session_id)
+        return self._rows(
+            "SELECT * FROM notes WHERE persona_id = ? AND session_id = ? ORDER BY id",
+            (persona_id, session_id),
+        )
+
+    def discard_staged(self, persona_id: str, session_id: int, error: str = "") -> None:
+        with self._transaction():
+            self._delete_staging(persona_id, session_id)
+            self._conn.execute(
+                "UPDATE browse_sessions SET ended_at = ?, status = 'failed', reason = 'staging_discarded', error = ? "
+                "WHERE id = ? AND status = 'running'",
+                (self._now(), error, session_id),
+            )
+
+    def recover_stale_runs(self) -> int:
+        with self._transaction():
+            rows = self._conn.execute(
+                "SELECT id, persona_id FROM browse_sessions WHERE status = 'running'"
+            ).fetchall()
+            for row in rows:
+                self._delete_staging(row["persona_id"], int(row["id"]))
+                self._conn.execute(
+                    "UPDATE browse_sessions SET ended_at = ?, status = 'failed', "
+                    "reason = 'stale_run_recovered', error = 'interrupted before commit' WHERE id = ?",
+                    (self._now(), int(row["id"])),
+                )
+            self._conn.execute(
+                "DELETE FROM staging_diary WHERE session_id IS NULL"
+            )
+        return len(rows)
+
+    def _delete_staging(self, persona_id: str, session_id: Optional[int]) -> None:
+        for table in ("staging_notes", "staging_diary", "staging_snapshots",
+                      "staging_seen", "staging_interests"):
+            self._conn.execute(
+                f"DELETE FROM {table} WHERE persona_id = ? "
+                "AND (session_id = ? OR (session_id IS NULL AND ? IS NULL))",
+                (persona_id, session_id, session_id),
+            )
+
+    # ----- daily usage -----
+
+    def increment_llm_usage(
+        self, persona_id: str, date: str, calls: int = 1, tokens: int = 0
+    ) -> None:
+        self._execute(
+            "INSERT INTO daily_usage (persona_id, date, llm_calls, tokens) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(persona_id, date) DO UPDATE SET "
+            "llm_calls = daily_usage.llm_calls + excluded.llm_calls, "
+            "tokens = daily_usage.tokens + excluded.tokens",
+            (persona_id, date, max(0, int(calls)), max(0, int(tokens))),
+        )
+
+    def get_daily_usage(self, persona_id: str, date: str) -> Optional[dict]:
+        return self._one(
+            "SELECT * FROM daily_usage WHERE persona_id = ? AND date = ?",
+            (persona_id, date),
+        )
+
+    def list_daily_usage(self, persona_id: str, limit: int = 90) -> list[dict]:
+        return self._rows(
+            "SELECT * FROM daily_usage WHERE persona_id = ? ORDER BY date DESC LIMIT ?",
+            (persona_id, limit),
+        )
+
     # ----- share log -----
 
     def log_share_attempt(
@@ -656,7 +976,7 @@ class LifeDB:
                 "notes": len(notes),
                 "completed": sum(1 for s in sessions if s["status"] == "completed"),
                 "skipped": sum(1 for s in sessions if s["status"].startswith("skipped")),
-                "errors": sum(1 for s in sessions if s["status"] == "error"),
+                "errors": sum(1 for s in sessions if s["status"] in ("error", "failed")),
                 "shares_sent": sum(1 for s in share_logs if s["status"] == "sent"),
                 "shares_blocked": sum(1 for s in share_logs if s["status"] == "blocked"),
             },
@@ -695,6 +1015,12 @@ class LifeDB:
                 "notes",
                 "browse_sessions",
                 "share_log",
+                "daily_usage",
+                "staging_notes",
+                "staging_diary",
+                "staging_snapshots",
+                "staging_seen",
+                "staging_interests",
             ):
                 self._conn.execute(
                     f"DELETE FROM {table} WHERE persona_id = ?", (persona_id,)

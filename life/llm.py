@@ -1,15 +1,47 @@
 """Minimal LLM helper around AstrBot providers."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger("your_own_life.llm")
 
 
 class LLMError(RuntimeError):
     pass
+
+
+class BudgetExhausted(LLMError):
+    """Raised when a daily LLM budget prevents another call."""
+
+
+def extract_usage_tokens(resp: Any) -> Optional[int]:
+    """Best-effort token usage from a provider response; None if unavailable."""
+    usage = getattr(resp, "usage", None)
+    if usage is None:
+        return None
+    if isinstance(usage, dict):
+        total = usage.get("total_tokens")
+        if total is not None:
+            try:
+                return int(total)
+            except (TypeError, ValueError):
+                pass
+        try:
+            return int(usage.get("prompt_tokens") or 0) + int(
+                usage.get("completion_tokens") or 0
+            )
+        except (TypeError, ValueError):
+            return None
+    total = getattr(usage, "total_tokens", None)
+    if total is not None:
+        try:
+            return int(total)
+        except (TypeError, ValueError):
+            return None
+    return None
 
 
 def extract_json(text: str) -> Optional[Any]:
@@ -77,13 +109,29 @@ class LLMClient:
         return self._provider
 
     async def chat_json(self, prompt: str, retries: int = 2) -> dict:
+        return await self.chat_json_managed(
+            prompt, retry_limit=max(0, int(retries)), can_call=None, on_usage=None
+        )
+
+    async def chat_json_managed(
+        self,
+        prompt: str,
+        retry_limit: int = 3,
+        can_call: Optional[Callable[[], None]] = None,
+        on_usage: Optional[Callable[[Optional[int]], None]] = None,
+    ) -> dict:
         provider = self._resolve()
         if provider is None:
             raise LLMError("no usable LLM provider")
         last_error: Optional[Exception] = None
-        for _ in range(max(1, retries + 1)):
+        attempts = max(1, int(retry_limit) + 1)
+        for attempt in range(attempts):
+            if can_call is not None:
+                can_call()
             try:
                 resp = await provider.text_chat(prompt=prompt, contexts=[], image_urls=[])
+                if on_usage is not None:
+                    on_usage(extract_usage_tokens(resp))
                 content = getattr(resp, "completion_text", None)
                 data = extract_json(content)
                 if isinstance(data, dict):
@@ -91,4 +139,6 @@ class LLMClient:
                 last_error = LLMError("LLM response was not a JSON object")
             except Exception as exc:  # provider errors are retried
                 last_error = exc
+            if attempt < attempts - 1:
+                await asyncio.sleep(min(2 ** attempt, 8))
         raise LLMError(f"LLM JSON failed after retries: {last_error}")

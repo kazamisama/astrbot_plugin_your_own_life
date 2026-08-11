@@ -195,9 +195,10 @@ class LifeStar(Star):
         result = await self.service.run_browse_session(persona, "manual", force=True)
         status_text = {
             "completed": f"漫游完成，记下 {result.notes_count} 条见闻。",
-            "skipped": "现在是睡眠时间，跳过漫游。",
+            "skipped": "已跳过漫游。",
             "skipped_energy": "精力不足，今天先不出门。",
             "error": "漫游失败，请查看日志。",
+            "failed": "漫游失败，请查看日志。",
             "disabled": "插件已停用。",
         }.get(result.status, f"状态：{result.status}")
         if result.reason:

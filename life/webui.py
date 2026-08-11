@@ -85,6 +85,10 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
             k = 10
         return search_life_memory(db, persona, query, category, date, k)
 
+    async def usage():
+        persona = await _persona_arg()
+        return {"persona_id": persona, "usage": db.list_daily_usage(persona)}
+
     async def personas_list():
         return {"whitelist": getattr(config, "life_personas", None) or [],
                 "cache": personas.list_cache()}
@@ -138,6 +142,7 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         "run": run,
         "memory": memory,
         "memory_search": memory_search,
+        "usage": usage,
         "personas": personas_list,
         "persona_refresh": persona_refresh,
         "share": share,
@@ -159,6 +164,7 @@ def register_api(context: Any, db: Any, service: Any, share_gate: Any,
         (f"{API_PREFIX}/run", "run", ["POST"], "Trigger a browse session"),
         (f"{API_PREFIX}/memory", "memory", ["GET"], "Memory categories overview"),
         (f"{API_PREFIX}/memory_search", "memory_search", ["GET"], "Search life memory"),
+        (f"{API_PREFIX}/usage", "usage", ["GET"], "Daily LLM usage"),
         (f"{API_PREFIX}/personas", "personas", ["GET"], "Persona cache list"),
         (f"{API_PREFIX}/persona_refresh", "persona_refresh", ["POST"], "Refresh persona cache"),
         (f"{API_PREFIX}/share", "share", ["GET"], "Share log and pending"),

@@ -2,6 +2,24 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.2.6] - 2026-08-12
+
+### Added
+
+- L1-11 预算/重试/崩溃语义：新增 `daily_llm_call_limit`（默认 0 无上限）、`daily_token_budget`（默认 0 无上限）与 `llm_retry_limit`（默认 3）。
+- `daily_usage` 表承载每日 LLM 调用/token 用量，WebUI 新增 `/usage` 接口展示。
+- LLM 调用带指数退避重试，重试耗尽后任务标记 `failed` 并报 error，不再生成确定性伪造内容。
+- 预算耗尽后当天剩余任务跳过并记录 `budget_exhausted`。
+
+### Changed
+
+- 漫游/复盘改为 run 级 staging：先写暂存表，全部成功后一次事务落库；异常/崩溃丢弃未提交数据，`browse_sessions` 标记 `failed`；启动时回收残留 running 会话。
+- 现有确定性 fallback（`_fallback_selected` / `_fallback_diary`）随本版本移除。
+
+### Notes
+
+- 测试：87 passed（新增 13 个 L1-11 用例）。
+
 ## [0.2.5] - 2026-08-12
 
 ### Added

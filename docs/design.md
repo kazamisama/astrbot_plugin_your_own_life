@@ -142,13 +142,13 @@ hunger = 0（触发一次意外后清空）
 3. ESM 精力 gate，低精力记录 `skipped_energy`。
 4. 按兴趣权重选题，默认 20% 概率探索低权重/新话题。
 5. 并行抓取候选，按 URL 哈希过滤已见。
-6. LLM 挑选 3-5 条并生成结构化 JSON；现状 v0.2.4 在 LLM 失败时使用确定性 fallback，v1.1 起改为「预算、重试与崩溃语义」（重试上限 3，耗尽报 error）。
+6. LLM 挑选 3-5 条并生成结构化 JSON；v0.2.6 起 LLM 失败走预算/重试语义（重试上限 3，耗尽报 error），不再生成确定性 fallback。
 7. 写短记、更新兴趣权重、标记已见、调用 ShareGate。
 8. 写状态快照与 `browse_sessions` 收尾。
 
 ## 夜间复盘
 
-夜间槽位先 `recheck_pending` 补发被 gate 拦下的分享，再汇总当天短记与状态快照，用 LLM 生成第一人称日记 JSON（`diary_text/mood/energy_change/interest_updates`），落 `diary_entries` 并应用兴趣更新与衰减。现状 v0.2.4 在 LLM 失败时使用确定性 fallback；v1.1 起改为重试语义，重试耗尽则该日复盘失败并报 error，不生成伪造日记。
+夜间槽位先 `recheck_pending` 补发被 gate 拦下的分享，再汇总当天短记与状态快照，用 LLM 生成第一人称日记 JSON（`diary_text/mood/energy_change/interest_updates`），落 `diary_entries` 并应用兴趣更新与衰减。v0.2.6 起 LLM 失败走重试语义，重试耗尽则该日复盘失败并报 error，不生成伪造日记。
 
 ## 分享决策
 
@@ -162,11 +162,11 @@ hunger = 0（触发一次意外后清空）
 
 默认每天 10:00、15:00 漫游，23:00 复盘；时间按 persona+日期+槽位做确定性抖动（漫游 ±120 分钟、复盘 ±60 分钟）。睡眠窗口默认 00:00-07:00，窗口内定时任务不触发；`_done_keys` 保证同一槽位只执行一次。
 
-（方向，v1.1 起）时区：新增 `timezone` 配置（默认 `Asia/Shanghai`）；睡眠窗口、槽位日期与“今日”边界一律按 persona 本地时间计算，与部署实例时区解耦，用 `zoneinfo` 转换。
+（已实现，v0.2.5）时区：新增 `timezone` 配置（默认 `Asia/Shanghai`）；睡眠窗口、槽位日期与“今日”边界一律按 persona 本地时间计算，与部署实例时区解耦，用 `zoneinfo` 转换。
 
-## 预算、重试与崩溃语义（方向，v1.1 起生效）
+## 预算、重试与崩溃语义（已实现，v0.2.6）
 
-现状 v0.2.4：LLM 失败时使用确定性 fallback（`_fallback_selected` / `_fallback_diary`），不重试、不报 error。以下为 v1.1 目标语义。
+历史 v0.2.4：LLM 失败时使用确定性 fallback（`_fallback_selected` / `_fallback_diary`），不重试、不报 error；该行为已随 v0.2.6 移除。以下为当前语义。
 
 - 预算全部可配置：`daily_llm_call_limit` 与 `daily_token_budget` 默认 `0`（无上限）；达到上限后当天剩余任务跳过并记录 `budget_exhausted`，WebUI 展示用量。多轮联想每轮召回候选上限 5（第 1 轮 5、第 2 轮 3、brainstorm 3-5），`hop_limit` 默认 2（brainstorm 5）。`daily_token_budget` 的计量依赖 provider 是否返回 usage；拿不到 token 用量时只执行调用次数上限。用量落点：新增 `daily_usage` 表（persona_id / date / llm_calls / tokens）承载每日计数，WebUI 用量视图读取该表。
 - 重试：LLM 调用失败重试上限 `llm_retry_limit` 默认 3，带指数退避；重试耗尽后该任务标记 `failed` 并报 error（WebUI 错误区 + 命令 + 日志），不生成确定性伪造内容。

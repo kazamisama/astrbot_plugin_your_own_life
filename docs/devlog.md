@@ -2,6 +2,21 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L1-11 预算/重试/崩溃落地
+
+- 目标：LLM 调用有预算与重试上限，run 级崩溃不污染档案，移除确定性 fallback。
+- 决策：`daily_llm_call_limit` / `daily_token_budget` 默认 0 无上限，`llm_retry_limit` 默认 3；预算耗尽当天任务跳过并记 `budget_exhausted`；重试耗尽任务标记 `failed` 并报 error；漫游/复盘先写 staging 表，最终 `BEGIN IMMEDIATE` 一次落库；启动时回收残留 running 会话。
+- 改动：
+  - `life/db.py`：新增 `daily_usage` 与 `staging_notes/diary/snapshots/seen/interests` 表、`_transaction`、`commit_staged` / `discard_staged` / `recover_stale_runs`、用量接口。
+  - `life/llm.py`：新增 `BudgetExhausted`、`extract_usage_tokens`、`chat_json_managed`（指数退避重试 + 预算/用量回调）。
+  - `life/browser.py`：`_llm_call` 统一预算/重试；漫游/复盘改 staging 提交；移除 `_fallback_selected` / `_fallback_diary`。
+  - `life/interests.py`：新增 `stage_note` / `stage_updates`。
+  - `life/config.py` / `_conf_schema.json`：新增三个配置项；`life/webui.py` 新增 `/usage`；`main.py` 补充 `failed` 状态文案。
+  - 版本 v0.2.5 → v0.2.6；README / CHANGELOG / features.md L1-11 / design.md / roadmap.md 同步。
+- 验证：unittest 87 passed（新增 13 个 L1-11 用例）；网络冒烟按配置跳过；UTF-8 读回校验无乱码。
+- 遗留：`daily_token_budget` 依赖 provider 返回 usage，拿不到 token 时只执行调用次数上限并在 WebUI 标注；多进程同库场景留待 L1-16 租约兜底。
+- 下一步：工程基线 L1-13 变更账本与回收站。
+
 ## 2026-08-12 L1-12 时区落地
 
 - 目标：按 `docs/features.md` 开发顺序推进工程基线第一项，睡眠窗口、槽位日期与“今日”边界按 persona 本地时间计算。

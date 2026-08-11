@@ -100,5 +100,59 @@ class InterestStore:
                 last_seen_at=now.strftime("%Y-%m-%d %H:%M:%S") if now else None,
             )
 
+    def stage_note(
+        self,
+        persona_id: str,
+        session_id: Optional[int],
+        key: str,
+        name: str,
+        interest_level: float,
+        now: Optional[datetime] = None,
+    ) -> None:
+        if not key:
+            return
+        current = self.db.get_interests(persona_id)
+        old = next((row["weight"] for row in current if row["key"] == key), 0.5)
+        old_seen = next((row["seen_count"] for row in current if row["key"] == key), 0)
+        self.db.stage_interest(
+            persona_id,
+            session_id,
+            key,
+            name or key,
+            next_weight(old, interest_level),
+            int(old_seen) + 1,
+            last_seen_at=now.strftime("%Y-%m-%d %H:%M:%S") if now else None,
+        )
+
+    def stage_updates(
+        self,
+        persona_id: str,
+        session_id: Optional[int],
+        updates: dict,
+        now: Optional[datetime] = None,
+    ) -> None:
+        if not isinstance(updates, dict):
+            return
+        for key, spec in updates.items():
+            if not isinstance(spec, dict):
+                continue
+            name = str(spec.get("name") or key)
+            try:
+                delta = float(spec.get("delta", 0.0))
+            except (TypeError, ValueError):
+                delta = 0.0
+            current = self.db.get_interests(persona_id)
+            old = next((row["weight"] for row in current if row["key"] == key), 0.5)
+            old_seen = next((row["seen_count"] for row in current if row["key"] == key), 0)
+            self.db.stage_interest(
+                persona_id,
+                session_id,
+                key,
+                name,
+                clamp(old + delta),
+                int(old_seen) + 1,
+                last_seen_at=now.strftime("%Y-%m-%d %H:%M:%S") if now else None,
+            )
+
     def daily_decay(self, persona_id: str) -> int:
         return self.db.decay_interests(persona_id, self.decay)

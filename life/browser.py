@@ -14,7 +14,7 @@ from life.db import LifeDB
 from life.esm_adapter import ESMAdapter
 from life.fetchers import FetchedItem, USER_AGENT, fetch_all
 from life.interests import InterestStore
-from life.llm import LLMClient
+from life.llm import BudgetExhausted, LLMClient, LLMError
 from life.persona import PersonaService, PersonaUnavailable
 from life.prompts import (
     MEMORY_CATEGORIES,
@@ -76,6 +76,37 @@ class LifeService:
             self.personas.mark_error(persona_id, str(exc))
             self.log.error("persona %s unavailable, skipping life task: %s", persona_id, exc)
             raise
+
+    async def _llm_call(self, persona_id: str, prompt: str) -> dict:
+        """Budget-checked, retried LLM call with daily usage accounting."""
+        date = local_today(self.config.timezone, self.now_fn())
+        usage = self.db.get_daily_usage(persona_id, date)
+        calls = int(usage["llm_calls"] or 0) if usage else 0
+        tokens = int(usage["tokens"] or 0) if usage else 0
+
+        def check_budget() -> None:
+            nonlocal calls, tokens
+            limit = int(self.config.daily_llm_call_limit or 0)
+            if limit > 0 and calls >= limit:
+                raise BudgetExhausted(f"daily_llm_call_limit={limit}")
+            token_budget = int(self.config.daily_token_budget or 0)
+            if token_budget > 0 and tokens >= token_budget:
+                raise BudgetExhausted(f"daily_token_budget={token_budget}")
+
+        def record_usage(tokens_used: Optional[int]) -> None:
+            nonlocal calls, tokens
+            calls += 1
+            tokens += int(tokens_used or 0)
+            self.db.increment_llm_usage(
+                persona_id, date, calls=1, tokens=int(tokens_used or 0)
+            )
+
+        return await self.llm.chat_json_managed(
+            prompt,
+            retry_limit=int(self.config.llm_retry_limit or 3),
+            can_call=check_budget,
+            on_usage=record_usage,
+        )
 
     # ----- browse -----
 
@@ -142,10 +173,9 @@ class LifeService:
                 for i, item in enumerate(unseen)
             ]
             share_sessions = self.config.share_sessions.get(persona_id, [])
-            payload: dict = {}
-            fallback = False
             try:
-                payload = await self.llm.chat_json(
+                payload = await self._llm_call(
+                    persona_id,
                     build_select_prompt(
                         persona.system_prompt,
                         persona_id,
@@ -155,21 +185,31 @@ class LifeService:
                         self.config.notes_min,
                         self.config.notes_max,
                         share_sessions,
-                    )
+                    ),
                 )
-            except Exception as exc:
-                self.log.warning("browse LLM failed, using deterministic fallback: %s", exc)
-                fallback = True
+            except BudgetExhausted as exc:
+                self.log.warning("browse budget exhausted for %s: %s", persona_id, exc)
+                self.db.finish_browse_session(
+                    sid, "skipped", 0, "budget_exhausted", repr(exc)
+                )
+                self.db.add_state_snapshot(
+                    persona_id, "browse_skipped", energy_before, "",
+                    extra=json.dumps(
+                        {"trigger": trigger, "reason": "budget_exhausted"},
+                        ensure_ascii=False,
+                    ),
+                )
+                return BrowseResult(sid, "skipped", 0, "budget_exhausted", repr(exc))
 
             selected = self._validate_selected(payload, unseen)
             if not selected:
-                selected = self._fallback_selected(unseen)
-                fallback = True
+                raise LLMError("LLM 未返回有效短记选择")
 
-            notes_count = 0
-            session_mood = str(payload.get("session_mood") or "curious") if payload else "curious"
+            session_mood = str(payload.get("session_mood") or "curious")
             for item, meta in selected:
-                note_id = self.db.add_note(
+                key = str(meta.get("interest_key") or "uncategorized")
+                name = str(meta.get("interest_name") or key)
+                self.db.stage_note(
                     persona_id,
                     sid,
                     source=item.source,
@@ -179,47 +219,44 @@ class LifeService:
                     opinion=str(meta.get("opinion") or ""),
                     mood=str(meta.get("mood") or session_mood),
                     interest_level=_clamp(meta.get("interest_level", 0.5)),
-                    interest_key=str(meta.get("interest_key") or "uncategorized"),
-                    interest_name=str(meta.get("interest_name") or meta.get("interest_key") or "未分类"),
+                    interest_key=key,
+                    interest_name=name,
                     category=self._valid_category(meta.get("category")),
                     tags=self._valid_tags(meta.get("tags")),
                     share_decision=self._valid_share(meta.get("share")),
                     url_hash=item.url_hash,
                 )
-                if note_id is not None:
-                    notes_count += 1
-                    self.db.mark_seen(persona_id, item.url_hash)
-                    self.interests.apply_note(
-                        persona_id,
-                        str(meta.get("interest_key") or "uncategorized"),
-                        str(meta.get("interest_name") or meta.get("interest_key") or "未分类"),
-                        _clamp(meta.get("interest_level", 0.5)),
-                        now=now,
-                    )
-                    if self.share_gate is not None:
-                        note_row = self.db.get_note(note_id)
-                        await self.share_gate.attempt_share(
-                            persona_id, note_row, meta.get("share")
-                        )
-
-            status = "completed"
-            reason = "llm_fallback" if fallback else ""
-            self.db.finish_browse_session(sid, status, notes_count, reason)
-            self.esm.apply_browse_signal(persona_id, session_mood, intensity=0.3)
-            self.db.add_state_snapshot(
-                persona_id,
-                "browse",
-                energy_before,
-                session_mood,
-                extra=json.dumps(
-                    {"trigger": trigger, "reason": reason, "fallback": fallback},
-                    ensure_ascii=False,
-                ),
+                self.db.stage_seen(persona_id, sid, item.url_hash)
+                self.interests.stage_note(
+                    persona_id, sid, key, name,
+                    _clamp(meta.get("interest_level", 0.5)), now=now,
+                )
+            self.db.stage_snapshot(
+                persona_id, sid, "browse", energy_before, session_mood,
+                extra=json.dumps({"trigger": trigger}, ensure_ascii=False),
             )
-            return BrowseResult(sid, status, notes_count, reason)
+            notes = self.db.commit_staged(
+                persona_id, sid, status="completed",
+                notes_count=len(selected), reason="",
+            )
+            try:
+                self.esm.apply_browse_signal(persona_id, session_mood, intensity=0.3)
+            except Exception as exc:
+                self.log.warning("browse signal failed for %s: %s", persona_id, exc)
+            for note in notes:
+                try:
+                    decision = json.loads(note.get("share_decision") or "{}")
+                except (ValueError, TypeError):
+                    decision = {}
+                if self.share_gate is not None and decision.get("should_share"):
+                    try:
+                        await self.share_gate.attempt_share(persona_id, note, decision)
+                    except Exception as exc:
+                        self.log.warning("share attempt failed for note %s: %s", note.get("id"), exc)
+            return BrowseResult(sid, "completed", len(notes), "")
         except Exception as exc:
             self.log.exception("browse session failed for %s", persona_id)
-            self.db.finish_browse_session(sid, "error", 0, "", repr(exc))
+            self.db.discard_staged(persona_id, sid, repr(exc))
             self.db.add_state_snapshot(
                 persona_id, "browse_error", energy_before, "",
                 extra=json.dumps({"error": repr(exc)}, ensure_ascii=False),
@@ -247,22 +284,6 @@ class LifeService:
             out.append((candidates[index], entry))
             if len(out) >= self.config.notes_max:
                 break
-        return out
-
-    def _fallback_selected(self, candidates: Sequence[FetchedItem]) -> list:
-        out = []
-        for item in candidates[: max(1, self.config.notes_min)]:
-            out.append((item, {
-                "summary": item.summary or item.title,
-                "opinion": "",
-                "mood": "neutral",
-                "interest_level": 0.5,
-                "interest_key": "uncategorized",
-                "interest_name": "未分类",
-                "category": "observation",
-                "tags": [],
-                "share": {"should_share": False, "reason": "", "target": ""},
-            }))
         return out
 
     def _valid_category(self, raw: Any) -> str:
@@ -297,56 +318,66 @@ class LifeService:
             persona = await self._resolve_persona(persona_id)
         except PersonaUnavailable:
             return {"date": local_today(self.config.timezone, self.now_fn()),
-                    "notes": 0, "fallback": True, "skipped": "persona_unavailable"}
+                    "notes": 0, "fallback": False, "skipped": "persona_unavailable"}
 
         now = local_now(self.config.timezone, self.now_fn())
         date = now.strftime("%Y-%m-%d")
-        if self.share_gate is not None:
-            await self.share_gate.recheck_pending(persona_id)
-        notes = self.db.list_notes(persona_id, date, limit=200)
-        snapshots = self.db.list_state_snapshots(persona_id, since_date=date, limit=200)
-        mood_context = self.esm.get_mood_context(persona_id)
+        notes: list[dict] = []
+        try:
+            if self.share_gate is not None:
+                await self.share_gate.recheck_pending(persona_id)
+            notes = self.db.list_notes(persona_id, date, limit=200)
+            snapshots = self.db.list_state_snapshots(persona_id, since_date=date, limit=200)
+            mood_context = self.esm.get_mood_context(persona_id)
 
-        payload: dict = {}
-        fallback = True
-        if notes:
-            try:
-                payload = await self.llm.chat_json(
-                    build_diary_prompt(
-                        persona.system_prompt, persona_id, notes, snapshots, mood_context, date
+            if not notes:
+                diary_text = "今天没出门。没有特别的见闻，只是安静地待着。"
+                mood = "calm"
+                interest_updates: dict = {}
+            else:
+                try:
+                    payload = await self._llm_call(
+                        persona_id,
+                        build_diary_prompt(
+                            persona.system_prompt, persona_id, notes, snapshots, mood_context, date
+                        ),
                     )
-                )
-                if payload.get("diary_text"):
-                    fallback = False
-            except Exception as exc:
-                self.log.warning("diary LLM failed, using fallback: %s", exc)
+                except BudgetExhausted as exc:
+                    self.log.warning("diary budget exhausted for %s: %s", persona_id, exc)
+                    self.db.add_state_snapshot(
+                        persona_id, "diary_skipped", self.esm.get_energy(), "",
+                        extra=json.dumps(
+                            {"reason": "budget_exhausted", "notes": len(notes)},
+                            ensure_ascii=False,
+                        ),
+                    )
+                    return {"date": date, "notes": len(notes), "fallback": False,
+                            "skipped": "budget_exhausted"}
+                if not payload.get("diary_text"):
+                    raise LLMError("diary LLM 未返回日记正文")
+                diary_text = str(payload["diary_text"]).strip()
+                mood = str(payload.get("mood") or "calm")
+                interest_updates = payload.get("interest_updates") or {}
 
-        if fallback or not payload.get("diary_text"):
-            diary_text = self._fallback_diary(notes, date)
-            mood = "calm"
-        else:
-            diary_text = str(payload["diary_text"]).strip()
-            mood = str(payload.get("mood") or "calm")
-
-        energy = self.esm.get_energy()
-        top = ",".join(
-            row["name"] or row["key"] for row in self.db.get_interests(persona_id, limit=5)
-        )
-        self.db.add_diary(persona_id, date, diary_text, mood, energy, top)
-        if notes and not fallback:
-            self.interests.apply_updates(persona_id, payload.get("interest_updates") or {}, now=now)
-        self.interests.daily_decay(persona_id)
-        self.db.add_state_snapshot(
-            persona_id,
-            "diary",
-            energy,
-            mood,
-            extra=json.dumps({"fallback": fallback, "notes": len(notes)}, ensure_ascii=False),
-        )
-        return {"date": date, "notes": len(notes), "fallback": fallback}
-
-    def _fallback_diary(self, notes: Sequence[dict], date: str) -> str:
-        if not notes:
-            return "今天没出门。没有特别的见闻，只是安静地待着。"
-        lines = "\n".join(f"- {n['title']}" for n in notes[:5])
-        return f"今天在网上逛了一圈，记下了这几件事：\n{lines}\n\n明天继续看看有什么新动静。"
+            energy = self.esm.get_energy()
+            top = ",".join(
+                row["name"] or row["key"] for row in self.db.get_interests(persona_id, limit=5)
+            )
+            self.db.stage_diary(persona_id, None, date, diary_text, mood, energy, top)
+            self.db.stage_snapshot(
+                persona_id, None, "diary", energy, mood,
+                extra=json.dumps({"notes": len(notes)}, ensure_ascii=False),
+            )
+            if notes and interest_updates:
+                self.interests.stage_updates(persona_id, None, interest_updates, now=now)
+            self.db.commit_staged(persona_id, None, status="completed")
+            self.interests.daily_decay(persona_id)
+            return {"date": date, "notes": len(notes), "fallback": False}
+        except Exception as exc:
+            self.log.exception("nightly diary failed for %s", persona_id)
+            self.db.discard_staged(persona_id, None, repr(exc))
+            self.db.add_state_snapshot(
+                persona_id, "diary_error", self.esm.get_energy(), "",
+                extra=json.dumps({"error": repr(exc), "notes": len(notes)}, ensure_ascii=False),
+            )
+            return {"date": date, "notes": len(notes), "fallback": False, "error": repr(exc)}
