@@ -143,6 +143,36 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         persona = await _persona_arg()
         return {"persona_id": persona, "logs": db.list_injection_log(persona)}
 
+    async def wishlist():
+        args = await _query_args()
+        persona = str(args.get("persona") or _first_persona(config))
+        status = str(args.get("status") or "")
+        return {"persona_id": persona, "items": db.list_wishlist(persona, status or None)}
+
+    async def wishlist_action():
+        body = await _json_body()
+        persona = str(body.get("persona") or _first_persona(config))
+        try:
+            item_id = int(body.get("id") or 0)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "invalid wishlist id"}
+        action = str(body.get("action") or "")
+        if action not in ("promote", "discard", "pending"):
+            return {"ok": False, "error": "action must be promote/discard/pending"}
+        key = str(body.get("interest_key") or "")
+        name = str(body.get("interest_name") or key)
+        if action == "promote" and not key:
+            return {"ok": False, "error": "promote requires interest_key"}
+        reason = str(body.get("reason") or "owner")
+        status = "promoted" if action == "promote" else ("discarded" if action == "discard" else "pending")
+        ok = db.update_wishlist_status(
+            persona, item_id, status, reason,
+            interest_key=key, interest_name=name,
+        )
+        if ok and status == "promoted":
+            db.upsert_interest(persona, key, name or key, 0.5, seen_count=0)
+        return {"ok": ok, "persona_id": persona, "item_id": item_id, "status": status}
+
     async def share():
         args = await _query_args()
         persona = str(args.get("persona") or _first_persona(config))
@@ -193,6 +223,8 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         "injection_log": injection_log,
         "share": share,
         "share_note": share_note,
+        "wishlist": wishlist,
+        "wishlist_action": wishlist_action,
     }
 
 
@@ -221,6 +253,8 @@ def register_api(context: Any, db: Any, service: Any, share_gate: Any,
         (f"{API_PREFIX}/persona_refresh", "persona_refresh", ["POST"], "Refresh persona cache"),
         (f"{API_PREFIX}/share", "share", ["GET"], "Share log and pending"),
         (f"{API_PREFIX}/share_note", "share_note", ["POST"], "Manually share a note"),
+        (f"{API_PREFIX}/wishlist", "wishlist", ["GET"], "Wishlist items"),
+        (f"{API_PREFIX}/wishlist_action", "wishlist_action", ["POST"], "Promote/discard wishlist item"),
     )
     try:
         for route, handler_name, methods, desc in routes:

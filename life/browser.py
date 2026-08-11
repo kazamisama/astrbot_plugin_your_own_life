@@ -22,6 +22,7 @@ from life.prompts import (
     MEMORY_CATEGORIES,
     build_diary_prompt,
     build_select_prompt,
+    build_wishlist_eval_prompt,
 )
 from life.timeutil import local_now, local_today
 
@@ -378,6 +379,73 @@ class LifeService:
         self.db.finish_browse_session(sid, "completed", 0, "peek")
         return BrowseResult(sid, "completed", 0, "peek")
 
+    def _wishlist_candidates(self, payload: Any) -> list[dict]:
+        if not self.config.wishlist_enabled:
+            return []
+        raw = payload.get("wishlist_candidates") if isinstance(payload, dict) else None
+        if not isinstance(raw, list):
+            return []
+        out: list[dict] = []
+        for entry in raw:
+            if not isinstance(entry, dict):
+                continue
+            text = sanitize_text(entry.get("text"), 400)
+            if not text:
+                continue
+            out.append({
+                "text": text,
+                "interest_key": sanitize_text(entry.get("interest_key"), 40),
+                "source": "diary",
+            })
+        return out
+
+    async def _evaluate_wishlist(
+        self, persona_id: str, persona_prompt: str
+    ) -> dict[str, int]:
+        pending = self.db.list_wishlist(persona_id, status="pending", limit=50)
+        if not pending or not self.config.wishlist_enabled:
+            return {"promoted": 0, "discarded": 0}
+        try:
+            payload = await self._llm_call(
+                persona_id,
+                build_wishlist_eval_prompt(persona_prompt, persona_id, pending),
+            )
+        except (BudgetExhausted, LLMError):
+            return {"promoted": 0, "discarded": 0}
+        decisions = payload.get("decisions") if isinstance(payload, dict) else None
+        if not isinstance(decisions, list):
+            return {"promoted": 0, "discarded": 0}
+        promoted = 0
+        discarded = 0
+        for decision in decisions:
+            if not isinstance(decision, dict):
+                continue
+            try:
+                item_id = int(decision.get("id") or 0)
+            except (TypeError, ValueError):
+                continue
+            action = str(decision.get("action") or "").strip().lower()
+            reason = sanitize_text(decision.get("reason"), 200)
+            if action == "promote":
+                key = sanitize_text(decision.get("interest_key"), 40)
+                if not key:
+                    continue
+                name = sanitize_text(decision.get("interest_name"), 40) or key
+                if self.db.update_wishlist_status(
+                    persona_id, item_id, "promoted", reason, key, name
+                ):
+                    self.interests.apply_updates(
+                        persona_id,
+                        {key: {"name": name, "delta": 0.0}},
+                    )
+                    promoted += 1
+            elif action == "discard":
+                if self.db.update_wishlist_status(
+                    persona_id, item_id, "discarded", reason
+                ):
+                    discarded += 1
+        return {"promoted": promoted, "discarded": discarded}
+
     def _pick_revisit(self, persona_id: str, date: str) -> tuple[Optional[int], list[dict]]:
         """Randomly pick notes from revisit_days ago for the nightly diary."""
         if not self.config.revisit_days or self.rng.random() >= self.config.revisit_probability:
@@ -418,6 +486,7 @@ class LifeService:
                                 context="diary", field=field, preview=str(value)[:200],
                             )
 
+            wishlist_candidates: list[dict] = []
             if not notes and not raw_revisit_notes:
                 diary_text = "今天没出门。没有特别的见闻，只是安静地待着。"
                 mood = "calm"
@@ -470,6 +539,7 @@ class LifeService:
                     str(payload.get("signature") or "").strip()[:20]
                     if self.config.signature_enabled else ""
                 )
+                wishlist_candidates = self._wishlist_candidates(payload)
 
             energy = self.esm.get_energy()
             top = ",".join(
@@ -484,12 +554,21 @@ class LifeService:
                     ensure_ascii=False,
                 ),
             )
+            for candidate in wishlist_candidates:
+                self.db.stage_wishlist(
+                    persona_id, None, candidate["text"],
+                    interest_key=candidate["interest_key"],
+                    source=candidate["source"],
+                )
             if notes and interest_updates:
                 self.interests.stage_updates(persona_id, None, interest_updates, now=now)
             self.db.commit_staged(persona_id, None, status="completed")
             self.interests.daily_decay(persona_id)
+            wishlist_eval = await self._evaluate_wishlist(persona_id, persona.system_prompt)
             return {"date": date, "notes": len(notes), "fallback": False,
-                    "revisit_day": revisit_day, "revisit_notes": len(raw_revisit_notes)}
+                    "revisit_day": revisit_day, "revisit_notes": len(raw_revisit_notes),
+                    "wishlist_promoted": wishlist_eval["promoted"],
+                    "wishlist_discarded": wishlist_eval["discarded"]}
         except Exception as exc:
             self.log.exception("nightly diary failed for %s", persona_id)
             self.db.discard_staged(persona_id, None, repr(exc))

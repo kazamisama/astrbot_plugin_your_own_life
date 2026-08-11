@@ -279,6 +279,10 @@ select, input[type="date"], input[type="text"] {
       </div>
       <ul class="note-list" id="memoryResults"></ul>
     </section>
+    <section class="panel">
+      <h2>灵感抽屉</h2>
+      <ul class="note-list" id="wishlistList"></ul>
+    </section>
   </section>
 
   <section id="tab-share" hidden>
@@ -400,7 +404,7 @@ function switchTab(name) {
   document.getElementById("tab-life").hidden = name !== "life";
   document.getElementById("tab-memory").hidden = name !== "memory";
   document.getElementById("tab-share").hidden = name !== "share";
-  if (name === "memory") loadMemory();
+  if (name === "memory") { loadMemory(); loadWishlist(); }
   if (name === "share") loadShare();
 }
 
@@ -634,6 +638,62 @@ function renderMemoryChips(data) {
   });
 }
 
+function loadWishlist() {
+  fetch(API + "/wishlist?" + qs({ persona: state.persona }), { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var items = data.items || [];
+      var ul = document.getElementById("wishlistList");
+      ul.innerHTML = "";
+      if (!items.length) {
+        var empty = document.createElement("li");
+        empty.className = "empty";
+        empty.textContent = "灵感抽屉还是空的。";
+        ul.appendChild(empty);
+        return;
+      }
+      items.forEach(function (item) {
+        var li = document.createElement("li");
+        var text = document.createElement("div");
+        text.className = "note-title";
+        text.textContent = "[" + (item.status || "pending") + "] " + (item.text || "");
+        li.appendChild(text);
+        if (item.reason) {
+          var reason = document.createElement("div");
+          reason.className = "note-src";
+          reason.textContent = item.reason;
+          li.appendChild(reason);
+        }
+        if (item.status === "pending") {
+          var promoteBtn = document.createElement("button");
+          promoteBtn.className = "btn small primary";
+          promoteBtn.textContent = "升级";
+          promoteBtn.addEventListener("click", function () {
+            fetch(API + "/wishlist_action", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ persona: state.persona, id: item.id, action: "promote", interest_key: item.interest_key || "wishlist" })
+            }).then(function () { loadWishlist(); });
+          });
+          li.appendChild(promoteBtn);
+          var discardBtn = document.createElement("button");
+          discardBtn.className = "btn small";
+          discardBtn.textContent = "丢弃";
+          discardBtn.addEventListener("click", function () {
+            fetch(API + "/wishlist_action", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ persona: state.persona, id: item.id, action: "discard", reason: "owner" })
+            }).then(function () { loadWishlist(); });
+          });
+          li.appendChild(discardBtn);
+        }
+        ul.appendChild(li);
+      });
+    })
+    .catch(function () { showError("灵感抽屉加载失败。"); });
+}
+
 function loadMemory() {
   fetch(API + "/memory?" + qs({ persona: state.persona }), { headers: { "Accept": "application/json" } })
     .then(function (r) { return r.json(); })
@@ -756,7 +816,7 @@ function loadShare() {
 function load() {
   loadPersonas().then(function () {
     loadLife();
-    if (state.tab === "memory") loadMemory();
+    if (state.tab === "memory") { loadMemory(); loadWishlist(); }
     if (state.tab === "share") loadShare();
   });
 }

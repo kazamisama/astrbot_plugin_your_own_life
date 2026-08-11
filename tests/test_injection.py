@@ -5,7 +5,12 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from life.injection import is_suspicious, sanitize_text, scan_items
-from life.prompts import build_diary_prompt, build_select_prompt, build_share_prompt
+from life.prompts import (
+    build_diary_prompt,
+    build_select_prompt,
+    build_share_prompt,
+    build_wishlist_eval_prompt,
+)
 
 
 class _Item:
@@ -65,6 +70,20 @@ class InjectionTest(unittest.TestCase):
             ["科技"], "", 1, 1, [],
         )
         self.assertNotIn("当前时段偏好", plain)
+
+    def test_diary_prompt_has_wishlist_output(self):
+        diary = build_diary_prompt(
+            "你是测试人格。", "shelly", [{"title": "t"}], [], "", "2026-08-12"
+        )
+        self.assertIn("wishlist_candidates", diary)
+
+    def test_wishlist_eval_prompt_returns_json(self):
+        prompt = build_wishlist_eval_prompt(
+            "你是测试人格。", "shelly", [{"id": 1, "text": "看看图数据库"}]
+        )
+        self.assertIn("promote", prompt)
+        self.assertIn("discard", prompt)
+        self.assertIn("待评估想法", prompt)
 
     def test_prompts_treat_material_as_untrusted(self):
         select = build_select_prompt(

@@ -2,6 +2,16 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.3.6] - 2026-08-12
+
+### Added
+
+- L1-07 灵感抽屉：新增 `wishlist` 表与 `staging_wishlist`，日记 prompt 可输出 `wishlist_candidates`，复盘后由 LLM 评估 pending 项：promote 升级为兴趣种子，discard 丢弃；WebUI 新增灵感抽屉视图与 `/wishlist`、`/wishlist_action` 接口。
+- 新增 `wishlist_enabled` 配置（默认开）。
+
+### Notes
+
+- 测试：138 passed（新增 wishlist 生命周期、prompt 输出、复盘写入/升级、WebUI 接口与配置用例）。
 ## [0.3.5] - 2026-08-12
 
 ### Added

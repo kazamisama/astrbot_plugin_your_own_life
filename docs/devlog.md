@@ -2,6 +2,20 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L1-07 灵感抽屉落地
+
+- 目标：让 LLM 把“也许有用但今天不展开”的想法放入可回看的 wishlist，并定期评估。
+- 决策：新增 `wishlist` / `staging_wishlist` 表；日记 prompt 输出增 `wishlist_candidates`，复盘成功后一并落库；再由专用评估 prompt 对 pending 项做 promote/discard，promote 同时写入兴趣表；评估失败不影响日记，保留 pending。
+- 改动：
+  - `life/db.py`：新增 `wishlist` / `staging_wishlist` 表、`stage_wishlist` / `list_wishlist` / `update_wishlist_status` 与 commit 集成。
+  - `life/prompts.py`：日记输出增 `wishlist_candidates`；新增 `build_wishlist_eval_prompt`。
+  - `life/browser.py`：新增 `_wishlist_candidates` 与 `_evaluate_wishlist`，复盘流程接入。
+  - `life/webui.py` / `pages/life/index.html`：新增 `/wishlist`、`/wishlist_action` 与灵感抽屉视图。
+  - `life/config.py` / `_conf_schema.json`：新增 `wishlist_enabled`。
+  - 版本 v0.3.5 → v0.3.6；README / CHANGELOG / features.md L1-07 / design.md / roadmap.md 同步。
+- 验证：unittest 138 passed（新增 wishlist 生命周期、prompt 输出、复盘写入/升级、WebUI 接口与配置用例）。
+- 遗留：灵感评估仅在复盘成功后触发，不另设独立调度任务；后续可在 L1.5 排期板中将其作为可选任务。
+- 下一步：L1-03 精力预算（等 ESM 契约）→ L1-10 时间轴。
 ## 2026-08-12 L1-06 轻接触 peek 落地
 
 - 目标：高频低成本“路过”，让状态快照更密集，不产生短记。

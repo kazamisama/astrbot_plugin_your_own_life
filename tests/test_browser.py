@@ -339,6 +339,49 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         status = self.db.get_status("shelly", "2026-08-12")
         self.assertEqual(status["browse_count"], 0)
 
+    async def test_nightly_diary_writes_and_promotes_wishlist(self):
+        class _SequenceLLM:
+            def __init__(self, payloads):
+                self.payloads = list(payloads)
+                self.calls = 0
+
+            async def chat_json_managed(self, prompt, retry_limit=3, can_call=None, on_usage=None):
+                self.calls += 1
+                if can_call is not None:
+                    can_call()
+                if on_usage is not None:
+                    on_usage(None)
+                return self.payloads[self.calls - 1]
+
+            async def chat_json(self, prompt, retries=2):
+                return await self.chat_json_managed(prompt, retry_limit=retries)
+
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 23, 0)
+        self.service.rng = random.Random(1)
+        self.service.config.revisit_probability = 0
+        self.db.add_note("shelly", None, "hn", "https://today", "今日见闻", "s",
+                         url_hash="wish-today")
+        self.service.llm = _SequenceLLM([
+            {
+                "diary_text": "今天想到一个方向。",
+                "signature": "灵感来敲门",
+                "mood": "curious",
+                "energy_change": -0.05,
+                "wishlist_candidates": [{"text": "研究向量数据库", "interest_key": "vector"}],
+                "interest_updates": {},
+            },
+            {"decisions": [{"id": 1, "action": "promote", "interest_key": "vector",
+                            "interest_name": "向量数据库", "reason": "值得关注"}]},
+        ])
+        result = await self.service.run_nightly_diary("shelly")
+        self.assertEqual(result["wishlist_promoted"], 1)
+        items = self.db.list_wishlist("shelly")
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["status"], "promoted")
+        self.assertEqual(items[0]["text"], "研究向量数据库")
+        interests = self.db.get_interests("shelly")
+        self.assertTrue(any(row["key"] == "vector" for row in interests))
+
     async def test_sleep_window_blocks_scheduled_only(self):
         cfg = load_config({"sleep_window": "00:00-07:00"})
         service = LifeService(cfg, self.db, self.interests, self.esm,

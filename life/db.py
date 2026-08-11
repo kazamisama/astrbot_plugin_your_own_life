@@ -186,12 +186,34 @@ CREATE TABLE IF NOT EXISTS staging_snapshots (
     curiosity REAL,
     extra TEXT DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS wishlist (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    persona_id TEXT NOT NULL DEFAULT 'default',
+    text TEXT NOT NULL,
+    interest_key TEXT DEFAULT '',
+    interest_name TEXT DEFAULT '',
+    source TEXT DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    reason TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wishlist_persona_status ON wishlist(persona_id, status, created_at);
 CREATE TABLE IF NOT EXISTS staging_seen (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     persona_id TEXT NOT NULL DEFAULT 'default',
     session_id INTEGER,
     url_hash TEXT NOT NULL,
     first_seen_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS staging_wishlist (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    persona_id TEXT NOT NULL DEFAULT 'default',
+    session_id INTEGER,
+    text TEXT NOT NULL,
+    interest_key TEXT DEFAULT '',
+    source TEXT DEFAULT '',
+    created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS staging_interests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -252,6 +274,7 @@ class LifeDB:
             self._ensure_column("diary_entries", "deleted_at", "deleted_at TEXT DEFAULT ''")
             self._ensure_column("diary_entries", "signature", "signature TEXT DEFAULT ''")
             self._ensure_column("browse_sessions", "kind", "kind TEXT NOT NULL DEFAULT 'browse'")
+            self._ensure_column("wishlist", "interest_name", "interest_name TEXT DEFAULT ''")
             self._conn.commit()
         self.recover_stale_runs()
 
@@ -790,6 +813,55 @@ class LifeDB:
         )
         return int(cur.lastrowid)
 
+    def stage_wishlist(
+        self,
+        persona_id: str,
+        session_id: Optional[int],
+        text: str,
+        interest_key: str = "",
+        source: str = "",
+    ) -> int:
+        cur = self._execute(
+            "INSERT INTO staging_wishlist "
+            "(persona_id, session_id, text, interest_key, source, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (persona_id, session_id, text, interest_key, source, self._now()),
+        )
+        return int(cur.lastrowid)
+
+    def list_wishlist(
+        self, persona_id: str, status: Optional[str] = None, limit: int = 200
+    ) -> list[dict]:
+        if status:
+            return self._rows(
+                "SELECT * FROM wishlist WHERE persona_id = ? AND status = ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (persona_id, status, limit),
+            )
+        return self._rows(
+            "SELECT * FROM wishlist WHERE persona_id = ? "
+            "ORDER BY created_at DESC LIMIT ?",
+            (persona_id, limit),
+        )
+
+    def update_wishlist_status(
+        self,
+        persona_id: str,
+        item_id: int,
+        status: str,
+        reason: str = "",
+        interest_key: str = "",
+        interest_name: str = "",
+    ) -> bool:
+        if status not in ("pending", "promoted", "discarded"):
+            return False
+        cur = self._execute(
+            "UPDATE wishlist SET status = ?, reason = ?, interest_key = ?, interest_name = ?, "
+            "updated_at = ? WHERE id = ? AND persona_id = ?",
+            (status, reason, interest_key, interest_name, self._now(), item_id, persona_id),
+        )
+        return int(cur.rowcount) > 0
+
     def commit_staged(
         self,
         persona_id: str,
@@ -819,6 +891,14 @@ class LifeDB:
                 "ON CONFLICT(persona_id, date) DO UPDATE SET content = excluded.content, "
                 "signature = excluded.signature, mood = excluded.mood, "
                 "energy = excluded.energy, interest_top = excluded.interest_top",
+                (persona_id, session_id, session_id),
+            )
+            self._conn.execute(
+                "INSERT INTO wishlist "
+                "(persona_id, text, interest_key, interest_name, source, status, reason, created_at, updated_at) "
+                "SELECT persona_id, text, interest_key, '', source, 'pending', '', created_at, created_at "
+                "FROM staging_wishlist WHERE persona_id = ? AND "
+                "(session_id = ? OR (session_id IS NULL AND ? IS NULL))",
                 (persona_id, session_id, session_id),
             )
             self._conn.execute(
@@ -892,7 +972,7 @@ class LifeDB:
 
     def _delete_staging(self, persona_id: str, session_id: Optional[int]) -> None:
         for table in ("staging_notes", "staging_diary", "staging_snapshots",
-                      "staging_seen", "staging_interests"):
+                      "staging_seen", "staging_interests", "staging_wishlist"):
             self._conn.execute(
                 f"DELETE FROM {table} WHERE persona_id = ? "
                 "AND (session_id = ? OR (session_id IS NULL AND ? IS NULL))",
@@ -1417,11 +1497,13 @@ class LifeDB:
                 "change_log",
                 "injection_log",
                 "life_leases",
+                "wishlist",
                 "staging_notes",
                 "staging_diary",
                 "staging_snapshots",
                 "staging_seen",
                 "staging_interests",
+                "staging_wishlist",
             ):
                 self._conn.execute(
                     f"DELETE FROM {table} WHERE persona_id = ?", (persona_id,)

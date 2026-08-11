@@ -95,6 +95,7 @@
 
 ### L1-07 灵感抽屉
 
+- 状态：已实现（v0.3.6）。
 - 目标：LLM 把“也许有用但今天不展开”的东西放进 wishlist，定期翻出来评估。
 - 依赖：漫游流程（L0）。
 - 模块：`life/db.py`（`wishlist` 表或 notes 加 kind）、`life/browser.py`、`life/webui.py`。

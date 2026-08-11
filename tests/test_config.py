@@ -109,6 +109,10 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(cfg.time_slots["night"]["tone"], "神秘")
         self.assertEqual(cfg.time_slots["morning"]["tone"], DEFAULT_TIME_SLOTS["morning"]["tone"])
 
+    def test_wishlist_enabled_default(self):
+        self.assertTrue(load_config({}).wishlist_enabled)
+        self.assertFalse(load_config({"wishlist_enabled": False}).wishlist_enabled)
+
     def test_peek_config(self):
         cfg = load_config({})
         self.assertEqual(cfg.peek_times, ["09:00", "13:00", "17:00", "21:00"])

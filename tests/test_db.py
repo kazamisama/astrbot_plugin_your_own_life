@@ -61,6 +61,20 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(self.db.count_sessions_by_kind("shelly", today, "browse"), 1)
         self.assertEqual(self.db.count_sessions_by_kind("shelly", today, "peek"), 1)
 
+    def test_wishlist_lifecycle(self):
+        sid = self.db.start_browse_session("shelly", "scheduled")
+        self.db.stage_wishlist("shelly", sid, "想研究向量数据库", interest_key="vector", source="diary")
+        self.db.commit_staged("shelly", sid, status="completed")
+        items = self.db.list_wishlist("shelly")
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["status"], "pending")
+        self.assertEqual(items[0]["text"], "想研究向量数据库")
+        self.assertTrue(self.db.update_wishlist_status(
+            "shelly", items[0]["id"], "promoted", "值得关注", "vector", "向量数据库"
+        ))
+        self.assertEqual(self.db.list_wishlist("shelly", status="pending"), [])
+        self.assertEqual(self.db.list_wishlist("shelly", status="promoted")[0]["interest_key"], "vector")
+
     def test_persona_isolation(self):
         self.db.add_note("shelly", None, "hacker-news", "https://a", "A", "s",
                          url_hash="h1")

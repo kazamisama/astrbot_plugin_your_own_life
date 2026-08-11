@@ -71,6 +71,18 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result["logs"]), 1)
         self.assertEqual(result["logs"][0]["context"], "browse")
 
+    async def test_wishlist_handlers(self):
+        sid = self.db.start_browse_session("shelly", "scheduled")
+        self.db.stage_wishlist("shelly", sid, "研究图谱数据库", interest_key="graph", source="diary")
+        self.db.commit_staged("shelly", sid, status="completed")
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=None, config=self.config)
+        listed = await handlers["wishlist"]()
+        self.assertEqual(len(listed["items"]), 1)
+        self.assertEqual(listed["items"][0]["status"], "pending")
+        invalid = await handlers["wishlist_action"]()
+        self.assertFalse(invalid["ok"])
+
     async def test_status_and_heatmap_handlers(self):
         self.db.add_note("shelly", None, "hn", "https://x", "T", "s", url_hash="hx")
         handlers = build_handlers(self.db, service=None, share_gate=None,
@@ -96,7 +108,7 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/astrbot_plugin_your_own_life/api/trash_restore", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/change_log", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/injection_log", routes)
-        self.assertEqual(len(routes), 17)
+        self.assertEqual(len(routes), 19)
 
 
 if __name__ == "__main__":
