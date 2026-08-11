@@ -75,6 +75,24 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(self.db.list_wishlist("shelly", status="pending"), [])
         self.assertEqual(self.db.list_wishlist("shelly", status="promoted")[0]["interest_key"], "vector")
 
+    def test_timeline_merges_and_filters(self):
+        self.db.add_note("shelly", None, "hn", "https://n", "N", "s", url_hash="tn")
+        self.db.add_diary("shelly", "2026-08-11", "diary body")
+        self.db.log_share_attempt("shelly", None, "sent", "ok", "sid-1", "hello")
+        self.db.add_state_snapshot("shelly", "browse", 0.6, "curious")
+        self.db._execute("UPDATE notes SET fetched_at = ? WHERE url_hash = ?", ("2026-08-12 09:00:00", "tn"))
+        self.db._execute("UPDATE share_log SET attempted_at = ?", ("2026-08-12 10:00:00",))
+        self.db._execute("UPDATE state_snapshots SET ts = ?", ("2026-08-12 11:00:00",))
+        all_items = self.db.timeline("shelly")["items"]
+        self.assertEqual([i["kind"] for i in all_items], ["snapshot", "share", "note", "diary"])
+        notes = self.db.timeline("shelly", types=["note"])["items"]
+        self.assertEqual([i["kind"] for i in notes], ["note"])
+        page1 = self.db.timeline("shelly", limit=2, offset=0)["items"]
+        page2 = self.db.timeline("shelly", limit=2, offset=2)["items"]
+        self.assertEqual(len(page1), 2)
+        self.assertEqual(len(page2), 2)
+        self.assertNotEqual([i["kind"] for i in page1], [i["kind"] for i in page2])
+
     def test_persona_isolation(self):
         self.db.add_note("shelly", None, "hacker-news", "https://a", "A", "s",
                          url_hash="h1")

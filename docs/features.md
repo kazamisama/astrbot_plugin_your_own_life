@@ -123,6 +123,7 @@
 
 ### L1-10 时间轴
 
+- 状态：已实现（v0.3.7）。
 - 目标：按时间倒序混排 notes、diary、share_log、state_snapshots。
 - 依赖：WebUI（L0）。
 - 模块：`life/webui.py`、`pages/life/index.html`。

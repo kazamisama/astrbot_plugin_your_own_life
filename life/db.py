@@ -1460,6 +1460,73 @@ class LifeDB:
             "days": [{"date": k, **v} for k, v in sorted(days.items())],
         }
 
+    def timeline(
+        self,
+        persona_id: str,
+        types: Optional[Sequence[str]] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Merge notes, diaries, share log and snapshots into a reverse timeline."""
+        wanted = set(types or ())
+        allowed = {"note", "diary", "share", "snapshot"}
+        if wanted and not wanted.issubset(allowed):
+            wanted = set()
+        limit = max(1, min(int(limit or 50), 200))
+        offset = max(0, int(offset or 0))
+        window = limit + offset
+        items: list[dict[str, Any]] = []
+        if not wanted or "note" in wanted:
+            for row in self._rows(
+                "SELECT * FROM notes WHERE persona_id = ? AND deleted_at = '' "
+                "ORDER BY fetched_at DESC LIMIT ?",
+                (persona_id, window),
+            ):
+                items.append({
+                    "kind": "note", "ts": row.get("fetched_at") or "",
+                    "title": row.get("title") or "", "text": row.get("summary") or "",
+                    "source": row.get("source") or "", "url": row.get("url") or "",
+                    "id": row.get("id"),
+                })
+        if not wanted or "diary" in wanted:
+            for row in self._rows(
+                "SELECT * FROM diary_entries WHERE persona_id = ? AND deleted_at = '' "
+                "ORDER BY date DESC LIMIT ?",
+                (persona_id, window),
+            ):
+                items.append({
+                    "kind": "diary", "ts": (row.get("date") or "") + " 00:00:00",
+                    "title": "日记 " + str(row.get("date") or ""),
+                    "text": row.get("content") or "", "source": "",
+                    "url": "", "id": row.get("id"), "signature": row.get("signature") or "",
+                })
+        if not wanted or "share" in wanted:
+            for row in self._rows(
+                "SELECT * FROM share_log WHERE persona_id = ? "
+                "ORDER BY attempted_at DESC LIMIT ?",
+                (persona_id, window),
+            ):
+                items.append({
+                    "kind": "share", "ts": row.get("attempted_at") or "",
+                    "title": "分享 " + str(row.get("status") or ""),
+                    "text": row.get("message") or "", "source": row.get("target_sid") or "",
+                    "url": "", "id": row.get("id"), "reason": row.get("reason") or "",
+                })
+        if not wanted or "snapshot" in wanted:
+            for row in self._rows(
+                "SELECT * FROM state_snapshots WHERE persona_id = ? "
+                "ORDER BY ts DESC LIMIT ?",
+                (persona_id, window),
+            ):
+                items.append({
+                    "kind": "snapshot", "ts": row.get("ts") or "",
+                    "title": str(row.get("activity") or ""),
+                    "text": "", "source": "", "url": "", "id": row.get("id"),
+                    "mood": row.get("mood") or "", "energy": row.get("energy"),
+                })
+        items.sort(key=lambda x: str(x.get("ts") or ""), reverse=True)
+        return {"persona_id": persona_id, "items": items[offset:offset + limit], "offset": offset}
+
     def archive_for_date(self, persona_id: str, date: str) -> dict[str, Any]:
         return {
             "persona_id": persona_id,

@@ -2,6 +2,15 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.3.7] - 2026-08-12
+
+### Added
+
+- L1-10 时间轴：WebUI 新增 `GET /timeline`，按时间倒序混排短记、日记、分享记录与状态快照，支持类型过滤与分页；页面新增“时间轴” tab，粒子筛选与加载更多。
+
+### Notes
+
+- 测试：140 passed（新增混排顺序/过滤/分页与 WebUI 接口用例）。
 ## [0.3.6] - 2026-08-12
 
 ### Added

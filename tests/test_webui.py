@@ -83,6 +83,15 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         invalid = await handlers["wishlist_action"]()
         self.assertFalse(invalid["ok"])
 
+    async def test_timeline_handler(self):
+        self.db.add_note("shelly", None, "hn", "https://x", "T", "s", url_hash="tl")
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=None, config=self.config)
+        result = await handlers["timeline"]()
+        self.assertEqual(result["persona_id"], "shelly")
+        self.assertGreaterEqual(len(result["items"]), 1)
+        self.assertEqual(result["items"][0]["kind"], "note")
+
     async def test_status_and_heatmap_handlers(self):
         self.db.add_note("shelly", None, "hn", "https://x", "T", "s", url_hash="hx")
         handlers = build_handlers(self.db, service=None, share_gate=None,
@@ -102,13 +111,14 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/astrbot_plugin_your_own_life/api/overview", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/status", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/timeline/heatmap", routes)
+        self.assertIn("/astrbot_plugin_your_own_life/api/timeline", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/memory_search", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/usage", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/trash", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/trash_restore", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/change_log", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/injection_log", routes)
-        self.assertEqual(len(routes), 19)
+        self.assertEqual(len(routes), 20)
 
 
 if __name__ == "__main__":

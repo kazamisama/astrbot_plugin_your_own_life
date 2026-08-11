@@ -63,6 +63,20 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         month = str(args.get("month") or _today(config)[:7])
         return db.timeline_heatmap(persona, month)
 
+    async def timeline():
+        args = await _query_args()
+        persona = str(args.get("persona") or _first_persona(config))
+        types = [t for t in str(args.get("types") or "").split(",") if t]
+        try:
+            limit = max(1, min(int(args.get("limit", 50)), 200))
+        except (TypeError, ValueError):
+            limit = 50
+        try:
+            offset = max(0, int(args.get("offset", 0)))
+        except (TypeError, ValueError):
+            offset = 0
+        return db.timeline(persona, types=types or None, limit=limit, offset=offset)
+
     async def archive():
         args = await _query_args()
         persona = str(args.get("persona") or _first_persona(config))
@@ -209,6 +223,7 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         "overview": overview,
         "status": status,
         "heatmap": heatmap,
+        "timeline": timeline,
         "archive": archive,
         "interests": interests,
         "run": run,
@@ -239,6 +254,7 @@ def register_api(context: Any, db: Any, service: Any, share_gate: Any,
         (f"{API_PREFIX}/overview", "overview", ["GET"], "Life overview"),
         (f"{API_PREFIX}/status", "status", ["GET"], "Today status card"),
         (f"{API_PREFIX}/timeline/heatmap", "heatmap", ["GET"], "Monthly heatmap"),
+        (f"{API_PREFIX}/timeline", "timeline", ["GET"], "Merged life timeline"),
         (f"{API_PREFIX}/archive", "archive", ["GET"], "Life archive"),
         (f"{API_PREFIX}/interests", "interests", ["GET"], "Life interests"),
         (f"{API_PREFIX}/run", "run", ["POST"], "Trigger a browse session"),

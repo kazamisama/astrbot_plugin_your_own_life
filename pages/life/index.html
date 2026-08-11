@@ -133,6 +133,8 @@ select, input[type="date"], input[type="text"] {
   cursor: pointer;
 }
 .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.timeline-list { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.timeline-item { border-left: 3px solid var(--accent); padding-left: 10px; }
 .interest-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; }
 .interest-name { min-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .interest-bar { flex: 1; height: 8px; background: #eef2f6; border-radius: 4px; overflow: hidden; }
@@ -218,6 +220,7 @@ select, input[type="date"], input[type="text"] {
     <button class="tab active" data-tab="life">生活</button>
     <button class="tab" data-tab="memory">记忆</button>
     <button class="tab" data-tab="share">分享</button>
+    <button class="tab" data-tab="timeline">时间轴</button>
   </nav>
 
   <section id="tab-life">
@@ -303,6 +306,14 @@ select, input[type="date"], input[type="text"] {
       </section>
     </div>
   </section>
+
+  <section id="tab-timeline" hidden>
+    <div class="panel">
+      <div class="chip-row" id="timelineFilters"></div>
+      <ul class="note-list timeline-list" id="timelineList"></ul>
+      <button class="btn" id="timelineMore">加载更多</button>
+    </div>
+  </section>
 </div>
 
 <script>
@@ -310,7 +321,9 @@ var API = "/api/plug/astrbot_plugin_your_own_life/api";
 var state = {
   persona: "",
   tab: "life",
-  category: ""
+  category: "",
+  timelineTypes: "",
+  timelineOffset: 0
 };
 
 var dateInput = document.getElementById("dateInput");
@@ -404,8 +417,10 @@ function switchTab(name) {
   document.getElementById("tab-life").hidden = name !== "life";
   document.getElementById("tab-memory").hidden = name !== "memory";
   document.getElementById("tab-share").hidden = name !== "share";
+  document.getElementById("tab-timeline").hidden = name !== "timeline";
   if (name === "memory") { loadMemory(); loadWishlist(); }
   if (name === "share") loadShare();
+  if (name === "timeline") { renderTimelineFilters(); loadTimeline(true); }
 }
 
 function loadPersonas() {
@@ -638,6 +653,65 @@ function renderMemoryChips(data) {
   });
 }
 
+function renderTimelineFilters() {
+  var box = document.getElementById("timelineFilters");
+  box.innerHTML = "";
+  var options = [["", "全部"], ["note", "短记"], ["diary", "日记"], ["share", "分享"], ["snapshot", "状态"]];
+  options.forEach(function (opt) {
+    var chip = document.createElement("button");
+    chip.className = "chip" + (state.timelineTypes === opt[0] ? " active" : "");
+    chip.textContent = opt[1];
+    chip.addEventListener("click", function () {
+      state.timelineTypes = opt[0];
+      renderTimelineFilters();
+      loadTimeline(true);
+    });
+    box.appendChild(chip);
+  });
+}
+
+function loadTimeline(reset) {
+  if (reset) state.timelineOffset = 0;
+  var params = { persona: state.persona, limit: 50, offset: state.timelineOffset };
+  if (state.timelineTypes) params.types = state.timelineTypes;
+  fetch(API + "/timeline?" + qs(params), { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var ul = document.getElementById("timelineList");
+      if (reset) ul.innerHTML = "";
+      var items = data.items || [];
+      items.forEach(function (item) {
+        var li = document.createElement("li");
+        li.className = "timeline-item";
+        var head = document.createElement("div");
+        head.className = "note-title";
+        var label = { note: "短记", diary: "日记", share: "分享", snapshot: "状态" }[item.kind] || item.kind;
+        head.textContent = "[" + label + "] " + (item.title || "");
+        li.appendChild(head);
+        if (item.text) {
+          var text = document.createElement("div");
+          text.className = "diary-text";
+          text.textContent = item.text;
+          li.appendChild(text);
+        }
+        var meta = document.createElement("div");
+        meta.className = "note-src";
+        meta.textContent = (item.ts || "") + (item.url ? " · " + item.url : "") + (item.source ? " · " + item.source : "");
+        li.appendChild(meta);
+        ul.appendChild(li);
+      });
+      if (!items.length) {
+        var empty = document.createElement("li");
+        empty.className = "empty";
+        empty.textContent = "时间轴还没有记录。";
+        ul.appendChild(empty);
+      }
+      state.timelineOffset += items.length;
+      document.getElementById("timelineMore").hidden = items.length < 50;
+    })
+    .catch(function () { showError("时间轴加载失败。"); });
+}
+
 function loadWishlist() {
   fetch(API + "/wishlist?" + qs({ persona: state.persona }), { headers: { "Accept": "application/json" } })
     .then(function (r) { return r.json(); })
@@ -818,6 +892,7 @@ function load() {
     loadLife();
     if (state.tab === "memory") { loadMemory(); loadWishlist(); }
     if (state.tab === "share") loadShare();
+    if (state.tab === "timeline") { renderTimelineFilters(); loadTimeline(true); }
   });
 }
 
@@ -841,6 +916,7 @@ document.getElementById("memorySearchBtn").addEventListener("click", loadMemory)
 document.getElementById("memoryQuery").addEventListener("keydown", function (e) {
   if (e.key === "Enter") loadMemory();
 });
+document.getElementById("timelineMore").addEventListener("click", function () { loadTimeline(false); });
 
 dateInput.value = today();
 load();

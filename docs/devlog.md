@@ -2,6 +2,18 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L1-10 时间轴落地
+
+- 目标：按时间倒序混排四类生活记录，让历史可翻阅。
+- 决策：数据层新增 `timeline()` 混排（每源取 limit+offset 窗口再全局切片，确保分页语义）；WebUI `GET /timeline?types=&limit=&offset=`；页面新增“时间轴” tab，粒子筛选 + 加载更多；保持 vanilla JS。
+- 改动：
+  - `life/db.py`：新增 `timeline(persona_id, types, limit, offset)`。
+  - `life/webui.py`：新增 `/timeline` 接口与路由。
+  - `pages/life/index.html`：新增时间轴 tab、类型筛选、时间流列表与加载更多。
+  - 版本 v0.3.6 → v0.3.7；README / CHANGELOG / features.md L1-10 / design.md / roadmap.md 同步。
+- 验证：unittest 140 passed（新增混排顺序、类型过滤、分页与 WebUI 接口用例）；JS 语法检查通过。
+- 遗留：时间轴每源窗口取整体前 limit+offset，极大历史时未做引擎级床索；后续可加日期筛选与无限分页。
+- 下一步：L1-03 精力预算（等 ESM 契约）；L1 剩余项全部完成后进 L1.5 事件链与排期板。
 ## 2026-08-12 L1-07 灵感抽屉落地
 
 - 目标：让 LLM 把“也许有用但今天不展开”的想法放入可回看的 wishlist，并定期评估。
