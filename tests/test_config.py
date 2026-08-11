@@ -95,6 +95,11 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(cfg.revisit_probability, 0.8)
         self.assertEqual(load_config({"revisit_probability": "9"}).revisit_probability, 1.0)
 
+    def test_rest_probability_config(self):
+        self.assertEqual(load_config({}).rest_probability, 0.1)
+        self.assertEqual(load_config({"rest_probability": "0.25"}).rest_probability, 0.25)
+        self.assertEqual(load_config({"rest_probability": "9"}).rest_probability, 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -88,7 +88,8 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.db = LifeDB(Path(self.tmp.name) / "life.db")
         self.config = load_config({"sleep_window": "00:00-00:01",
-                                   "share_sessions": {"shelly": ["sid-1"]}})
+                                   "share_sessions": {"shelly": ["sid-1"]},
+                                   "rest_probability": 0})
         self.interests = InterestStore(self.db, self.config.interests_initial)
         self.esm = ESMAdapter(_NoStarContext(), scope_prefix="internet-life", energy_gate=0.3)
         self.personas = _FakePersonas()
@@ -261,6 +262,34 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.status, "skipped")
         self.assertEqual(result.reason, "persona_unavailable")
         self.assertEqual(self.db.list_notes("shelly"), [])
+
+    async def test_scheduled_browse_can_rest(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 10, 0)
+        self.service.rng = random.Random(1)
+        self.service.config.rest_probability = 1.0
+        result = await self.service.run_browse_session("shelly", "scheduled")
+        self.assertEqual(result.status, "rest")
+        self.assertEqual(result.reason, "rest_probability")
+        snapshots = self.db.list_state_snapshots("shelly")
+        self.assertEqual(snapshots[0]["activity"], "skipped_rest")
+        self.assertEqual(self.db.list_notes("shelly"), [])
+
+    async def test_rest_disabled_when_probability_zero(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 10, 0)
+        self.service.config.rest_probability = 0.0
+        result = await self.service.run_browse_session("shelly", "scheduled")
+        self.assertNotEqual(result.status, "rest")
+        snapshots = self.db.list_state_snapshots("shelly")
+        self.assertFalse(any(s["activity"] == "skipped_rest" for s in snapshots))
+
+    async def test_manual_browse_ignores_rest(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 10, 0)
+        self.service.rng = random.Random(1)
+        self.service.config.rest_probability = 1.0
+        result = await self.service.run_browse_session("shelly", "manual", force=True)
+        self.assertNotEqual(result.status, "rest")
+        snapshots = self.db.list_state_snapshots("shelly")
+        self.assertFalse(any(s["activity"] == "skipped_rest" for s in snapshots))
 
     async def test_sleep_window_blocks_scheduled_only(self):
         cfg = load_config({"sleep_window": "00:00-07:00"})

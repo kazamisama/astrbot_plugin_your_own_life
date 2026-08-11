@@ -2,6 +2,17 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L1-04 随机不出门落地
+
+- 目标：定时漫游有概率跳过，让 bot 偶尔躺平但留下迹迹。
+- 决策：在 `run_browse_session` 对 scheduled 且非 force 触发按 `rest_probability` 掷签，命中时写 `skipped_rest` 快照并返回，不产生漫游会话与短记；手动 `/life_now` 不受影响。
+- 改动：
+  - `life/config.py` / `_conf_schema.json`：新增 `rest_probability`（默认 0.1）。
+  - `life/browser.py`：`run_browse_session` 新增 rest 判定，命中时写 `skipped_rest` 快照并返回 `BrowseResult("rest", "rest_probability")`。
+  - 版本 v0.3.2 → v0.3.3；README / CHANGELOG / features.md L1-04 / design.md / roadmap.md 同步。
+- 验证：unittest 122 passed（新增定时 rest 、概率 0 不跳过、手动不受影响与配置用例）。
+- 遗留：日记依然只通过“今天没出门”空日记文案反映，暂未显式引用 `skipped_rest`；后续可在复盘 prompt 中注入当天 rest 状态。
+- 下一步：L1-03 精力预算（等 ESM 契约）→ L1-05 时段模式 → L1-06 peek → L1-07 灵感抽屉 → L1-10 时间轴。
 ## 2026-08-12 L1-02 旧事新感落地
 
 - 目标：夜间复盘随机回看 7/30 天前短记，让日记出现“后来的我再看这件事”。

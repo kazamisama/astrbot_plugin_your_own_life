@@ -2,6 +2,16 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.3.3] - 2026-08-12
+
+### Added
+
+- L1-04 随机不出门：定时漫游按 `rest_probability`（默认 0.1）随机跳过，写 `skipped_rest` 状态快照；手动 `/life_now` 不受影响。
+- 新增 `rest_probability` 配置。
+
+### Notes
+
+- 测试：122 passed（新增定时 rest 、概率 0 不跳过、手动不受影响与配置用例）。
 ## [0.3.2] - 2026-08-12
 
 ### Added

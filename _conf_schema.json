@@ -224,6 +224,12 @@
     "hint": "触发后随机选 revisit_days 中的一天，把当天短记作为回看素材",
     "default": 0.5
   },
+  "rest_probability": {
+    "type": "float",
+    "description": "随机不出门概率（0-1）",
+    "hint": "定时漫游按此概率跳过并写 skipped_rest 快照，手动 /life_now 不受影响",
+    "default": 0.1
+  },
   "share_enabled": {
     "type": "bool",
     "description": "启用感悟分享",

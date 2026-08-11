@@ -183,6 +183,7 @@ class LifeConfig:
     signature_enabled: bool = True
     revisit_days: list[int] = field(default_factory=lambda: [7, 30])
     revisit_probability: float = 0.5
+    rest_probability: float = 0.1
     share_enabled: bool = True
     share_daily_cap: int = 2
     share_cooldown_minutes: int = 360
@@ -247,6 +248,7 @@ def load_config(cfg: Any) -> LifeConfig:
         signature_enabled=_as_bool(_get(cfg, "signature_enabled"), True),
         revisit_days=_as_int_list(_get(cfg, "revisit_days"), [7, 30]),
         revisit_probability=max(0.0, min(1.0, _as_float(_get(cfg, "revisit_probability"), 0.5))),
+        rest_probability=max(0.0, min(1.0, _as_float(_get(cfg, "rest_probability"), 0.1))),
         share_enabled=_as_bool(_get(cfg, "share_enabled"), True),
         share_daily_cap=_as_int(_get(cfg, "share_daily_cap"), 2),
         share_cooldown_minutes=_as_int(_get(cfg, "share_cooldown_minutes"), 360),

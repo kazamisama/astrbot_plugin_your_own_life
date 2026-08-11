@@ -140,6 +140,13 @@ class LifeService:
         now = local_now(self.config.timezone, self.now_fn())
         if not force and self.config.sleep_window.contains(now):
             return BrowseResult(None, "skipped", 0, "sleep_window")
+        if not force and trigger == "scheduled" and self.config.rest_probability > 0:
+            if self.rng.random() < self.config.rest_probability:
+                self.db.add_state_snapshot(
+                    persona_id, "skipped_rest", self.esm.get_energy(), "",
+                    extra=json.dumps({"trigger": trigger}, ensure_ascii=False),
+                )
+                return BrowseResult(None, "rest", 0, "rest_probability")
 
         try:
             persona = await self._resolve_persona(persona_id)
