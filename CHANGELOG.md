@@ -2,6 +2,16 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.3.5] - 2026-08-12
+
+### Added
+
+- L1-06 轻接触 peek：新增定时 peek 槽位（默认 09:00/13:00/17:00/21:00），只写状态快照与会话记录，不调用 LLM、不写短记；`browse_sessions` 新增 `kind` 列区分 peek/browse，热力图单独统计 peeks。
+- 新增 `peek_times` 与 `peek_daily_cap`（默认 0 不限制）配置。
+
+### Notes
+
+- 测试：132 passed（新增 peek 会话/kind、日上限跳过、统计不混入 peek、调度器 peek 槽位与配置用例）。
 ## [0.3.4] - 2026-08-12
 
 ### Added

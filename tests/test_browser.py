@@ -307,6 +307,38 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.status, "completed")
         self.assertIn("当前时段偏好", self.service.llm.prompts[-1])
 
+    async def test_peek_records_snapshot_and_kind(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 9, 0)
+        self.service.config.peek_daily_cap = 0
+        result = await self.service.run_peek("shelly")
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(result.reason, "peek")
+        sessions = self.db.list_sessions("shelly")
+        self.assertEqual(sessions[0]["kind"], "peek")
+        self.assertEqual(sessions[0]["notes_count"], 0)
+        snapshots = self.db.list_state_snapshots("shelly")
+        self.assertEqual(snapshots[0]["activity"], "peek")
+        self.assertEqual(self.db.list_notes("shelly"), [])
+        self.assertEqual(self.db.count_sessions_by_kind("shelly", "2026-08-12", "peek"), 1)
+
+    async def test_peek_daily_cap_skips(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 9, 0)
+        self.service.config.peek_daily_cap = 1
+        first = await self.service.run_peek("shelly")
+        self.assertEqual(first.status, "completed")
+        second = await self.service.run_peek("shelly")
+        self.assertEqual(second.status, "skipped")
+        self.assertEqual(second.reason, "peek_daily_cap")
+        self.assertEqual(self.db.count_sessions_by_kind("shelly", "2026-08-12", "peek"), 1)
+
+    async def test_overview_stats_exclude_peek(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 9, 0)
+        await self.service.run_peek("shelly")
+        overview = self.db.get_overview("shelly", "2026-08-12")
+        self.assertEqual(overview["stats"]["sessions"], 0)
+        status = self.db.get_status("shelly", "2026-08-12")
+        self.assertEqual(status["browse_count"], 0)
+
     async def test_sleep_window_blocks_scheduled_only(self):
         cfg = load_config({"sleep_window": "00:00-07:00"})
         service = LifeService(cfg, self.db, self.interests, self.esm,

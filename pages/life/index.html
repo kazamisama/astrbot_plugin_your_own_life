@@ -367,14 +367,14 @@ function renderHeatmap(data) {
     var key = month + "-" + String(d).padStart(2, "0");
     var info = days[key] || {};
     var total = (info.notes || 0) + (info.diaries || 0) +
-      (info.shares || 0) + (info.browse || 0);
+      (info.shares || 0) + (info.browse || 0) + (info.peeks || 0);
     if (total > 0) hasAny = true;
     var cell = document.createElement("span");
     cell.className = "heat-cell" + (total ? " l" + Math.min(4, Math.ceil(total / 2)) : "");
     cell.textContent = d;
     cell.title = key + ": notes " + (info.notes || 0) +
       ", diaries " + (info.diaries || 0) + ", shares " + (info.shares || 0) +
-      ", browse " + (info.browse || 0);
+      ", browse " + (info.browse || 0) + ", peeks " + (info.peeks || 0);
     box.appendChild(cell);
   }
   if (!hasAny) {

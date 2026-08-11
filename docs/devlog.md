@@ -2,6 +2,20 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L1-06 轻接触 peek 落地
+
+- 目标：高频低成本“路过”，让状态快照更密集，不产生短记。
+- 决策：`browse_sessions` 新增 `kind` 列（默认 browse）区分 peek/browse；peek 不调用 LLM、不写 notes，只写 会话记录 + `state_snapshots.activity='peek'`；调度器接受 `peek_times` 与 `peek_daily_cap`；overview/status 统计不混入 peek，热力图单独计 peeks。
+- 改动：
+  - `life/db.py`：`browse_sessions` 增 `kind` 列（含 ALTER），`start_browse_session(kind=...)`、`count_sessions_by_kind`；overview/status/heatmap 调整统计。
+  - `life/browser.py`：新增 `run_peek`（不调 LLM，受日上限限制）。
+  - `life/scheduler.py`：新增 peek 槽位与执行分支。
+  - `life/config.py` / `_conf_schema.json`：新增 `peek_times` / `peek_daily_cap`。
+  - `pages/life/index.html`：热力图计入 peeks。
+  - 版本 v0.3.4 → v0.3.5；README / CHANGELOG / features.md L1-06 / design.md / roadmap.md 同步。
+- 验证：unittest 132 passed（新增 peek 会话/kind、日上限跳过、统计不混入 peek、调度器 peek 槽位与配置用例）。
+- 遗留：peek 目前不获取热度/标题数据（只更新状态）；后续可选择性接入低成本信息源观察。
+- 下一步：L1-03 精力预算（等 ESM 契约）→ L1-07 灵感抽屉 → L1-10 时间轴。
 ## 2026-08-12 L1-05 时段模式落地
 
 - 目标：同一素材在不同时段以不同偏好与语气见解。

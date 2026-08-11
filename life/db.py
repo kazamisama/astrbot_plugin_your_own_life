@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS browse_sessions (
     started_at TEXT NOT NULL,
     ended_at TEXT,
     trigger TEXT NOT NULL DEFAULT 'scheduled',
+    kind TEXT NOT NULL DEFAULT 'browse',
     status TEXT NOT NULL DEFAULT 'running',
     reason TEXT DEFAULT '',
     energy_before REAL,
@@ -250,6 +251,7 @@ class LifeDB:
             self._ensure_column("notes", "deleted_at", "deleted_at TEXT DEFAULT ''")
             self._ensure_column("diary_entries", "deleted_at", "deleted_at TEXT DEFAULT ''")
             self._ensure_column("diary_entries", "signature", "signature TEXT DEFAULT ''")
+            self._ensure_column("browse_sessions", "kind", "kind TEXT NOT NULL DEFAULT 'browse'")
             self._conn.commit()
         self.recover_stale_runs()
 
@@ -365,11 +367,12 @@ class LifeDB:
         trigger: str = "scheduled",
         energy_before: Optional[float] = None,
         mood_before: str = "",
+        kind: str = "browse",
     ) -> int:
         cur = self._execute(
-            "INSERT INTO browse_sessions (persona_id, started_at, trigger, status, energy_before, mood_before) "
-            "VALUES (?, ?, ?, 'running', ?, ?)",
-            (persona_id, self._now(), trigger, energy_before, mood_before),
+            "INSERT INTO browse_sessions (persona_id, started_at, trigger, kind, status, energy_before, mood_before) "
+            "VALUES (?, ?, ?, ?, 'running', ?, ?)",
+            (persona_id, self._now(), trigger, kind, energy_before, mood_before),
         )
         return int(cur.lastrowid)
 
@@ -400,6 +403,16 @@ class LifeDB:
             "SELECT * FROM browse_sessions WHERE persona_id = ? ORDER BY started_at DESC LIMIT ?",
             (persona_id, limit),
         )
+
+    def count_sessions_by_kind(
+        self, persona_id: str, date: str, kind: str = "browse"
+    ) -> int:
+        row = self._one(
+            "SELECT COUNT(*) AS n FROM browse_sessions "
+            "WHERE persona_id = ? AND kind = ? AND started_at LIKE ?",
+            (persona_id, kind, date + "%"),
+        )
+        return int(row["n"] or 0) if row else 0
 
     # ----- notes -----
 
@@ -1259,6 +1272,7 @@ class LifeDB:
         interests = self.get_interests(persona_id, limit=8)
         snapshots = self.list_state_snapshots(persona_id, since_date=date, limit=100)
         share_logs = self.list_share_log(persona_id, date, limit=50)
+        browse_sessions = [s for s in sessions if s.get("kind") != "peek"]
         return {
             "persona_id": persona_id,
             "date": date,
@@ -1269,11 +1283,11 @@ class LifeDB:
             "snapshots": snapshots,
             "share_logs": share_logs,
             "stats": {
-                "sessions": len(sessions),
+                "sessions": len(browse_sessions),
                 "notes": len(notes),
-                "completed": sum(1 for s in sessions if s["status"] == "completed"),
-                "skipped": sum(1 for s in sessions if s["status"].startswith("skipped")),
-                "errors": sum(1 for s in sessions if s["status"] in ("error", "failed")),
+                "completed": sum(1 for s in browse_sessions if s["status"] == "completed"),
+                "skipped": sum(1 for s in browse_sessions if s["status"].startswith("skipped")),
+                "errors": sum(1 for s in browse_sessions if s["status"] in ("error", "failed")),
                 "shares_sent": sum(1 for s in share_logs if s["status"] == "sent"),
                 "shares_blocked": sum(1 for s in share_logs if s["status"] == "blocked"),
             },
@@ -1286,7 +1300,9 @@ class LifeDB:
         diary = self.get_diary(persona_id, date)
         snapshots = self.list_state_snapshots(persona_id, since_date=date, limit=5)
         latest = snapshots[0] if snapshots else {}
-        completed = sum(1 for s in sessions if s["status"] == "completed")
+        completed = sum(
+            1 for s in sessions if s["status"] == "completed" and s.get("kind") != "peek"
+        )
         return {
             "persona_id": persona_id,
             "date": date,
@@ -1320,7 +1336,7 @@ class LifeDB:
 
     def timeline_heatmap(self, persona_id: str, month: str) -> dict[str, Any]:
         days: dict[str, dict[str, int]] = {}
-        default = {"notes": 0, "diaries": 0, "shares": 0, "browse": 0}
+        default = {"notes": 0, "diaries": 0, "shares": 0, "browse": 0, "peeks": 0}
         prefix = (month or "")[:7] + "%"
         for row in self._rows(
             "SELECT substr(fetched_at, 1, 10) AS d, COUNT(*) AS n "
@@ -1346,11 +1362,18 @@ class LifeDB:
             day["shares"] = int(row["n"])
         for row in self._rows(
             "SELECT substr(started_at, 1, 10) AS d, COUNT(*) AS n "
-            "FROM browse_sessions WHERE persona_id = ? AND started_at LIKE ? GROUP BY d",
+            "FROM browse_sessions WHERE persona_id = ? AND started_at LIKE ? AND kind != 'peek' GROUP BY d",
             (persona_id, prefix),
         ):
             day = days.setdefault(row["d"], dict(default))
             day["browse"] = int(row["n"])
+        for row in self._rows(
+            "SELECT substr(started_at, 1, 10) AS d, COUNT(*) AS n "
+            "FROM browse_sessions WHERE persona_id = ? AND started_at LIKE ? AND kind = 'peek' GROUP BY d",
+            (persona_id, prefix),
+        ):
+            day = days.setdefault(row["d"], dict(default))
+            day["peeks"] = int(row["n"])
         return {
             "persona_id": persona_id,
             "month": (month or "")[:7],

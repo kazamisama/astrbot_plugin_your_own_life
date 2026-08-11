@@ -54,6 +54,13 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(sessions[0]["persona_id"], "shelly")
         self.assertEqual(sessions[0]["status"], "completed")
 
+    def test_count_sessions_by_kind(self):
+        self.db.start_browse_session("shelly", "scheduled")
+        self.db.start_browse_session("shelly", "scheduled", kind="peek")
+        today = datetime.now().strftime("%Y-%m-%d")
+        self.assertEqual(self.db.count_sessions_by_kind("shelly", today, "browse"), 1)
+        self.assertEqual(self.db.count_sessions_by_kind("shelly", today, "peek"), 1)
+
     def test_persona_isolation(self):
         self.db.add_note("shelly", None, "hacker-news", "https://a", "A", "s",
                          url_hash="h1")

@@ -35,11 +35,20 @@ class SchedulerTest(unittest.TestCase):
     def test_diary_after_all_browse_slots(self):
         cfg = LifeConfig(browse_times=["10:00", "15:00"], diary_time="23:00",
                          browse_jitter_minutes=0, diary_jitter_minutes=0,
-                         life_personas=["shelly"])
+                         peek_times=[], life_personas=["shelly"])
         scheduler = LifeScheduler(service=None, config=cfg)
         target = scheduler.next_target(datetime(2026, 8, 10, 16, 0), ["shelly"])
         self.assertEqual(target[0], datetime(2026, 8, 10, 23, 0))
         self.assertEqual(target[2], "diary")
+
+    def test_peek_slots_are_scheduled(self):
+        cfg = LifeConfig(browse_times=["10:00"], diary_time="23:00",
+                         browse_jitter_minutes=0, diary_jitter_minutes=0,
+                         peek_times=["09:00"], life_personas=["shelly"])
+        scheduler = LifeScheduler(service=None, config=cfg)
+        target = scheduler.next_target(datetime(2026, 8, 10, 8, 0), ["shelly"])
+        self.assertEqual(target[0], datetime(2026, 8, 10, 9, 0))
+        self.assertEqual(target[2], "peek")
 
     def test_sleep_window_contains(self):
         window = SleepWindow(time(23, 0), time(7, 0))
@@ -50,7 +59,7 @@ class SchedulerTest(unittest.TestCase):
         cfg = LifeConfig(
             browse_times=["10:00", "15:00"], diary_time="23:00",
             browse_jitter_minutes=0, diary_jitter_minutes=0,
-            life_personas=["shelly"], timezone="America/New_York",
+            peek_times=[], life_personas=["shelly"], timezone="America/New_York",
         )
         scheduler = LifeScheduler(
             service=None, config=cfg,

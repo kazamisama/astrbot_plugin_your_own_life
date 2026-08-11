@@ -73,6 +73,8 @@ class LifeScheduler:
             self._task = None
 
     def _jittered_slot(self, persona_id: str, base_dt: datetime, kind: str) -> datetime:
+        if kind == "peek":
+            return base_dt
         minutes = (
             self.config.browse_jitter_minutes
             if kind == "browse"
@@ -101,6 +103,11 @@ class LifeScheduler:
         if diary_time:
             base = datetime.combine(day, diary_time)
             slots.append((self._jittered_slot(persona_id, base, "diary"), "diary"))
+        for raw in self.config.peek_times:
+            peek_time = _parse_hhmm(raw)
+            if peek_time:
+                base = datetime.combine(day, peek_time)
+                slots.append((self._jittered_slot(persona_id, base, "peek"), "peek"))
         return slots
 
     def next_target(
@@ -156,6 +163,8 @@ class LifeScheduler:
                 try:
                     if kind == "browse":
                         await self.service.run_browse_session(persona_id, "scheduled")
+                    elif kind == "peek":
+                        await self.service.run_peek(persona_id)
                     else:
                         await self.service.run_nightly_diary(persona_id)
                 except Exception as exc:

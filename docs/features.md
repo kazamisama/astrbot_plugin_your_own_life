@@ -86,6 +86,7 @@
 
 ### L1-06 轻接触 peek
 
+- 状态：已实现（v0.3.5）。
 - 目标：高频低成本的“路过”动作，只更新状态快照不产短记。
 - 依赖：调度器（L0）、信息源抓取（L0，可只取热度/标题）。
 - 模块：`life/scheduler.py`、`life/fetchers.py`、`life/browser.py`、`life/db.py`。

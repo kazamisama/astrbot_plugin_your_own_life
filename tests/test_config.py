@@ -109,6 +109,14 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(cfg.time_slots["night"]["tone"], "神秘")
         self.assertEqual(cfg.time_slots["morning"]["tone"], DEFAULT_TIME_SLOTS["morning"]["tone"])
 
+    def test_peek_config(self):
+        cfg = load_config({})
+        self.assertEqual(cfg.peek_times, ["09:00", "13:00", "17:00", "21:00"])
+        self.assertEqual(cfg.peek_daily_cap, 0)
+        cfg = load_config({"peek_times": ["08:00"], "peek_daily_cap": "4"})
+        self.assertEqual(cfg.peek_times, ["08:00"])
+        self.assertEqual(cfg.peek_daily_cap, 4)
+
     def test_current_time_slot_by_hour(self):
         self.assertEqual(current_time_slot({}, datetime(2026, 8, 12, 8, 0)), "morning")
         self.assertEqual(current_time_slot({}, datetime(2026, 8, 12, 14, 0)), "afternoon")

@@ -357,6 +357,27 @@ class LifeService:
             "target": str(raw.get("target") or ""),
         }
 
+    async def run_peek(self, persona_id: str) -> BrowseResult:
+        if not self.config.enabled:
+            return BrowseResult(None, "disabled", 0, "disabled")
+        now = local_now(self.config.timezone, self.now_fn())
+        date = now.strftime("%Y-%m-%d")
+        if self.config.peek_daily_cap > 0:
+            done = self.db.count_sessions_by_kind(persona_id, date, "peek")
+            if done >= self.config.peek_daily_cap:
+                return BrowseResult(None, "skipped", 0, "peek_daily_cap")
+        energy = self.esm.get_energy()
+        mood = self.esm.get_mood_context(persona_id)
+        sid = self.db.start_browse_session(
+            persona_id, "scheduled", energy, mood, kind="peek"
+        )
+        self.db.add_state_snapshot(
+            persona_id, "peek", energy, "",
+            extra=json.dumps({"trigger": "scheduled"}, ensure_ascii=False),
+        )
+        self.db.finish_browse_session(sid, "completed", 0, "peek")
+        return BrowseResult(sid, "completed", 0, "peek")
+
     def _pick_revisit(self, persona_id: str, date: str) -> tuple[Optional[int], list[dict]]:
         """Randomly pick notes from revisit_days ago for the nightly diary."""
         if not self.config.revisit_days or self.rng.random() >= self.config.revisit_probability:
