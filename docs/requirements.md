@@ -34,7 +34,7 @@ kazamisama 仓库下的 AstrBot 插件是一整个需要互操作的家庭，任
 | astrbot_plugin_private_proactive_reply | v0.11.2 | 无 | kazamisama/astrbot_plugin_private_proactive_reply | 方向：主动社交行为层（复用人格/记忆/工具链） |
 | astrbot_plugin_engram_core | 1.74.0 | 无（`<engram-context>` 注入与 `extra_user_content_parts` 为 README 约定） | kazamisama/astrbot-plugin-engram-core | v2 硬依赖：统一记忆库/日记写入/召回，经 `LifeMemoryAdapter` |
 | astrbot-plugin-media-warden | 1.8.1 | 无 | kazamisama/astrbot-plugin-media-warden | 方向：素材采集/记忆原料，未见显式契约 |
-| astrbot_plugin_your_own_life（本插件） | v0.2.4 | 无独立 `_PUBLIC_API.md`；跨插件调用全部经适配层 | kazamisama/astrbot_plugin_your_own_life | 本插件 |
+| astrbot_plugin_your_own_life（本插件） | v0.4.3 | 无独立 `_PUBLIC_API.md`；跨插件调用全部经适配层 | kazamisama/astrbot_plugin_your_own_life | 本插件（L1/L1.5 已交付，L1-03 与 L2 待上游契约） |
 
 升级检查表：
 
@@ -61,6 +61,29 @@ kazamisama 仓库下的 AstrBot 插件是一整个需要互操作的家庭，任
 - Bot 视角生活日记：当前日记层以群聊消息为素材；建议支持外部插件注入“非聊天生活事件”（如互联网漫游短记），并保留来源标签。
 - 公开召回接口：供后续把“最近日记/见闻”注入 LLM 请求时使用，避免本插件直接 import `hippocampus` 内部包。
 - 每 persona 任务租约 API：`claim_task(persona_id, task_kind, ttl)` / `renew_task` / `release_task`，供多实例同人格防撞锁，本插件经 `LifeMemoryAdapter` 调用。
+
+## 待上游落地的契约提案（2026-08-12 已核实）
+
+以下两项是本插件剩余阶段（L1-03 精力预算、L2 统一记忆库）的硬闸门，上游发布兼容版本前不实现下游代码，避免在契约未定状态下返工：
+
+### ESM `consume_energy`（解锁 L1-03）
+
+- 现状（已验证）：`astrbot_plugin_emotion_state_machine` 本地 v0.10.4，`_PUBLIC_API.md` 仅公开 `get_bot_energy(scope=None) -> float`；源码无 `consume_energy`。
+- 提案签名：`consume_energy(amount: float, reason: str, scope: str | None = None) -> float`，扣除并持久化精力、返回剩余精力；`amount` 范围 `(0, 1]`，非法入参抛 `ValueError` 或返回当前值（由上游定）。
+- 本插件落点：`life/esm_adapter.py` 新增 `consume_energy(persona_id, amount, reason)`，漫游/日记任务成功/失败后真实扣减；预算耗尽当天剩余任务跳过并记录 `budget_exhausted`。
+- 契约版本：ESM v0.11 随 `_PUBLIC_API.md` 升级发布。
+
+### engram_core `_PUBLIC_API.md`（解锁 L2）
+
+- 现状（已验证）：本地 1.74.0，仓库无 `_PUBLIC_API.md`；日记/召回仍依赖 `hippocampus` 内部包或 README 约定。
+- 提案范围：至少覆盖 `store_diary_line`（或等效公开日记写入）、`query_recent_memory`（召回）、`claim_task / renew_task / release_task`（同人格任务租约）的签名、返回类型与版本承诺；明确 `persona_id` 分区键与外部事件来源标签（如 `your_own_life`）。
+- 本插件落点：新增 `life/memory_adapter.py`（`LifeMemoryAdapter`），本地 SQLite 降级为缓存；L2 各子项（统一记忆库、实体关系、关注对象、故地重游、记忆温度、回顾/胶囊等）按 `docs/features.md` 顺序推进。
+- 发布流程：上游先发兼容版本并补契约，本插件再整族协调升级（见“生态兼容性约束”）。
+
+### 对齐闸门
+
+- ESM `consume_energy` 未发布：L1-03 保持 blocked（features.md 已标注）。
+- engram_core `_PUBLIC_API.md` 未发布：L2 不开工，仅保留本提案与适配层设计。
 
 ## social_context（后置）
 

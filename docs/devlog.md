@@ -2,6 +2,14 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 上游契约审计与提案
+
+- 目标：确认剩余阶段（L1-03 / L2）的解锁条件，并把契约提案落盘供上游协调。
+- 已核实：ESM 本地 v0.10.4 `_PUBLIC_API.md` 仅公开 `get_bot_energy`，源码无 `consume_energy`（L1-03 保持 blocked）；engram_core 本地 1.74.0 无 `_PUBLIC_API.md`（L2 不开工）。
+- 决策：在 `docs/requirements.md` 落“待上游落地的契约提案”：ESM `consume_energy(amount, reason, scope=None) -> float`（v0.11 契约）；engram_core `_PUBLIC_API.md` 覆盖日记写入/召回/任务租约三组签名；发布兼容版本前不写下游实现，避免契约未定返工。
+- 改动：`docs/requirements.md`（兼容矩阵本插件版本 v0.2.4 → v0.4.3 + 契约提案 + 对齐闸门）、`docs/devlog.md`；纯文档，不 bump 版本。
+- 验证：UTF-8 读回无乱码。
+- 下一步：等 ESM `consume_energy` 与 engram_core `_PUBLIC_API.md` 上游发布后，落地 L1-03 与 L2（`life/memory_adapter.py` 起步）。
 ## 2026-08-12 L1.5-06 事件链可视化落地（L1.5 完成）
 
 - 目标：WebUI 按时间倒序展示事件流，事件带类型徽标、来源与可下钻 payload；只读视图支持 kind 过滤、分页与重放元数据。
