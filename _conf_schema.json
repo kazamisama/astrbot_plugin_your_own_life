@@ -1,0 +1,227 @@
+{
+  "enabled": {
+    "type": "bool",
+    "description": "启用互联网生活插件",
+    "hint": "关闭后不漫游、不写日记，命令与 WebUI 仍可查看历史档案",
+    "default": true
+  },
+  "browse_times": {
+    "type": "list",
+    "description": "每日漫游时间（HH:MM）",
+    "hint": "默认每天 10:00 与 15:00 各漫游一次",
+    "default": ["10:00", "15:00"],
+    "items": {
+      "type": "string"
+    }
+  },
+  "diary_time": {
+    "type": "string",
+    "description": "夜间复盘/写日记时间（HH:MM）",
+    "hint": "到点后汇总当天短记生成第一人称日记",
+    "default": "23:00"
+  },
+  "sleep_window": {
+    "type": "string",
+    "description": "睡眠窗口（如 00:00-07:00）",
+    "hint": "窗口内不触发定时漫游，手动 /life_now 不受限",
+    "default": "00:00-07:00"
+  },
+  "owner_ids": {
+    "type": "list",
+    "description": "允许执行命令的主人 ID",
+    "hint": "留空时仅要求 AstrBot 管理员权限；填写后同时校验发送者 ID",
+    "default": [],
+    "items": {
+      "type": "string"
+    }
+  },
+  "life_llm": {
+    "type": "string",
+    "description": "生活任务专用 LLM Provider ID",
+    "hint": "留空使用 AstrBot 当前默认 Provider",
+    "default": ""
+  },
+  "energy_gate": {
+    "type": "float",
+    "description": "精力门槛（0-1）",
+    "hint": "ESM 精力低于该值时跳过定时漫游，记录为“疲惫未出门”",
+    "default": 0.3
+  },
+  "explore_probability": {
+    "type": "float",
+    "description": "探索新话题概率（0-1）",
+    "hint": "每次漫游有该概率跳出高兴趣话题，随机看低权重领域",
+    "default": 0.2
+  },
+  "interest_decay": {
+    "type": "float",
+    "description": "兴趣每日衰减系数",
+    "hint": "每天乘一次，值小于 1 会让久不关注的话题慢慢降温",
+    "default": 0.98
+  },
+  "interests_initial": {
+    "type": "list",
+    "description": "初始兴趣领域（key 或 key:展示名）",
+    "hint": "首次运行时写入兴趣表，后续由 LLM 评估演化",
+    "default": [
+      "technology:科技",
+      "ai:人工智能",
+      "open-source:开源",
+      "science:科学",
+      "internet-culture:互联网文化"
+    ],
+    "items": {
+      "type": "string"
+    }
+  },
+  "hn_enabled": {
+    "type": "bool",
+    "description": "启用 Hacker News（Algolia API）",
+    "hint": "免密钥国际信息源",
+    "default": true
+  },
+  "github_enabled": {
+    "type": "bool",
+    "description": "启用 GitHub 公开搜索 API",
+    "hint": "免密钥但有速率限制，失败时自动跳过",
+    "default": true
+  },
+  "reddit_enabled": {
+    "type": "bool",
+    "description": "启用 Reddit 公开 JSON",
+    "hint": "免密钥国际信息源",
+    "default": true
+  },
+  "reddit_subreddits": {
+    "type": "list",
+    "description": "Reddit 子版块列表",
+    "hint": "按列表顺序抓取 hot 帖",
+    "default": ["programming", "artificial", "MachineLearning", "technology"],
+    "items": {
+      "type": "string"
+    }
+  },
+  "rss_feeds": {
+    "type": "list",
+    "description": "自定义 RSS/Atom 源",
+    "hint": "每行一个 URL",
+    "default": [],
+    "items": {
+      "type": "string"
+    }
+  },
+  "tavily_api_key": {
+    "type": "string",
+    "description": "可选：Tavily 搜索 API Key",
+    "hint": "留空不使用；填写后每次漫游额外带一轮网络搜索",
+    "default": ""
+  },
+  "db_path": {
+    "type": "string",
+    "description": "SQLite 数据库路径",
+    "hint": "留空使用 data/plugin_data/astrbot_plugin_your_own_life/life.db",
+    "default": ""
+  },
+  "source_timeout": {
+    "type": "float",
+    "description": "信息源请求超时（秒）",
+    "hint": "单个源超时不影响其他源",
+    "default": 10.0
+  },
+  "notes_min": {
+    "type": "int",
+    "description": "每次漫游最少短记数",
+    "hint": "LLM 至少挑选的数量，候选不足时以实际为准",
+    "default": 3
+  },
+  "notes_max": {
+    "type": "int",
+    "description": "每次漫游最多短记数",
+    "hint": "LLM 最多挑选的数量",
+    "default": 5
+  },
+  "life_personas": {
+    "type": "list",
+    "description": "允许过互联网生活的 persona 白名单",
+    "hint": "留空 = 插件不运行任何生活任务；填写 persona ID 后每个实例独立生活",
+    "default": [],
+    "items": {
+      "type": "string"
+    }
+  },
+  "browse_jitter_minutes": {
+    "type": "int",
+    "description": "漫游时间随机波动范围（±分钟）",
+    "hint": "每天每个 persona 每个槽位确定性掷一次，跨重启不变",
+    "default": 120
+  },
+  "diary_jitter_minutes": {
+    "type": "int",
+    "description": "夜间复盘时间随机波动范围（±分钟）",
+    "hint": "波动后日记仍锚定原始槽位日期",
+    "default": 60
+  },
+  "share_enabled": {
+    "type": "bool",
+    "description": "启用感悟分享",
+    "hint": "关闭后感悟只进档案，不主动发送",
+    "default": true
+  },
+  "share_daily_cap": {
+    "type": "int",
+    "description": "每 persona 每日成功分享上限",
+    "hint": "只统计成功发送的次数",
+    "default": 2
+  },
+  "share_cooldown_minutes": {
+    "type": "int",
+    "description": "同一会话分享冷却（分钟）",
+    "hint": "冷却期内不向该会话重复发送",
+    "default": 360
+  },
+  "share_include_link": {
+    "type": "bool",
+    "description": "分享消息末尾附带源链接",
+    "hint": "关闭后只发感悟文本",
+    "default": true
+  },
+  "share_max_chars": {
+    "type": "int",
+    "description": "分享消息最大字数",
+    "hint": "超出部分截断",
+    "default": 200
+  },
+  "share_sessions": {
+    "type": "list",
+    "description": "每 persona 允许分享的会话 sid 白名单",
+    "hint": "每行一条：persona_id:sid，例如 shelly:aiocqhttp:GroupMessage:123",
+    "default": [],
+    "items": {
+      "type": "string"
+    }
+  },
+  "persona_prompt_max_chars": {
+    "type": "int",
+    "description": "注入生活 prompt 的人格 system_prompt 最大字数",
+    "hint": "超长截断，避免撑爆生活任务上下文",
+    "default": 6000
+  },
+  "persona_cache_hours": {
+    "type": "float",
+    "description": "人格缓存刷新间隔（小时）",
+    "hint": "每天首次生活任务前检查，超期自动刷新",
+    "default": 24.0
+  },
+  "esm_scope_prefix": {
+    "type": "string",
+    "description": "ESM 作用域前缀",
+    "hint": "最终 scope 形如 {prefix}:{persona_id}",
+    "default": "internet-life"
+  },
+  "life_tool_enabled": {
+    "type": "bool",
+    "description": "向 LLM 注册 query_life_memory 自查询工具",
+    "hint": "关闭后 LLM 无法调用生活档案查询工具",
+    "default": true
+  }
+}

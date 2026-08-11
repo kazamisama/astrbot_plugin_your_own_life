@@ -1,0 +1,653 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your Own Life · 互联网生活档案</title>
+<style>
+:root {
+  --bg: #f4f6f8;
+  --panel: #ffffff;
+  --ink: #18222f;
+  --muted: #64748b;
+  --line: #dbe2ea;
+  --accent: #0f766e;
+  --accent-soft: #ecfdf5;
+  --danger: #b91c1c;
+  --warn: #b45309;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.55 -apple-system, "Segoe UI", Roboto, "Microsoft YaHei", sans-serif;
+}
+.wrap { max-width: 1120px; margin: 0 auto; padding: 20px 20px 48px; }
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 0 16px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 14px;
+}
+.topbar h1 { font-size: 20px; margin: 0; letter-spacing: 0; }
+.meta { color: var(--muted); font-size: 13px; }
+.spacer { flex: 1; }
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  border-radius: 6px;
+  padding: 7px 11px;
+  font-size: 13px;
+  cursor: pointer;
+  min-height: 32px;
+}
+.btn:hover { border-color: #b6c2cf; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.small { padding: 4px 9px; min-height: 26px; font-size: 12px; }
+.btn svg { width: 15px; height: 15px; flex: none; }
+select, input[type="date"], input[type="text"] {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--panel);
+  min-height: 32px;
+}
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+}
+.tab {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 7px 14px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.stat {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px 14px;
+  min-height: 64px;
+}
+.stat .label { display: block; color: var(--muted); font-size: 12px; }
+.stat .value { display: block; font-size: 22px; font-weight: 600; margin-top: 4px; letter-spacing: 0; }
+.grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; }
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 16px;
+  min-width: 0;
+}
+.panel h2 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
+.diary { grid-column: span 8; }
+.notes { grid-column: span 4; }
+.chart { grid-column: span 8; }
+.interests { grid-column: span 4; }
+.diary-text { white-space: pre-wrap; margin: 0; }
+.empty { color: var(--muted); }
+.note-list, .interest-list, .log-list { list-style: none; margin: 0; padding: 0; }
+.note-list li, .log-list li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.note-list li:last-child, .interest-list li:last-child, .log-list li:last-child { border-bottom: 0; }
+.note-title { font-weight: 600; }
+.note-src { color: var(--muted); font-size: 12px; }
+.note-summary { color: #334155; margin-top: 4px; }
+.note-opinion { color: var(--accent); margin-top: 4px; font-size: 13px; }
+.chip-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.chip {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 12px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.interest-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; }
+.interest-name { min-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.interest-bar { flex: 1; height: 8px; background: #eef2f6; border-radius: 4px; overflow: hidden; }
+.interest-fill { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+.interest-weight { width: 38px; text-align: right; color: var(--muted); font-size: 12px; }
+#chartBox { min-height: 160px; }
+#chartBox svg { display: block; width: 100%; height: auto; }
+.search-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.persona-panel { grid-column: span 12; }
+.status-pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; background: var(--accent-soft); color: var(--accent); }
+.status-pill.bad { background: #fef2f2; color: var(--danger); }
+.tag { display: inline-block; background: #eef2f6; border-radius: 4px; padding: 0 6px; margin-right: 4px; font-size: 12px; }
+@media (max-width: 860px) {
+  .diary, .notes, .chart, .interests, .persona-panel { grid-column: span 12; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="topbar">
+    <h1>Your Own Life</h1>
+    <span class="meta" id="meta">互联网生活档案</span>
+    <div class="spacer"></div>
+    <select id="personaSelect" title="选择 persona"></select>
+    <input type="date" id="dateInput" title="选择日期">
+    <button class="btn" id="refreshBtn" title="刷新">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+      刷新
+    </button>
+    <button class="btn primary" id="runBtn" title="立即漫游">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+      漫游
+    </button>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="life">生活</button>
+    <button class="tab" data-tab="memory">记忆</button>
+    <button class="tab" data-tab="share">分享</button>
+  </nav>
+
+  <section id="tab-life">
+    <div class="stats">
+      <div class="stat"><span class="label">当日漫游</span><span class="value" id="statSessions">-</span></div>
+      <div class="stat"><span class="label">见闻短记</span><span class="value" id="statNotes">-</span></div>
+      <div class="stat"><span class="label">成功 / 跳过</span><span class="value" id="statStatus">-</span></div>
+      <div class="stat"><span class="label">分享 / 被拦</span><span class="value" id="statShare">-</span></div>
+    </div>
+    <div class="grid">
+      <section class="panel diary">
+        <h2>今日日记</h2>
+        <p class="diary-text empty" id="diaryText">暂无日记。夜间复盘后会出现。</p>
+      </section>
+      <section class="panel notes">
+        <h2>浏览足迹</h2>
+        <ul class="note-list" id="notesList"></ul>
+      </section>
+      <section class="panel chart">
+        <h2>精力轨迹</h2>
+        <div id="chartBox"><p class="empty">暂无状态数据。</p></div>
+      </section>
+      <section class="panel interests">
+        <h2>兴趣排行</h2>
+        <ul class="interest-list" id="interestsList"></ul>
+      </section>
+      <section class="panel persona-panel">
+        <h2>人格缓存</h2>
+        <ul class="note-list" id="personaList"></ul>
+      </section>
+    </div>
+  </section>
+
+  <section id="tab-memory" hidden>
+    <div class="stats">
+      <div class="stat"><span class="label">记忆总数</span><span class="value" id="memTotal">-</span></div>
+      <div class="stat"><span class="label">日记篇数</span><span class="value" id="memDiary">-</span></div>
+      <div class="stat"><span class="label">分类数</span><span class="value" id="memCategories">-</span></div>
+      <div class="stat"><span class="label">当前结果</span><span class="value" id="memResults">-</span></div>
+    </div>
+    <section class="panel">
+      <h2>分类筛选</h2>
+      <div class="chip-row" id="categoryChips"></div>
+      <div class="search-row">
+        <input type="text" id="memoryQuery" placeholder="关键词" style="flex:1;min-width:180px">
+        <input type="date" id="memoryDate">
+        <button class="btn" id="memorySearchBtn">搜索</button>
+      </div>
+      <ul class="note-list" id="memoryResults"></ul>
+    </section>
+  </section>
+
+  <section id="tab-share" hidden>
+    <div class="stats">
+      <div class="stat"><span class="label">今日成功</span><span class="value" id="shareSent">-</span></div>
+      <div class="stat"><span class="label">被拦次数</span><span class="value" id="shareBlocked">-</span></div>
+      <div class="stat"><span class="label">待分享</span><span class="value" id="sharePending">-</span></div>
+      <div class="stat"><span class="label">白名单会话</span><span class="value" id="shareSessions">-</span></div>
+    </div>
+    <div class="grid">
+      <section class="panel notes">
+        <h2>待分享感悟</h2>
+        <ul class="note-list" id="pendingList"></ul>
+      </section>
+      <section class="panel notes">
+        <h2>分享日志</h2>
+        <ul class="log-list" id="shareLogList"></ul>
+      </section>
+    </div>
+  </section>
+</div>
+
+<script>
+var API = "/api/plug/astrbot_plugin_your_own_life/api";
+var state = {
+  persona: "",
+  tab: "life",
+  category: ""
+};
+
+var dateInput = document.getElementById("dateInput");
+var personaSelect = document.getElementById("personaSelect");
+
+function today() {
+  var d = new Date();
+  var m = String(d.getMonth() + 1).padStart(2, "0");
+  var day = String(d.getDate()).padStart(2, "0");
+  return d.getFullYear() + "-" + m + "-" + day;
+}
+
+function escapeHtml(text) {
+  var div = document.createElement("div");
+  div.textContent = text == null ? "" : String(text);
+  return div.innerHTML;
+}
+
+function qs(params) {
+  var parts = Object.keys(params).map(function (k) {
+    return encodeURIComponent(k) + "=" + encodeURIComponent(params[k] || "");
+  });
+  return parts.join("&");
+}
+
+function switchTab(name) {
+  state.tab = name;
+  document.querySelectorAll(".tab").forEach(function (b) {
+    b.classList.toggle("active", b.dataset.tab === name);
+  });
+  document.getElementById("tab-life").hidden = name !== "life";
+  document.getElementById("tab-memory").hidden = name !== "memory";
+  document.getElementById("tab-share").hidden = name !== "share";
+  if (name === "memory") loadMemory();
+  if (name === "share") loadShare();
+}
+
+function loadPersonas() {
+  return fetch(API + "/personas", { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var whitelist = data.whitelist || [];
+      if (!whitelist.length) whitelist = ["default"];
+      personaSelect.innerHTML = "";
+      whitelist.forEach(function (pid) {
+        var opt = document.createElement("option");
+        opt.value = pid;
+        opt.textContent = pid;
+        personaSelect.appendChild(opt);
+      });
+      if (!state.persona || whitelist.indexOf(state.persona) === -1) {
+        state.persona = whitelist[0];
+      }
+      personaSelect.value = state.persona;
+      renderPersonas(data.cache || []);
+    });
+}
+
+function renderPersonas(rows) {
+  var ul = document.getElementById("personaList");
+  ul.innerHTML = "";
+  if (!rows.length) {
+    var li = document.createElement("li");
+    li.className = "empty";
+    li.textContent = "暂无缓存，首次生活任务前会自动解析。";
+    ul.appendChild(li);
+    return;
+  }
+  rows.forEach(function (row) {
+    var li = document.createElement("li");
+    var name = document.createElement("span");
+    name.className = "note-title";
+    name.textContent = row.persona_id;
+    var pill = document.createElement("span");
+    pill.className = "status-pill" + (row.status === "error" ? " bad" : "");
+    pill.textContent = row.status || "?";
+    var btn = document.createElement("button");
+    btn.className = "btn small";
+    btn.textContent = "刷新";
+    btn.addEventListener("click", function () {
+      fetch(API + "/persona_refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ persona: row.persona_id })
+      }).then(function () { return loadPersonas(); });
+    });
+    li.appendChild(name);
+    li.appendChild(pill);
+    if (row.error) {
+      var err = document.createElement("div");
+      err.className = "note-src";
+      err.textContent = row.error;
+      li.appendChild(err);
+    }
+    li.appendChild(btn);
+    ul.appendChild(li);
+  });
+}
+
+function renderStats(overview) {
+  var stats = overview.stats || {};
+  document.getElementById("statSessions").textContent = stats.sessions || 0;
+  document.getElementById("statNotes").textContent = stats.notes || 0;
+  document.getElementById("statStatus").textContent = (stats.completed || 0) + " / " + (stats.skipped || 0);
+  document.getElementById("statShare").textContent = (stats.shares_sent || 0) + " / " + (stats.shares_blocked || 0);
+}
+
+function renderDiary(overview) {
+  var el = document.getElementById("diaryText");
+  var diary = overview.diary;
+  if (diary && diary.content) {
+    el.textContent = diary.content;
+    el.className = "diary-text";
+  } else {
+    el.textContent = "暂无日记。夜间复盘后会出现。";
+    el.className = "diary-text empty";
+  }
+}
+
+function renderNotes(overview) {
+  var ul = document.getElementById("notesList");
+  ul.innerHTML = "";
+  var notes = overview.notes || [];
+  if (!notes.length) {
+    var empty = document.createElement("li");
+    empty.className = "empty";
+    empty.textContent = "今天还没有见闻。";
+    ul.appendChild(empty);
+    return;
+  }
+  notes.forEach(function (note) {
+    var li = document.createElement("li");
+    var title = document.createElement("div");
+    title.className = "note-title";
+    title.textContent = note.title || "(无标题)";
+    var src = document.createElement("div");
+    src.className = "note-src";
+    src.textContent = (note.category || "other") + " · " + (note.mood || "neutral");
+    var summary = document.createElement("div");
+    summary.className = "note-summary";
+    summary.textContent = note.summary || "";
+    li.appendChild(title);
+    li.appendChild(src);
+    if (summary.textContent) li.appendChild(summary);
+    if (note.opinion) {
+      var opinion = document.createElement("div");
+      opinion.className = "note-opinion";
+      opinion.textContent = "想法：" + note.opinion;
+      li.appendChild(opinion);
+    }
+    ul.appendChild(li);
+  });
+}
+
+function renderInterests(overview) {
+  var ul = document.getElementById("interestsList");
+  ul.innerHTML = "";
+  var interests = overview.interests || [];
+  if (!interests.length) {
+    var empty = document.createElement("li");
+    empty.className = "empty";
+    empty.textContent = "暂无兴趣数据。";
+    ul.appendChild(empty);
+    return;
+  }
+  interests.forEach(function (row) {
+    var li = document.createElement("li");
+    li.className = "interest-row";
+    var name = document.createElement("span");
+    name.className = "interest-name";
+    name.textContent = row.name || row.key;
+    name.title = row.name || row.key;
+    var bar = document.createElement("span");
+    bar.className = "interest-bar";
+    var fill = document.createElement("span");
+    fill.className = "interest-fill";
+    fill.style.width = Math.round((row.weight || 0) * 100) + "%";
+    bar.appendChild(fill);
+    var weight = document.createElement("span");
+    weight.className = "interest-weight";
+    weight.textContent = (row.weight || 0).toFixed(2);
+    li.appendChild(name);
+    li.appendChild(bar);
+    li.appendChild(weight);
+    ul.appendChild(li);
+  });
+}
+
+function renderChart(overview) {
+  var box = document.getElementById("chartBox");
+  var snapshots = (overview.snapshots || []).slice().reverse();
+  var points = snapshots
+    .map(function (s) { return s.energy; })
+    .filter(function (v) { return typeof v === "number"; });
+  if (points.length < 2) {
+    box.innerHTML = '<p class="empty">暂无足够的状态数据。</p>';
+    return;
+  }
+  var w = 600, h = 160, pad = 18;
+  var min = Math.min.apply(null, points), max = Math.max.apply(null, points);
+  if (max - min < 0.01) { max = min + 0.1; }
+  var step = (w - pad * 2) / (points.length - 1);
+  var coords = points.map(function (v, i) {
+    var x = pad + i * step;
+    var y = h - pad - ((v - min) / (max - min)) * (h - pad * 2);
+    return x.toFixed(1) + "," + y.toFixed(1);
+  });
+  var grid = "";
+  for (var g = 1; g <= 3; g++) {
+    var gy = pad + ((h - pad * 2) / 4) * g;
+    grid += '<line x1="' + pad + '" y1="' + gy + '" x2="' + (w - pad) + '" y2="' + gy + '" stroke="#eef2f6" stroke-width="1"/>';
+  }
+  box.innerHTML =
+    '<svg viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="精力轨迹图">' +
+    grid +
+    '<polyline points="' + coords.join(" ") + '" fill="none" stroke="#0f766e" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' +
+    '</svg>';
+}
+
+function loadLife() {
+  var date = dateInput.value || today();
+  document.getElementById("meta").textContent = "互联网生活档案 · " + state.persona + " · " + date;
+  fetch(API + "/overview?" + qs({ persona: state.persona, date: date }), { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      renderStats(data);
+      renderDiary(data);
+      renderNotes(data);
+      renderInterests(data);
+      renderChart(data);
+    })
+    .catch(function () { document.getElementById("meta").textContent = "档案加载失败"; });
+}
+
+function renderMemoryChips(data) {
+  var box = document.getElementById("categoryChips");
+  box.innerHTML = "";
+  var chips = [["", "全部"]].concat((data.categories || []).map(function (c) {
+    return [c.category, c.category + " (" + c.n + ")"];
+  }));
+  chips.forEach(function (pair) {
+    var btn = document.createElement("button");
+    btn.className = "chip" + (state.category === pair[0] ? " active" : "");
+    btn.textContent = pair[1];
+    btn.addEventListener("click", function () {
+      state.category = pair[0];
+      renderMemoryChips(data);
+      loadMemory();
+    });
+    box.appendChild(btn);
+  });
+}
+
+function loadMemory() {
+  fetch(API + "/memory?" + qs({ persona: state.persona }), { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      document.getElementById("memTotal").textContent = data.total_notes || 0;
+      document.getElementById("memDiary").textContent = data.diary_count || 0;
+      document.getElementById("memCategories").textContent = (data.categories || []).length || 0;
+      renderMemoryChips(data);
+    });
+  var query = document.getElementById("memoryQuery").value;
+  var date = document.getElementById("memoryDate").value;
+  fetch(API + "/memory_search?" + qs({ persona: state.persona, query: query, category: state.category, date: date, k: 20 }), { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      document.getElementById("memResults").textContent = data.count || 0;
+      var ul = document.getElementById("memoryResults");
+      ul.innerHTML = "";
+      (data.items || []).forEach(function (item) {
+        var li = document.createElement("li");
+        var title = document.createElement("div");
+        title.className = "note-title";
+        title.textContent = item.kind === "diary" ? ("日记 · " + item.date) : (item.title || "(无标题)");
+        var src = document.createElement("div");
+        src.className = "note-src";
+        src.textContent = item.kind + " · " + (item.category || "") + " · " + (item.date || "");
+        li.appendChild(title);
+        li.appendChild(src);
+        var body = item.kind === "diary" ? item.content : (item.summary || "");
+        if (item.opinion) body += " 想法：" + item.opinion;
+        if (body) {
+          var summary = document.createElement("div");
+          summary.className = "note-summary";
+          summary.textContent = body;
+          li.appendChild(summary);
+        }
+        (item.tags || []).forEach(function (tag) {
+          var span = document.createElement("span");
+          span.className = "tag";
+          span.textContent = tag;
+          li.appendChild(span);
+        });
+        ul.appendChild(li);
+      });
+      if (!(data.items || []).length) {
+        var empty = document.createElement("li");
+        empty.className = "empty";
+        empty.textContent = "没有匹配的记忆。";
+        ul.appendChild(empty);
+      }
+    });
+}
+
+function loadShare() {
+  var date = dateInput.value || today();
+  fetch(API + "/share?" + qs({ persona: state.persona, date: date }), { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var logs = data.logs || [];
+      var pending = data.pending || [];
+      document.getElementById("shareSent").textContent = logs.filter(function (l) { return l.status === "sent"; }).length;
+      document.getElementById("shareBlocked").textContent = logs.filter(function (l) { return l.status === "blocked"; }).length;
+      document.getElementById("sharePending").textContent = pending.length;
+      document.getElementById("shareSessions").textContent = (data.sessions || []).length;
+
+      var ul = document.getElementById("pendingList");
+      ul.innerHTML = "";
+      if (!pending.length) {
+        var empty = document.createElement("li");
+        empty.className = "empty";
+        empty.textContent = "没有待分享的感悟。";
+        ul.appendChild(empty);
+      }
+      pending.forEach(function (note) {
+        var li = document.createElement("li");
+        var title = document.createElement("div");
+        title.className = "note-title";
+        title.textContent = note.title || "(无标题)";
+        li.appendChild(title);
+        var btn = document.createElement("button");
+        btn.className = "btn small primary";
+        btn.textContent = "手动分享";
+        btn.addEventListener("click", function () {
+          fetch(API + "/share_note", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ persona: state.persona, note_id: note.id })
+          }).then(function () { loadShare(); });
+        });
+        li.appendChild(btn);
+        ul.appendChild(li);
+      });
+
+      var logUl = document.getElementById("shareLogList");
+      logUl.innerHTML = "";
+      if (!logs.length) {
+        var logEmpty = document.createElement("li");
+        logEmpty.className = "empty";
+        logEmpty.textContent = "今天还没有分享尝试。";
+        logUl.appendChild(logEmpty);
+      }
+      logs.forEach(function (log) {
+        var li = document.createElement("li");
+        var line = document.createElement("div");
+        line.textContent = "[" + log.status + "] " + (log.target_sid || "") + " " + (log.reason || "");
+        li.appendChild(line);
+        if (log.message) {
+          var msg = document.createElement("div");
+          msg.className = "note-src";
+          msg.textContent = log.message;
+          li.appendChild(msg);
+        }
+        logUl.appendChild(li);
+      });
+    });
+}
+
+function load() {
+  loadPersonas().then(function () {
+    loadLife();
+    if (state.tab === "memory") loadMemory();
+    if (state.tab === "share") loadShare();
+  });
+}
+
+document.querySelectorAll(".tab").forEach(function (btn) {
+  btn.addEventListener("click", function () { switchTab(btn.dataset.tab); });
+});
+document.getElementById("refreshBtn").addEventListener("click", load);
+document.getElementById("dateInput").addEventListener("change", load);
+document.getElementById("personaSelect").addEventListener("change", function () {
+  state.persona = personaSelect.value;
+  load();
+});
+document.getElementById("runBtn").addEventListener("click", function () {
+  fetch(API + "/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ persona: state.persona })
+  }).then(function () { setTimeout(load, 3000); });
+});
+document.getElementById("memorySearchBtn").addEventListener("click", loadMemory);
+document.getElementById("memoryQuery").addEventListener("keydown", function (e) {
+  if (e.key === "Enter") loadMemory();
+});
+
+dateInput.value = today();
+load();
+</script>
+</body>
+</html>
