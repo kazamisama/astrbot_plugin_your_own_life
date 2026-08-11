@@ -2,6 +2,44 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 第五轮 review 修复
+
+- 修正：`docs/workflow.md` 提交信息规则与 AGENTS.md 对齐——纯文档 `docs: ...` 不 bump 版本，功能/修复 `chore(release): ...` 同步版本与 CHANGELOG。
+- 验证：UTF-8 读回无乱码。
+- 下一步：如需提交推送请告知；否则按 `docs/features.md` 开发顺序开工。
+
+## 2026-08-12 第四轮 review 修复
+
+- 修正：
+  - `docs/features.md` L1-02：验收改为“无历史时不触发”，冷启动期判定待冷启动方向落地后接入。
+  - `docs/features.md` L2-04：依赖注明金字塔未落地时用确定性聚合回退。
+  - `AGENTS.md` 规则 2：commit 信息区分纯文档（`docs: ...`）与功能/修复（`chore(release): ...`）。
+- 验证：UTF-8 读回无乱码。
+- 下一步：如需提交推送请告知；否则按 `docs/features.md` 开发顺序开工。
+
+## 2026-08-12 第三轮 review 修复
+
+- 修正：
+  - `docs/requirements.md` 对接降级策略：ESM 静默 no-op 限定为 v0.2.4 现状，v1.1 新契约按 L1-03 处理。
+  - `docs/design.md` 数据模型补未来新增表索引（daily_usage / life_leases / change_log / event_chain / life_plans / action_log / wishlist / center_state / thoughts / entities 族）。
+  - `docs/design.md` 硬边界“不注册账号、不发帖”加 v1 限定，指向 v1.5+ 社交表达方向。
+  - `README.md` 生态联动补“现状 v0.2.4”标注。
+- 验证：UTF-8 读回无乱码。
+- 下一步：如需提交推送请告知；否则按 `docs/features.md` 开发顺序开工。
+
+## 2026-08-12 第二轮 review 修复
+
+- 决策（用户拍板）：修掉第二轮 review 的 P2/P3。
+- 修正：
+  - 静默降级表述区分版本：v0.2.4 现状降级仅作过渡，v1.1 计划内新契约（`consume_energy`）不再默认静默降级（design.md / requirements.md）。
+  - run 级原子性明确“暂存区优先”：漫游/复盘先写暂存表，SQLite 事务只包住最终落库，避免写锁横跨网络/LLM await（features.md L1-11 / design.md）。
+  - 同人格单 SQL 补部署前提：仅适用于共享卷（同一主机或挂载盘），跨主机走 v2 统一库租约（features.md L1-16 / design.md）。
+  - 预算用量落点：新增 `daily_usage` 表（persona_id / date / llm_calls / tokens）（features.md L1-11 / design.md）。
+  - `lease_ttl_seconds` 拆分：L2-09 改用 `memory_lease_ttl_seconds`，与 v1 本地租约区分。
+  - L1-02 与 L2-11 的 revisit 语义补命名区分。
+- 验证：UTF-8 读回无乱码；变更 grep 通过。
+- 下一步：如需提交推送请告知；否则按 `docs/features.md` 开发顺序开工。
+
 ## 2026-08-12 review 问题修复
 
 - 决策（用户拍板）：`/life_today` 并入 L1-08；`LifeMemoryAdapter` 收敛放 L2；热力图接口用 `/timeline/heatmap`。

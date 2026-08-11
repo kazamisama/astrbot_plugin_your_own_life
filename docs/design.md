@@ -53,6 +53,7 @@ Your Own Life 是一个观察者模式的 AstrBot 插件：Bot 不注册账号�
 - `seen_items`：按 URL 哈希去重缓存。
 - `share_log`：分享尝试日志。
 - `persona_prompts`：人格 prompt 缓存与错误状态。
+- 未来新增表：`daily_usage`、`life_leases`、`change_log`、`event_chain`、`life_plans`、`action_log`、`wishlist`、`center_state`、`thoughts`、`entities / entity_mentions / entity_links` 等，随对应功能落地（见 `docs/features.md` 与本文档方向章节）。
 
 ## 实体与维度模型（方向，已排期 L2）
 
@@ -167,9 +168,9 @@ hunger = 0（触发一次意外后清空）
 
 现状 v0.2.4：LLM 失败时使用确定性 fallback（`_fallback_selected` / `_fallback_diary`），不重试、不报 error。以下为 v1.1 目标语义。
 
-- 预算全部可配置：`daily_llm_call_limit` 与 `daily_token_budget` 默认 `0`（无上限）；达到上限后当天剩余任务跳过并记录 `budget_exhausted`，WebUI 展示用量。多轮联想每轮召回候选上限 5（第 1 轮 5、第 2 轮 3、brainstorm 3-5），`hop_limit` 默认 2（brainstorm 5）。`daily_token_budget` 的计量依赖 provider 是否返回 usage；拿不到 token 用量时只执行调用次数上限。
+- 预算全部可配置：`daily_llm_call_limit` 与 `daily_token_budget` 默认 `0`（无上限）；达到上限后当天剩余任务跳过并记录 `budget_exhausted`，WebUI 展示用量。多轮联想每轮召回候选上限 5（第 1 轮 5、第 2 轮 3、brainstorm 3-5），`hop_limit` 默认 2（brainstorm 5）。`daily_token_budget` 的计量依赖 provider 是否返回 usage；拿不到 token 用量时只执行调用次数上限。用量落点：新增 `daily_usage` 表（persona_id / date / llm_calls / tokens）承载每日计数，WebUI 用量视图读取该表。
 - 重试：LLM 调用失败重试上限 `llm_retry_limit` 默认 3，带指数退避；重试耗尽后该任务标记 `failed` 并报 error（WebUI 错误区 + 命令 + 日志），不生成确定性伪造内容。
-- 崩溃：每个漫游/复盘 run 在事务/暂存区内写数据；进程崩溃或异常中断时丢弃该 run 全部未提交数据，不写半成品 note/diary，`browse_sessions` 标记 `failed` 并记录 error；不自动重放，可 `/life_now` 手动重跑。
+- 崩溃：每个漫游/复盘 run 采用暂存区（staging）优先，SQLite 写事务只包住最终落库阶段；进程崩溃或异常中断时丢弃该 run 全部未提交数据，不写半成品 note/diary，`browse_sessions` 标记 `failed` 并记录 error；不自动重放，可 `/life_now` 手动重跑。
 
 ## 生活节奏与频率（方向，部分已排期 L1：peek/频率模型）
 
@@ -217,7 +218,7 @@ upsert_entity(persona_id, entity)   / link_entities(...)
 query_memory(persona_id, query)     / search(...)
 ```
 
-本插件通过 `LifeMemoryAdapter` 读写统一库，本地 SQLite 只保留启动所需缓存与降级能力；适配层负责契约与版本兼容，v2 起为硬依赖，v1 的“缺失静默降级”只作为过渡行为。
+本插件通过 `LifeMemoryAdapter` 读写统一库，本地 SQLite 只保留启动所需缓存与降级能力；适配层负责契约与版本兼容，v2 起为硬依赖，v0.2.4 的“缺失静默降级”只作为过渡行为（v1.1 计划内新契约不再默认降级）。
 
 ### 生态兼容约束
 
@@ -244,7 +245,7 @@ kazamisama 插件家族必须整体兼容，但兼容不等于冻结：允许对
 
 - 人格经历应严格线性：事件链是单写者 append-only，一个 persona 同一时刻只经历/决定一件事；租约不是允许并行，而是多实例下保证单写者的物理原语。单实例时由 SQLite 事务 + 内存事件队列承担，不需要租约；执行阶段可重叠（抓取/LLM 调用耗时），但记忆写入与人格决策必须串行化。
 - 不同人格 = 不同记忆库（统一库按 `persona_id` 分区），人格之间天然无锁竞争；v1 不做按 persona 分文件的复杂度。
-- 同人格多实例：所有实例必须共享同一个 SQLite 文件（同一 `db_path`），槽位唯一键 `(persona_id, slot_key, local_date)` 先写先得；写操作带 `idempotency_key`；本地库用 `BEGIN IMMEDIATE` 短事务 + WAL + `busy_timeout`。文件不共享则租约表互相不可见，互斥失效。
+- 同人格多实例：所有实例必须共享同一个 SQLite 文件（同一 `db_path`），槽位唯一键 `(persona_id, slot_key, local_date)` 先写先得；写操作带 `idempotency_key`；本地库用 `BEGIN IMMEDIATE` 短事务 + WAL + `busy_timeout`。文件不共享则租约表互相不可见，互斥失效；共享文件仅适用于共享卷（同一主机或挂载盘），跨主机场景走 v2 统一库租约。
 - 租约：同一人格同一任务同一时刻只能有一个执行者。v1 用 `life_leases` 表实现 persona+任务级租约（holder / acquired_at / expires_at，TTL + 续租，过期自动释放）；拿不到租约的实例跳过该槽位并记录 `skipped_duplicate`。
 - v2 统一库：记忆宿主提供版本化 `claim_task / renew_task / release_task` 公开 API，本插件只经 `LifeMemoryAdapter` 调用，契约需求见 `docs/requirements.md`。
 
@@ -459,8 +460,8 @@ LLM 可自主更改生活数据/计划/记忆，按事件链自主排期，并�
 ## 硬边界
 
 - 不持久化网页原文、HTML 或截图，只保留摘要、观点、链接与链接标题。
-- 不注册账号、不发帖，所有生活都发生在可查询的档案侧。
+- （v1）不注册账号、不发帖，所有生活都发生在可查询的档案侧；跨平台社交表达为 v1.5+ 方向。
 - 命令仅 owner 可执行；WebUI 受 Dashboard 登录态约束。
-- v1 中 ESM/上游能力缺失时静默降级；未来 v2 起 ESM 与统一记忆宿主为硬依赖，降级只作为过渡期行为。
+- v0.2.4 现状中 ESM/上游能力缺失时静默降级；v1.1 计划内新契约（如精力预算的 `consume_energy`）按 features.md L1-03 处理，不再默认静默降级；v2 起 ESM 与统一记忆宿主为硬依赖。
 - 提示词注入面：外部抓取内容（正文/标题/作者/评论）、平台消息、RSS/搜索元数据、记忆召回内容、LLM 工具返回、persona/system prompt 源。除 owner 直接配置外一律视为不可信数据；LLM 的挑选/总结只把它们当素材，内容中的任何指令不得触发动作；输出严格按 JSON schema 解析，疑似注入记录日志并在 WebUI 审计。
 - 记忆卫生：记忆一律以数据身份注入（标注来源与时间），不携带执行指令；LLM 自生成的摘要/thought/center state 进入 prompt 时同样按数据对待，防止“记忆污染”经召回二次放大；center state 演化提案带 `source_refs` 可溯源。

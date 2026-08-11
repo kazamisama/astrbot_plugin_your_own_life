@@ -13,7 +13,7 @@
 ## 硬性规则
 
 1. 先读源码再改：入口、核心模块、适配层、`metadata.yaml`、`_conf_schema.json`、测试；跨插件改动先看对方 `_PUBLIC_API.md` 或适配器。未读不改。
-2. 小阶段推进：一个阶段 = 一个可交付功能/修复；落地时同步 `metadata.yaml` 版本与 `CHANGELOG.md`；commit 信息按仓库习惯（`chore(release): vX.Y.Z ...`）；review + debug + 测试通过后再 push。
+2. 小阶段推进：一个阶段 = 一个可交付功能/修复；落地时同步 `metadata.yaml` 版本与 `CHANGELOG.md`；commit 信息按仓库习惯：功能/修复用 `chore(release): vX.Y.Z ...`，纯文档改动用 `docs: ...`；review + debug + 测试通过后再 push。
 3. 开发日志：每个工作段结束或上下文可能压缩前，更新 `docs/devlog.md`（目标/决策/改动/验证/遗留/下一步）；新会话先读最新条目与 `git status` 再动手；决策、契约、版本点、待办不允许只存在对话里。
 4. 外部调研：开发前/中联网搜相关项目/经验/论文，结论带来源并标注“已验证/推测/待验证”；没读过的资料不当事实。
 5. Subagent：只做调研/测试/审查/起草；决策、编辑、提交、推送由主 agent 完成；subagent 未获授权不得改文件，结论必须先 review 再落地；七条完整约束见 `docs/workflow.md`。

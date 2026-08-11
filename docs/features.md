@@ -52,7 +52,8 @@
 - 依赖：夜间复盘（L0）、历史短记。
 - 模块：`life/browser.py`、`life/prompts.py`、`life/db.py`（查询接口）。
 - 配置：`revisit_days`（默认 `[7, 30]`）、`revisit_probability`（默认 0.5）。
-- 验收：有历史时日记含回看段落；无历史或冷启动期不触发；LLM 失败走 L1-11 重试语义。
+- 验收：有历史时日记含回看段落；无历史时不触发（冷启动方向落地后再接入冷启动期判定）；LLM 失败走 L1-11 重试语义。
+- 命名区分：本项是夜间日记回看；与 L2-11 故地重游（定期重访收藏链接）不同。
 
 ### L1-03 精力预算
 
@@ -127,8 +128,9 @@
 - 模块：`life/llm.py`、`life/browser.py`、`life/db.py`、`life/webui.py`。
 - 配置：`daily_llm_call_limit`（默认 `0` 无上限）、`daily_token_budget`（默认 `0` 无上限）、`llm_retry_limit`（默认 3）。
 - 验收：重试 3 次耗尽后任务标记 `failed` 并报 error，不生成伪造内容；run 级暂存，崩溃丢弃未提交数据；现有确定性 fallback 从 L1 起移除（现状 v0.2.4 仍保留）。
-- 前置改造：run 级原子性需要把漫游/复盘写入改为单事务或暂存区（现状 `db._execute` 默认每条语句独立 commit）；同步更新现有 fallback 相关测试。
+- 前置改造：run 级原子性采用暂存区（staging）优先——漫游/复盘先写暂存表，全部成功后一次落库；SQLite 写事务只包住最终落库阶段，避免写锁横跨网络/LLM await。现状 `db._execute` 默认每条语句独立 commit，需要改造；同步更新现有 fallback 相关测试。
 - 计量说明：`daily_token_budget` 依赖 AstrBot provider 是否返回 usage；拿不到 token 用量时只执行调用次数上限，并在 WebUI 标注“token 计量不可用”。
+- 用量落点：每日 LLM 调用与 token 用量写入 `daily_usage` 表（persona_id / date / llm_calls / tokens），WebUI 用量视图读取该表。
 
 ### L1-12 时区
 
@@ -170,6 +172,7 @@
 - 模块：`life/config.py`（校验同人格 `db_path` 一致）、`life/db.py`（`life_leases` 表）、`life/scheduler.py`。
 - 配置：`lease_ttl_seconds`（默认 300）。
 - 验收：同人格所有实例必须指向同一 `db_path`；两个进程同时触发同一槽位只有一个执行，另一个记录 `skipped_duplicate`；不做按 persona 分文件的复杂度。
+- 部署前提：同一 SQLite 文件仅适用于共享卷（同一主机或挂载盘）；跨主机共享 SQLite 文件不在 v1 支持范围，跨主机场景直接走 v2 统一库租约。
 
 ## L1.5 v1.5 事件链与自主排期（已确认方向）
 
@@ -250,7 +253,7 @@
 ### L2-04 月度/年度回顾
 
 - 目标：自动生成“这个月漫游 N 次、兴趣从 X 变成 Y、有几天没出门”。
-- 依赖：统一记忆库 + 多尺度金字塔摘要（方向）。
+- 依赖：统一记忆库 + 多尺度金字塔摘要（方向，未落地时回顾先用确定性聚合回退）。
 - 模块：`life/browser.py`、`life/prompts.py`。
 - 配置：`review_schedule`。
 - 验收：回顾带来源引用；LLM 失败走重试语义；回顾本身是事件。
@@ -292,7 +295,7 @@
 - 目标：同人格多实例串行化，保证事件链单写者。
 - 依赖：统一记忆库宿主提供 `claim_task / renew_task / release_task`。
 - 模块：`life/memory_adapter.py`、`life/scheduler.py`。
-- 配置：`lease_ttl_seconds`（默认 300）。
+- 配置：`memory_lease_ttl_seconds`（默认 300；与 v1 本地 `lease_ttl_seconds` 区分）。
 - 验收：拿不到租约的实例跳过并记录 `skipped_duplicate`；租约过期自动释放。
 
 ### L2-10 关注对象
@@ -310,6 +313,7 @@
 - 模块：`life/browser.py`、`life/db.py`。
 - 配置：`revisit_interval_days`（默认 30）。
 - 验收：到期自动触发 revisit；新短记带 `revisit` 标记并引用原链接；原短记与后续状态可串联查看。
+- 命名区分：与 L1-02 旧事新感（日记回看）不同，本项是对链接/项目的定期重访。
 
 ## 方向（未排期）
 

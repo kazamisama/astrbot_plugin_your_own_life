@@ -39,7 +39,7 @@
 ## 四、推送
 
 - 每个插件独立 git 仓库，origin 指向 kazamisama 对应仓库。
-- 提交信息按仓库习惯：`chore(release): vX.Y.Z ...`。
+- 提交信息按仓库习惯：纯文档改动用 `docs: ...` 且不 bump 版本；功能/修复用 `chore(release): vX.Y.Z ...` 并同步版本与 CHANGELOG。
 - review / debug / 测试通过后再 push；有修复先更新 CHANGELOG 与版本，再重新 push。
 - 跨插件改动：上游先发兼容版本，下游再升级，整族协调。
 
