@@ -690,45 +690,99 @@ class LifeService:
             energy_blocked, _, energy_reason = self.esm.gate_energy()
         except Exception:
             energy_blocked = False
+        usage = self.db.get_daily_usage(persona_id, date)
+        calls = int(usage["llm_calls"] or 0) if usage else 0
+        tokens = int(usage["tokens"] or 0) if usage else 0
+        call_limit = int(self.config.daily_llm_call_limit or 0)
+        token_budget = int(self.config.daily_token_budget or 0)
+        budget_exhausted = (call_limit > 0 and calls >= call_limit) or (
+            token_budget > 0 and tokens >= token_budget
+        )
         for index, entry in enumerate(raw_actions):
             if not isinstance(entry, dict):
-                rejected.append({"action": str(entry)[:40], "reason": "invalid_entry"})
+                action = str(entry)[:40] or "unknown"
+                reason = "invalid_entry"
+                rejected.append({"action": action, "reason": reason})
+                self._record_plan_rejection(persona_id, date, action, index, reason)
                 continue
             action = str(entry.get("action") or "").strip().lower()
-            if action not in PLAN_ACTION_VOCABULARY:
-                rejected.append({"action": action or "unknown", "reason": "unknown_action"})
+            if budget_exhausted:
+                reason = "budget_exhausted"
+                rejected.append({"action": action or "unknown", "reason": reason})
+                self._record_plan_rejection(
+                    persona_id, date, action or "unknown", index, reason,
+                )
                 continue
-            if action not in ("browse", "peek", "diary"):
-                rejected.append({"action": action, "reason": "not_supported_yet"})
+            if action not in PLAN_ACTION_VOCABULARY:
+                reason = "unknown_action"
+                rejected.append({"action": action or "unknown", "reason": reason})
+                self._record_plan_rejection(
+                    persona_id, date, action or "unknown", index, reason,
+                )
+                continue
+            if action not in ("browse", "diary"):
+                reason = "not_supported_yet"
+                rejected.append({"action": action, "reason": reason})
+                self._record_plan_rejection(persona_id, date, action, index, reason)
                 continue
             if cap > 0 and len(accepted) >= cap:
-                rejected.append({"action": action, "reason": "daily_action_cap"})
+                reason = "daily_action_cap"
+                rejected.append({"action": action, "reason": reason})
+                self._record_plan_rejection(persona_id, date, action, index, reason)
+                continue
+            if not self._plan_dependency_ok(persona_id, date, action):
+                reason = "dependency_not_met"
+                rejected.append({"action": action, "reason": reason})
+                self._record_plan_rejection(persona_id, date, action, index, reason)
                 continue
             scheduled = self._plan_window_time(date, entry)
             if scheduled is None:
-                rejected.append({"action": action, "reason": "invalid_window"})
+                reason = "invalid_window"
+                rejected.append({"action": action, "reason": reason})
+                self._record_plan_rejection(persona_id, date, action, index, reason)
                 continue
             if self.config.sleep_window.contains(
                 datetime.strptime(scheduled, "%Y-%m-%d %H:%M:%S")
             ):
-                rejected.append({"action": action, "reason": "sleep_window"})
+                reason = "sleep_window"
+                rejected.append({"action": action, "reason": reason})
+                self._record_plan_rejection(persona_id, date, action, index, reason)
                 continue
             if energy_blocked:
-                rejected.append(
-                    {"action": action, "reason": f"energy_gate: {energy_reason}"}
-                )
+                reason = f"energy_gate: {energy_reason}"
+                rejected.append({"action": action, "reason": reason})
+                self._record_plan_rejection(persona_id, date, action, index, reason)
                 continue
-            reason = sanitize_text(entry.get("reason"), 200)
+            plan_reason = sanitize_text(entry.get("reason"), 200)
             task_id = f"{action}-plan-{index + 1}"
             plan_id = self.db.add_optional_plan(
-                persona_id, date, task_id, action, scheduled, reason=reason,
+                persona_id, date, task_id, action, scheduled, reason=plan_reason,
             )
             if plan_id is None:
-                rejected.append({"action": action, "reason": "duplicate"})
+                reason = "duplicate"
+                rejected.append({"action": action, "reason": reason})
+                self._record_plan_rejection(persona_id, date, action, index, reason)
                 continue
             accepted.append({"action": action, "task_id": task_id,
-                             "scheduled_at": scheduled, "reason": reason})
+                             "scheduled_at": scheduled, "reason": plan_reason})
         return {"date": date, "accepted": accepted, "rejected": rejected}
+
+    def _record_plan_rejection(
+        self, persona_id: str, plan_date: str, action: str, index: int, reason: str
+    ) -> None:
+        self.db.append_event(
+            persona_id,
+            "change",
+            {"entity": "plan", "action": "reject", "plan_date": plan_date,
+             "plan_action": action, "reason": reason},
+            [{"entity": "plan", "plan_date": plan_date}],
+            f"plan/{plan_date}/reject/{action}/{index + 1}",
+        )
+
+    def _plan_dependency_ok(self, persona_id: str, plan_date: str, action: str) -> bool:
+        if action == "diary":
+            return bool(self.db.list_notes(persona_id, plan_date, limit=1))
+        return True
 
     def _plan_window_time(self, date: str, entry: dict) -> Optional[str]:
         try:

@@ -232,9 +232,10 @@
 
 ### L1.5-05 系统裁决
 
+- 状态：已实现（v0.4.2）。
 - 目标：预算、精力、依赖校验与睡眠窗口始终是硬约束。
 - 依赖：L1.5-01 至 04。
-- 模块：`life/scheduler.py`、`life/esm_adapter.py`。
+- 模块：`life/browser.py`（`generate_plan` 裁决链路 + 拒绝事件）、`life/scheduler.py`、`life/esm_adapter.py`（精力 gate）。
 - 配置：L1-11 预算配置 + `sleep_window`。
 - 验收：越界动作被拒绝并回退计划；所有拒绝写事件链。
 

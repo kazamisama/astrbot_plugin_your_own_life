@@ -2,6 +2,14 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L1.5-05 系统裁决落地
+
+- 目标：预算、精力、依赖校验与睡眠窗口始终是硬约束；越界动作拒绝并回退计划；所有拒绝写事件链。
+- 决策：`generate_plan` 裁决顺序固定为：预算耗尽（budget_exhausted）→ 非词表（unknown_action）→ 未实现动作（not_supported_yet）→ 每日行动上限（daily_action_cap）→ 依赖校验（dependency_not_met，diary 需当天短记）→ 时间窗格式（invalid_window）→ 睡眠窗口（sleep_window）→ 精力 gate（energy_gate）→ 重复（duplicate）；每条拒绝通过 `_record_plan_rejection` 写 `change/reject` 事件链（幂等键 `plan/{date}/reject/{action}/{n}`）。
+- 改动：`life/browser.py`（`_apply_plan_payload` 硬约束 + `_record_plan_rejection` + `_plan_dependency_ok`）、`tests/test_browser.py`；版本 v0.4.1 → v0.4.2；README / CHANGELOG / features.md L1.5-05 / design.md / roadmap.md 同步。
+- 验证：unittest 168 passed（skipped=1；新增预算耗尽全拒、diary 依赖校验、拒绝事件链用例）。
+- 遗留：词表内未实现动作仍为 not_supported_yet（需 L1.5-04 后续执行实现）；执行期预算/精力由既有 run 路径兜底。
+- 下一步：L1.5-06 事件链可视化（WebUI 时间倒序事件流 + kind 过滤 + 分页 + source_refs）。
 ## 2026-08-12 L1.5-04 LLM 自主排期落地
 
 - 目标：LLM 产出封闭动作词表与偏好时间窗，系统决定精确时刻；未知动作拒绝并回退默认固定计划。

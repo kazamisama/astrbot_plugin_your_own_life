@@ -2,6 +2,15 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.4.2] - 2026-08-12
+
+### Added
+
+- L1.5-05 系统裁决：计划生成时预算（LLM 调用/token）、依赖校验（如 diary 需要当天素材）、睡眠窗口与精力 gate 均为硬约束；未知/未实现/越界动作被拒绝并回退默认固定计划，每条拒绝写事件链（`reject` 事件带 plan_date/action/reason 与幂等键）。
+
+### Notes
+
+- 测试：168 passed（新增预算耗尽全拒、diary 依赖校验、拒绝事件链用例）。
 ## [0.4.1] - 2026-08-12
 
 ### Added

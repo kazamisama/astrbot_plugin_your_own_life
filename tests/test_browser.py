@@ -453,6 +453,8 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.service.now_fn = lambda: datetime(2026, 8, 12, 8, 0)
         self.service.config.sleep_window = SleepWindow(time(23, 0), time(7, 0))
         self.service.config.plan_daily_action_cap = 5
+        self.db.add_note("shelly", None, "hn", "https://plan", "今日见闻", "s",
+                         url_hash="plan-note")
         self.service.llm = _FakeLLM(payload={
             "actions": [
                 {"action": "browse", "window_start": "09:00", "window_end": "10:00",
@@ -488,6 +490,14 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(optional), 2)
         self.assertIn("封闭词表", self.service.llm.prompts[-1])
         self.assertIn("browse", self.service.llm.prompts[-1])
+        reject_events = [
+            json.loads(e["payload"])
+            for e in self.db.list_events("shelly")
+            if json.loads(e["payload"]).get("action") == "reject"
+        ]
+        self.assertGreaterEqual(len(reject_events), 4)
+        self.assertIn("unknown_action", {e["reason"] for e in reject_events})
+        self.assertIn("sleep_window", {e["reason"] for e in reject_events})
 
     async def test_generate_plan_respects_action_cap(self):
         self.service.now_fn = lambda: datetime(2026, 8, 12, 8, 0)
@@ -503,6 +513,48 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         result = await self.service.generate_plan("shelly")
         self.assertEqual(len(result["accepted"]), 1)
         self.assertEqual(result["rejected"][0]["reason"], "daily_action_cap")
+
+    async def test_generate_plan_budget_rejects_all_actions(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 8, 0)
+        self.service.config.daily_llm_call_limit = 1
+        self.service.llm = _FakeLLM(payload={
+            "actions": [
+                {"action": "browse", "window_start": "09:00", "window_end": "10:00",
+                 "reason": "a"},
+            ],
+        })
+        result = await self.service.generate_plan("shelly")
+        self.assertEqual(result["rejected"][0]["reason"], "budget_exhausted")
+        self.assertEqual(result["accepted"], [])
+        events = self.db.list_events("shelly")
+        reject = [
+            json.loads(e["payload"])
+            for e in events
+            if json.loads(e["payload"]).get("action") == "reject"
+        ]
+        self.assertEqual(reject[0]["reason"], "budget_exhausted")
+
+    async def test_generate_plan_diary_needs_today_notes(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 8, 0)
+        self.service.llm = _FakeLLM(payload={
+            "actions": [
+                {"action": "diary", "window_start": "22:00", "window_end": "22:30",
+                 "reason": "提前复盘"},
+            ],
+        })
+        result = await self.service.generate_plan("shelly")
+        self.assertEqual(result["rejected"][0]["reason"], "dependency_not_met")
+        self.db.add_note("shelly", None, "hn", "https://dep", "见闻", "s",
+                         url_hash="dep-note")
+        self.service.llm = _FakeLLM(payload={
+            "actions": [
+                {"action": "diary", "window_start": "22:00", "window_end": "22:30",
+                 "reason": "提前复盘"},
+            ],
+        })
+        result = await self.service.generate_plan("shelly")
+        self.assertEqual(len(result["accepted"]), 1)
+        self.assertEqual(result["accepted"][0]["action"], "diary")
 
 
 if __name__ == "__main__":
