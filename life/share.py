@@ -10,6 +10,7 @@ from typing import Any, Awaitable, Callable, Optional
 from life.config import LifeConfig
 from life.db import LifeDB
 from life.esm_adapter import ESMAdapter
+from life.injection import is_suspicious, sanitize_text
 from life.llm import LLMClient
 from life.persona import PersonaService, PersonaUnavailable
 from life.prompts import build_share_prompt
@@ -127,12 +128,25 @@ class ShareGate:
         return sent
 
     async def _render_message(self, persona_id: str, note: dict, target: str) -> str:
+        safe_note = {
+            **note,
+            "title": sanitize_text(note.get("title"), 300),
+            "summary": sanitize_text(note.get("summary"), 600),
+            "opinion": sanitize_text(note.get("opinion"), 600),
+        }
+        if self.config.injection_log_enabled:
+            for field in ("title", "summary", "opinion"):
+                if is_suspicious(note.get(field)):
+                    self.db.log_injection(
+                        persona_id, source=note.get("source") or "memory",
+                        context="share", field=field, preview=str(note.get(field))[:200],
+                    )
         try:
             persona = await self.personas.resolve(persona_id)
             persona_prompt = persona.system_prompt
         except PersonaUnavailable:
             persona_prompt = f"你是名为 {persona_id} 的 Bot。"
-        fallback = str(note.get("title") or "").strip()
+        fallback = str(safe_note.get("title") or "").strip()
         if self.config.share_include_link and note.get("url"):
             fallback = f"{fallback} {note['url']}".strip()
         fallback = fallback[: self.config.share_max_chars]
@@ -141,7 +155,7 @@ class ShareGate:
                 build_share_prompt(
                     persona_prompt,
                     persona_id,
-                    note,
+                    safe_note,
                     target,
                     max_chars=self.config.share_max_chars,
                     include_link=self.config.share_include_link,

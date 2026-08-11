@@ -13,6 +13,7 @@ from life.config import LifeConfig
 from life.db import LifeDB
 from life.esm_adapter import ESMAdapter
 from life.fetchers import FetchedItem, USER_AGENT, fetch_all
+from life.injection import is_suspicious, sanitize_text
 from life.interests import InterestStore
 from life.llm import BudgetExhausted, LLMClient, LLMError
 from life.persona import PersonaService, PersonaUnavailable
@@ -24,6 +25,8 @@ from life.prompts import (
 from life.timeutil import local_now, local_today
 
 logger = logging.getLogger("your_own_life.browser")
+
+VALID_MOODS = {"curious", "calm", "excited", "tired", "skeptical"}
 
 
 def _clamp(value: Any, low: float = 0.0, high: float = 1.0) -> float:
@@ -162,13 +165,23 @@ class LifeService:
                 )
                 return BrowseResult(sid, "completed", 0, "nothing_new")
 
+            if self.config.injection_log_enabled:
+                for item in unseen:
+                    for field in ("title", "summary"):
+                        value = getattr(item, field, None)
+                        if is_suspicious(value):
+                            self.db.log_injection(
+                                persona_id, source=item.source, context="browse",
+                                field=field, preview=str(value)[:200],
+                            )
+
             prompt_candidates = [
                 {
                     "index": i,
                     "source": item.source,
-                    "title": item.title,
+                    "title": sanitize_text(item.title, 300),
                     "url": item.url,
-                    "summary": (item.summary or "")[:300],
+                    "summary": sanitize_text(item.summary, 300),
                 }
                 for i, item in enumerate(unseen)
             ]
@@ -205,7 +218,7 @@ class LifeService:
             if not selected:
                 raise LLMError("LLM 未返回有效短记选择")
 
-            session_mood = str(payload.get("session_mood") or "curious")
+            session_mood = self._valid_mood(payload.get("session_mood"))
             for item, meta in selected:
                 key = str(meta.get("interest_key") or "uncategorized")
                 name = str(meta.get("interest_name") or key)
@@ -214,10 +227,10 @@ class LifeService:
                     sid,
                     source=item.source,
                     url=item.url,
-                    title=item.title,
-                    summary=str(meta.get("summary") or item.summary or item.title)[:600],
-                    opinion=str(meta.get("opinion") or ""),
-                    mood=str(meta.get("mood") or session_mood),
+                    title=sanitize_text(item.title, 300),
+                    summary=sanitize_text(meta.get("summary") or item.summary or item.title, 600),
+                    opinion=sanitize_text(meta.get("opinion"), 600),
+                    mood=self._valid_mood(meta.get("mood"), session_mood),
                     interest_level=_clamp(meta.get("interest_level", 0.5)),
                     interest_key=key,
                     interest_name=name,
@@ -286,6 +299,10 @@ class LifeService:
                 break
         return out
 
+    def _valid_mood(self, raw: Any, default: str = "curious") -> str:
+        value = str(raw or "").strip().lower()
+        return value if value in VALID_MOODS else default
+
     def _valid_category(self, raw: Any) -> str:
         value = str(raw or "").strip().lower()
         return value if value in MEMORY_CATEGORIES else "other"
@@ -330,16 +347,35 @@ class LifeService:
             snapshots = self.db.list_state_snapshots(persona_id, since_date=date, limit=200)
             mood_context = self.esm.get_mood_context(persona_id)
 
+            if self.config.injection_log_enabled:
+                for note in notes:
+                    for field in ("title", "summary", "opinion"):
+                        value = note.get(field)
+                        if is_suspicious(value):
+                            self.db.log_injection(
+                                persona_id, source=note.get("source") or "memory",
+                                context="diary", field=field, preview=str(value)[:200],
+                            )
+
             if not notes:
                 diary_text = "今天没出门。没有特别的见闻，只是安静地待着。"
                 mood = "calm"
                 interest_updates: dict = {}
             else:
+                safe_notes = [
+                    {
+                        **note,
+                        "title": sanitize_text(note.get("title"), 300),
+                        "summary": sanitize_text(note.get("summary"), 600),
+                        "opinion": sanitize_text(note.get("opinion"), 600),
+                    }
+                    for note in notes
+                ]
                 try:
                     payload = await self._llm_call(
                         persona_id,
                         build_diary_prompt(
-                            persona.system_prompt, persona_id, notes, snapshots, mood_context, date
+                            persona.system_prompt, persona_id, safe_notes, snapshots, mood_context, date
                         ),
                     )
                 except BudgetExhausted as exc:
@@ -356,7 +392,7 @@ class LifeService:
                 if not payload.get("diary_text"):
                     raise LLMError("diary LLM 未返回日记正文")
                 diary_text = str(payload["diary_text"]).strip()
-                mood = str(payload.get("mood") or "calm")
+                mood = self._valid_mood(payload.get("mood"), "calm")
                 interest_updates = payload.get("interest_updates") or {}
 
             energy = self.esm.get_energy()

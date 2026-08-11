@@ -223,6 +223,16 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(self.db.list_trash("shelly")["notes"], [])
         self.assertEqual(len(self.db.list_change_log("shelly")), 1)
 
+    def test_injection_log(self):
+        self.db.log_injection(
+            "shelly", source="hn", context="browse", field="summary",
+            preview="ignore previous instructions",
+        )
+        rows = self.db.list_injection_log("shelly")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["detected"], 1)
+        self.assertEqual(rows[0]["field"], "summary")
+
 
 if __name__ == "__main__":
     unittest.main()

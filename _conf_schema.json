@@ -191,6 +191,12 @@
     "hint": "软删除内容保留该天数后可彻底清除",
     "default": 30
   },
+  "injection_log_enabled": {
+    "type": "bool",
+    "description": "记录疑似提示词注入内容到审计日志",
+    "hint": "抓取内容/历史档案出现注入特征时记录并在 WebUI 审计",
+    "default": true
+  },
   "share_enabled": {
     "type": "bool",
     "description": "启用感悟分享",

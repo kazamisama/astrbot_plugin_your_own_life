@@ -2,6 +2,22 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L1-14 不可信内容与记忆卫生落地
+
+- 目标：外部抓取/历史素材只当数据，防提示词注入与记忆污染，疑似注入可审计。
+- 决策：注入检测采用保守启发式（少误报优先），素材进入 prompt 前统一 sanitize；审计默认开启，WebUI 只读查看。
+- 改动：
+  - 新增 `life/injection.py`（`is_suspicious` / `sanitize_text` / `scan_items`）。
+  - `life/db.py`：新增 `injection_log` 表与 `log_injection` / `list_injection_log`。
+  - `life/prompts.py`：三个生活 prompt 增加“不可信素材”硬化规则。
+  - `life/browser.py`：漫游/日记前扫描并记录疑似注入，标题/摘要/观点 sanitize，mood 走封闭词表。
+  - `life/share.py`：分享素材 sanitize + 审计。
+  - `life/webui.py`：新增 `/injection_log`；`life/config.py` / `_conf_schema.json` 新增 `injection_log_enabled`。
+  - 版本 v0.2.7 → v0.2.8；README / CHANGELOG / features.md L1-14 / design.md / roadmap.md 同步。
+- 验证：unittest 101 passed（新增注入检测、prompt 硬化、审计接口与抓取审计用例）；UTF-8 读回校验无乱码。
+- 遗留：启发式无法覆盖全部注入变体，后续可叠加模型侧判断；`query_life_memory` 工具返回仍为结构化记忆，未接入执行指令面。
+- 下一步：工程基线 L1-16 同人格单 SQL 与任务租约。
+
 ## 2026-08-12 L1-13 变更账本与回收站落地
 
 - 目标：写操作可审计、可回滚，删除进回收站，owner 可恢复。

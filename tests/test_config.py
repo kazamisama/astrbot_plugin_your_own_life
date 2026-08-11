@@ -74,6 +74,10 @@ class ConfigTest(unittest.TestCase):
         cfg = load_config({"trash_retention_days": "7"})
         self.assertEqual(cfg.trash_retention_days, 7)
 
+    def test_injection_log_enabled_default(self):
+        self.assertTrue(load_config({}).injection_log_enabled)
+        self.assertFalse(load_config({"injection_log_enabled": False}).injection_log_enabled)
+
 
 if __name__ == "__main__":
     unittest.main()

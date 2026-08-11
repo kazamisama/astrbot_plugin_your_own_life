@@ -154,6 +154,7 @@
 
 ### L1-14 不可信内容与记忆卫生
 
+- 状态：已实现（v0.2.8）。
 - 目标：外部内容只当素材，记忆以数据身份注入，防提示词注入与记忆污染。
 - 依赖：漫游/复盘（L0）、LLM 工具（L0）。
 - 模块：`life/fetchers.py`、`life/prompts.py`、`life/browser.py`、`life/db.py`、`life/webui.py`（注入日志/审计视图）。

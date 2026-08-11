@@ -63,6 +63,14 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         logs = await handlers["change_log"]()
         self.assertEqual(len(logs["logs"]), 1)
 
+    async def test_injection_log_handler(self):
+        self.db.log_injection("shelly", source="hn", context="browse", field="summary", preview="x")
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=None, config=self.config)
+        result = await handlers["injection_log"]()
+        self.assertEqual(len(result["logs"]), 1)
+        self.assertEqual(result["logs"][0]["context"], "browse")
+
     def test_register_api(self):
         context = _FakeContext()
         ok = register_api(context, self.db, service=None, share_gate=None,
@@ -75,7 +83,8 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/astrbot_plugin_your_own_life/api/trash", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/trash_restore", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/change_log", routes)
-        self.assertEqual(len(routes), 14)
+        self.assertIn("/astrbot_plugin_your_own_life/api/injection_log", routes)
+        self.assertEqual(len(routes), 15)
 
 
 if __name__ == "__main__":

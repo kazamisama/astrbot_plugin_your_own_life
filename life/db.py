@@ -122,6 +122,17 @@ CREATE TABLE IF NOT EXISTS change_log (
     ts TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_change_log_persona_time ON change_log(persona_id, ts);
+CREATE TABLE IF NOT EXISTS injection_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    persona_id TEXT NOT NULL DEFAULT 'default',
+    ts TEXT NOT NULL,
+    source TEXT DEFAULT '',
+    context TEXT DEFAULT '',
+    field TEXT DEFAULT '',
+    preview TEXT DEFAULT '',
+    detected INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_injection_log_persona_time ON injection_log(persona_id, ts);
 CREATE TABLE IF NOT EXISTS staging_notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     persona_id TEXT NOT NULL DEFAULT 'default',
@@ -987,6 +998,38 @@ class LifeDB:
             (persona_id, limit),
         )
 
+    def log_injection(
+        self,
+        persona_id: str,
+        source: str = "",
+        context: str = "",
+        field: str = "",
+        preview: str = "",
+        detected: bool = True,
+    ) -> int:
+        cur = self._execute(
+            "INSERT INTO injection_log "
+            "(persona_id, ts, source, context, field, preview, detected) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                persona_id,
+                self._now(),
+                source or "",
+                context or "",
+                field or "",
+                preview or "",
+                1 if detected else 0,
+            ),
+        )
+        return int(cur.lastrowid)
+
+    def list_injection_log(self, persona_id: str, limit: int = 100) -> list[dict]:
+        return self._rows(
+            "SELECT * FROM injection_log WHERE persona_id = ? "
+            "ORDER BY ts DESC, id DESC LIMIT ?",
+            (persona_id, limit),
+        )
+
     def soft_delete_note(
         self, persona_id: str, note_id: int, actor: str = "owner", reason: str = ""
     ) -> bool:
@@ -1201,6 +1244,7 @@ class LifeDB:
                 "share_log",
                 "daily_usage",
                 "change_log",
+                "injection_log",
                 "staging_notes",
                 "staging_diary",
                 "staging_snapshots",
