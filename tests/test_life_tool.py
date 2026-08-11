@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from life.db import LifeDB
-from life.life_tool import LifeMemoryTool, search_life_memory
+from life.life_tool import LifeMemoryTool, LifePlansTool, search_life_memory
 
 
 class _FakeEvent:
@@ -101,6 +101,21 @@ class LifeToolTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(events[0]["payload"])["query"], "AI")
         self.assertEqual(json.loads(events[0]["source_refs"]), [{"url": "https://x"}])
         self.assertTrue(events[0]["idempotency_key"])
+
+    async def test_plans_tool_reads_board(self):
+        self.db.ensure_plan("shelly", "2026-08-12", "browse-10-00", "browse",
+                            scheduled_at="2026-08-12 10:00:00")
+        self.db.update_plan("shelly", "2026-08-12", "browse-10-00", "done",
+                            reason="ok", budget_used=3)
+        tool = LifePlansTool(self.db, _FakePersonas())
+        raw = await tool.call(_FakeWrapper(), date="2026-08-12")
+        data = json.loads(raw)
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["summary"]["done"], 1)
+        self.assertEqual(data["summary"]["pending"], 0)
+        self.assertEqual(data["items"][0]["budget_used"], 3)
+        self.assertEqual(data["items"][0]["status"], "done")
 
 
 if __name__ == "__main__":

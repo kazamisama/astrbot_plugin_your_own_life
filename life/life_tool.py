@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from life.db import LifeDB
 from life.persona import PersonaService
+from life.timeutil import DEFAULT_TIMEZONE, local_today
 
 try:
     from astrbot.core.agent.run_context import ContextWrapper
@@ -54,6 +55,29 @@ TOOL_PARAMETERS: dict[str, Any] = {
         },
     },
     "required": ["query"],
+}
+
+PLANS_TOOL_NAME = "query_life_plans"
+PLANS_TOOL_DESCRIPTION = (
+    "Query the current bot persona's daily life plan board: scheduled life tasks, "
+    "their status (done/pending/skipped/failed), reason and budget used. "
+    "Use it before planning today's activities or when checking whether a life task finished."
+)
+PLANS_TOOL_PARAMETERS: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "date": {
+            "type": "string",
+            "description": "Optional plan date, YYYY-MM-DD; defaults to today.",
+            "default": "",
+        },
+        "status": {
+            "type": "string",
+            "description": "Optional status filter: done/pending/skipped/failed.",
+            "default": "",
+        },
+    },
+    "required": [],
 }
 
 
@@ -131,6 +155,41 @@ async def _execute_tool(tool: Any, context: Any, query: str, category: str,
         ],
     )
     data["ok"] = True
+    return json.dumps(data, ensure_ascii=False)
+
+
+def query_life_plans(
+    db: LifeDB,
+    persona_id: str,
+    date: str = "",
+    status: str = "",
+) -> dict[str, Any]:
+    """Read-only plan board query; pure function for tests."""
+    plan_date = date or local_today(getattr(db, "timezone", DEFAULT_TIMEZONE))
+    return {
+        "persona_id": persona_id,
+        "plan_date": plan_date,
+        "summary": db.plan_summary(persona_id, plan_date),
+        "items": db.list_plans(persona_id, plan_date, status or None),
+    }
+
+
+async def _execute_plans_tool(tool: Any, context: Any, date: str, status: str) -> str:
+    persona_id = await tool._resolve_persona(context)
+    if not persona_id:
+        return json.dumps(
+            {"ok": False, "count": 0, "error": "cannot resolve current persona"},
+            ensure_ascii=False,
+        )
+    whitelist = getattr(getattr(tool.personas, "config", None), "life_personas", None)
+    if whitelist is not None and persona_id not in whitelist:
+        return json.dumps(
+            {"ok": False, "count": 0, "error": "persona not whitelisted"},
+            ensure_ascii=False,
+        )
+    data = query_life_plans(tool.db, persona_id, date=date, status=status)
+    data["ok"] = True
+    data["count"] = len(data["items"])
     return json.dumps(data, ensure_ascii=False)
 
 
@@ -220,3 +279,41 @@ else:
         async def call(self, context: Any, query: str = "", category: str = "",
                        date: str = "", k: int = 5) -> str:
             return await _execute_tool(self, context, query, category, date, k)
+
+
+if _HAS_ASTRBOT_TOOL:
+
+    class LifePlansTool(_LifeMemoryToolMixin, FunctionTool[AstrAgentContext]):
+        """AstrBot-native read-only plan board tool."""
+
+        def __init__(self, db: LifeDB, personas: PersonaService):
+            super().__init__(
+                name=PLANS_TOOL_NAME,
+                description=PLANS_TOOL_DESCRIPTION,
+                parameters=PLANS_TOOL_PARAMETERS,
+                handler=None,
+            )
+            self._init(db, personas)
+
+        async def call(
+            self,
+            context: ContextWrapper[AstrAgentContext],
+            date: str = "",
+            status: str = "",
+        ) -> ToolExecResult:
+            return await _execute_plans_tool(self, context, date, status)
+
+else:
+
+    class LifePlansTool(_LifeMemoryToolMixin):
+        """Duck-typed fallback used by unit tests outside AstrBot."""
+
+        name = PLANS_TOOL_NAME
+        description = PLANS_TOOL_DESCRIPTION
+        parameters = PLANS_TOOL_PARAMETERS
+
+        def __init__(self, db: LifeDB, personas: PersonaService):
+            self._init(db, personas)
+
+        async def call(self, context: Any, date: str = "", status: str = "") -> str:
+            return await _execute_plans_tool(self, context, date, status)

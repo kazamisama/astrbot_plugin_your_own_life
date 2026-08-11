@@ -2,6 +2,14 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L1.5-02 排期板落地
+
+- 目标：`life_plans` 运行时视图，任务带状态、预算用量与原因，LLM 可只读查看“做完没/还剩多少”。
+- 决策：新增 `life_plans` 表（`persona_id, plan_date, task_id, kind, status, reason, budget_used, scheduled_at, finished_at`，`(persona_id, plan_date, task_id)` 唯一）；调度器每日播种当天固定槽位为 pending，执行后按结果记账（done/skipped/failed + reason），`budget_used` 取任务前后 `daily_usage.tokens` 增量；WebUI 新增 `/plans` 接口与“排期”tab；新增 `query_life_plans` 只读工具（增删改/可换序工具属 L1.5-03/04）。
+- 改动：`life/db.py`、`life/scheduler.py`、`life/webui.py`、`life/life_tool.py`、`main.py`、`pages/life/index.html`、`tests/test_db.py`、`tests/test_scheduler.py`、`tests/test_webui.py`、`tests/test_life_tool.py`；版本 v0.3.8 → v0.3.9；README / CHANGELOG / features.md L1.5-02 / design.md / roadmap.md 同步。
+- 验证：unittest 157 passed（skipped=1；新增排期板生命周期、调度器播种/状态映射/预算增量、WebUI plans、LLM plans 工具用例）；JS 语法检查通过。
+- 遗留：LLM 可加/可换序/跳过工具属 L1.5-03/04；`budget_used` 目前按 tokens 增量，不含精力等维度。
+- 下一步：L1.5-03 固定/可选任务分层（fixed 标记 + owner 权限）。
 ## 2026-08-12 L1.5-01 事件链落地
 
 - 目标：append-only 事件流，观察/表达/思考/更改/召回/回滚全部归位，支持幂等追加与只读重放。

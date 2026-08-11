@@ -50,6 +50,7 @@ class LifeScheduler:
         self._stop = asyncio.Event()
         self._lock = asyncio.Lock()
         self._done_keys: set[str] = set()
+        self._seeded_dates: set[str] = set()
 
     def start(self) -> bool:
         if self._task is not None and not self._task.done():
@@ -128,12 +129,54 @@ class LifeScheduler:
         now_local = local_now(self.config.timezone, self.now_fn())
         return self.next_target(now_local, personas)
 
+    def seed_plans(self, personas: Sequence[str], day: Any) -> int:
+        """Create pending plan rows for every configured slot of one day."""
+        if self.db is None:
+            return 0
+        plan_date = day.strftime("%Y-%m-%d")
+        count = 0
+        for persona_id in personas:
+            for slot, kind in self._slot_datetimes(persona_id, day):
+                self.db.ensure_plan(
+                    persona_id, plan_date, f"{kind}-{slot.strftime('%H-%M')}",
+                    kind, scheduled_at=slot.strftime("%Y-%m-%d %H:%M:%S"),
+                )
+                count += 1
+        return count
+
+    def _plan_status_browse(self, result: Any) -> tuple[str, str]:
+        status = getattr(result, "status", "completed")
+        reason = str(getattr(result, "reason", "") or getattr(result, "error", "") or "")
+        if status == "completed":
+            return "done", reason
+        if status == "error":
+            return "failed", reason or str(getattr(result, "error", ""))
+        return "skipped", reason or str(status)
+
+    def _plan_status_diary(self, result: Any) -> tuple[str, str]:
+        if isinstance(result, dict) and result.get("error"):
+            return "failed", str(result["error"])
+        if isinstance(result, dict) and result.get("skipped"):
+            return "skipped", str(result["skipped"])
+        return "done", ""
+
+    def _budget_delta(self, before: Optional[dict], after: Optional[dict]) -> float:
+        def _tokens(row: Optional[dict]) -> int:
+            return int(row["tokens"] or 0) if row else 0
+
+        return float(max(0, _tokens(after) - _tokens(before)))
+
     async def _run(self) -> None:
         personas = list(self.config.life_personas or [])
         while not self._stop.is_set():
             if not personas:
                 await self._stop.wait()
                 break
+            today_local = local_now(self.config.timezone, self.now_fn()).date()
+            today_key = today_local.isoformat()
+            if today_key not in self._seeded_dates:
+                self.seed_plans(personas, today_local)
+                self._seeded_dates.add(today_key)
             target = self._current_target(personas)
             if target is None:
                 await self._stop.wait()
@@ -150,6 +193,8 @@ class LifeScheduler:
             key = f"{slot.strftime('%Y-%m-%d %H:%M')}:{persona_id}:{kind}"
             if key in self._done_keys:
                 continue
+            plan_date = slot.strftime("%Y-%m-%d")
+            task_id = f"{kind}-{slot.strftime('%H-%M')}"
             if self.db is not None and not self.db.acquire_lease(
                 persona_id, key, self._instance_id, self.config.lease_ttl_seconds
             ):
@@ -157,19 +202,52 @@ class LifeScheduler:
                     "lease for %s %s held by another instance, skipping", persona_id, key
                 )
                 self.service.record_skipped_duplicate(persona_id, kind, slot)
+                if self.db is not None:
+                    self.db.ensure_plan(
+                        persona_id, plan_date, task_id, kind,
+                        scheduled_at=slot.strftime("%Y-%m-%d %H:%M:%S"),
+                    )
+                    self.db.update_plan(
+                        persona_id, plan_date, task_id, "skipped",
+                        reason="skipped_duplicate",
+                        finished_at=local_now(
+                            self.config.timezone, self.now_fn()
+                        ).strftime("%Y-%m-%d %H:%M:%S"),
+                    )
                 self._done_keys.add(key)
                 continue
+            usage_before = (
+                self.db.get_daily_usage(persona_id, plan_date)
+                if self.db is not None else None
+            )
             async with self._lock:
+                status = "failed"
+                reason = ""
                 try:
                     if kind == "browse":
-                        await self.service.run_browse_session(persona_id, "scheduled")
+                        result = await self.service.run_browse_session(persona_id, "scheduled")
+                        status, reason = self._plan_status_browse(result)
                     elif kind == "peek":
-                        await self.service.run_peek(persona_id)
+                        result = await self.service.run_peek(persona_id)
+                        status, reason = self._plan_status_browse(result)
                     else:
-                        await self.service.run_nightly_diary(persona_id)
+                        result = await self.service.run_nightly_diary(persona_id)
+                        status, reason = self._plan_status_diary(result)
                 except Exception as exc:
-                    self.log.exception("scheduled %s for %s failed: %s", kind, persona_id, exc)
+                    self.log.exception(
+                        "scheduled %s for %s failed: %s", kind, persona_id, exc
+                    )
+                    status, reason = "failed", repr(exc)
                 finally:
                     self._done_keys.add(key)
                     if self.db is not None:
                         self.db.release_lease(persona_id, key, self._instance_id)
+                        usage_after = self.db.get_daily_usage(persona_id, plan_date)
+                        self.db.update_plan(
+                            persona_id, plan_date, task_id, status,
+                            reason=reason,
+                            budget_used=self._budget_delta(usage_before, usage_after),
+                            finished_at=local_now(
+                                self.config.timezone, self.now_fn()
+                            ).strftime("%Y-%m-%d %H:%M:%S"),
+                        )

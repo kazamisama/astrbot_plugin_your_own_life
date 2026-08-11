@@ -1,11 +1,14 @@
 import os
 import sys
+import tempfile
 import unittest
 from datetime import datetime, time
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from life.config import LifeConfig, SleepWindow
+from life.db import LifeDB
 from life.scheduler import LifeScheduler, _parse_hhmm, deterministic_offset
 
 
@@ -68,6 +71,74 @@ class SchedulerTest(unittest.TestCase):
         target = scheduler._current_target(["shelly"])
         self.assertEqual(target[0], datetime(2026, 8, 12, 15, 0))
         self.assertEqual(target[2], "browse")
+
+
+class _FakeService:
+    def __init__(self, db):
+        self.db = db
+
+
+class SchedulerPlansTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db = LifeDB(Path(self.tmp.name) / "life.db")
+        cfg = LifeConfig(
+            browse_times=["10:00", "15:00"], diary_time="23:00",
+            browse_jitter_minutes=0, diary_jitter_minutes=0,
+            peek_times=["09:00"], life_personas=["shelly"],
+        )
+        self.scheduler = LifeScheduler(service=_FakeService(self.db), config=cfg)
+
+    def tearDown(self):
+        self.db.close()
+        self.tmp.cleanup()
+
+    def test_seed_plans_creates_pending_rows(self):
+        count = self.scheduler.seed_plans(["shelly"], datetime(2026, 8, 12))
+        self.assertEqual(count, 4)
+        items = self.db.list_plans("shelly", "2026-08-12")
+        self.assertEqual(len(items), 4)
+        self.assertTrue(all(item["status"] == "pending" for item in items))
+        task_ids = {item["task_id"] for item in items}
+        self.assertIn("browse-10-00", task_ids)
+        self.assertIn("browse-15-00", task_ids)
+        self.assertIn("peek-09-00", task_ids)
+        self.assertIn("diary-23-00", task_ids)
+
+    def test_plan_status_mapping(self):
+        class _Result:
+            def __init__(self, status, reason="", error=""):
+                self.status = status
+                self.reason = reason
+                self.error = error
+
+        self.assertEqual(
+            self.scheduler._plan_status_browse(_Result("completed")), ("done", "")
+        )
+        self.assertEqual(
+            self.scheduler._plan_status_browse(_Result("skipped", "sleep_window")),
+            ("skipped", "sleep_window"),
+        )
+        self.assertEqual(
+            self.scheduler._plan_status_browse(_Result("error", "", "boom")),
+            ("failed", "boom"),
+        )
+        self.assertEqual(
+            self.scheduler._plan_status_diary({"date": "2026-08-12"}), ("done", "")
+        )
+        self.assertEqual(
+            self.scheduler._plan_status_diary({"skipped": "budget_exhausted"}),
+            ("skipped", "budget_exhausted"),
+        )
+        self.assertEqual(
+            self.scheduler._plan_status_diary({"error": "boom"}), ("failed", "boom")
+        )
+
+    def test_budget_delta_uses_tokens(self):
+        before = {"tokens": 10, "llm_calls": 1}
+        after = {"tokens": 34, "llm_calls": 2}
+        self.assertEqual(self.scheduler._budget_delta(before, after), 24.0)
+        self.assertEqual(self.scheduler._budget_delta(None, None), 0.0)
 
 
 if __name__ == "__main__":

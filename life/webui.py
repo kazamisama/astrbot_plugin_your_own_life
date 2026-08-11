@@ -153,6 +153,18 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         persona = await _persona_arg()
         return {"persona_id": persona, "logs": db.list_change_log(persona)}
 
+    async def plans():
+        args = await _query_args()
+        persona = str(args.get("persona") or _first_persona(config))
+        date = args.get("date") or _today(config)
+        status = str(args.get("status") or "")
+        return {
+            "persona_id": persona,
+            "plan_date": date,
+            "summary": db.plan_summary(persona, date),
+            "items": db.list_plans(persona, date, status or None),
+        }
+
     async def injection_log():
         persona = await _persona_arg()
         return {"persona_id": persona, "logs": db.list_injection_log(persona)}
@@ -236,6 +248,7 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         "trash_restore": trash_restore,
         "change_log": change_log,
         "injection_log": injection_log,
+        "plans": plans,
         "share": share,
         "share_note": share_note,
         "wishlist": wishlist,
@@ -265,6 +278,7 @@ def register_api(context: Any, db: Any, service: Any, share_gate: Any,
         (f"{API_PREFIX}/trash_restore", "trash_restore", ["POST"], "Restore a trashed item"),
         (f"{API_PREFIX}/change_log", "change_log", ["GET"], "Change log"),
         (f"{API_PREFIX}/injection_log", "injection_log", ["GET"], "Injection audit log"),
+        (f"{API_PREFIX}/plans", "plans", ["GET"], "Daily plan board"),
         (f"{API_PREFIX}/personas", "personas", ["GET"], "Persona cache list"),
         (f"{API_PREFIX}/persona_refresh", "persona_refresh", ["POST"], "Refresh persona cache"),
         (f"{API_PREFIX}/share", "share", ["GET"], "Share log and pending"),

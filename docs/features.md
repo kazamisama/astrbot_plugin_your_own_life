@@ -203,11 +203,13 @@
 
 ### L1.5-02 排期板
 
+- 状态：已实现（v0.3.9）。
 - 目标：`life_plans` 运行时视图，任务带状态、预算用量与原因。
 - 依赖：事件链（L1.5-01）。
-- 模块：`life/db.py`、`life/scheduler.py`、`life/webui.py`。
+- 模块：`life/db.py`、`life/scheduler.py`、`life/webui.py`、`life/life_tool.py`（只读 `query_life_plans`）。
 - 配置：无。
 - 验收：LLM 可见“做完没、还剩多少、可加/可换序”；跳过/失败必须带 reason。
+- 备注：可加/可换序/跳过工具在 L1.5-03/04 落地，本阶段只读查询。
 
 ### L1.5-03 固定/可选任务分层
 

@@ -397,6 +397,38 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(events[0]["kind"], "express")
         self.assertEqual(json.loads(events[0]["payload"])["status"], "blocked")
         self.assertEqual(events[0]["idempotency_key"].startswith("share_log/"), True)
+    def test_life_plans_board(self):
+        self.db.ensure_plan("shelly", "2026-08-12", "browse-10-00", "browse",
+                            scheduled_at="2026-08-12 10:00:00")
+        self.db.ensure_plan("shelly", "2026-08-12", "browse-15-00", "browse",
+                            scheduled_at="2026-08-12 15:00:00")
+        self.db.ensure_plan("shelly", "2026-08-12", "diary-23-00", "diary",
+                            scheduled_at="2026-08-12 23:00:00")
+        self.assertTrue(self.db.update_plan(
+            "shelly", "2026-08-12", "browse-10-00", "done", budget_used=12.5,
+        ))
+        self.assertTrue(self.db.update_plan(
+            "shelly", "2026-08-12", "browse-15-00", "skipped", reason="sleep_window",
+        ))
+        items = self.db.list_plans("shelly", "2026-08-12")
+        self.assertEqual(len(items), 3)
+        self.assertEqual([i["task_id"] for i in items],
+                         ["browse-10-00", "browse-15-00", "diary-23-00"])
+        done = self.db.list_plans("shelly", "2026-08-12", status="done")
+        self.assertEqual(len(done), 1)
+        self.assertEqual(done[0]["budget_used"], 12.5)
+        summary = self.db.plan_summary("shelly", "2026-08-12")
+        self.assertEqual(summary["total"], 3)
+        self.assertEqual(summary["done"], 1)
+        self.assertEqual(summary["skipped"], 1)
+        self.assertEqual(summary["pending"], 1)
+        self.assertEqual(summary["budget_used"], 12.5)
+
+    def test_ensure_plan_is_idempotent(self):
+        self.db.ensure_plan("shelly", "2026-08-12", "browse-10-00", "browse")
+        again = self.db.ensure_plan("shelly", "2026-08-12", "browse-10-00", "browse")
+        self.assertEqual(again, 1)
+        self.assertEqual(len(self.db.list_plans("shelly", "2026-08-12")), 1)
 
 
 if __name__ == "__main__":

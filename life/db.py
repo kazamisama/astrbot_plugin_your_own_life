@@ -139,6 +139,22 @@ CREATE INDEX IF NOT EXISTS idx_event_chain_persona_time
     ON event_chain(persona_id, ts);
 CREATE INDEX IF NOT EXISTS idx_event_chain_persona_kind_time
     ON event_chain(persona_id, kind, ts);
+CREATE TABLE IF NOT EXISTS life_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    persona_id TEXT NOT NULL DEFAULT 'default',
+    plan_date TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    reason TEXT DEFAULT '',
+    budget_used REAL DEFAULT 0,
+    scheduled_at TEXT DEFAULT '',
+    started_at TEXT DEFAULT '',
+    finished_at TEXT DEFAULT '',
+    UNIQUE(persona_id, plan_date, task_id)
+);
+CREATE INDEX IF NOT EXISTS idx_life_plans_persona_date
+    ON life_plans(persona_id, plan_date, status);
 CREATE TABLE IF NOT EXISTS injection_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     persona_id TEXT NOT NULL DEFAULT 'default',
@@ -1298,6 +1314,95 @@ class LifeDB:
             "ORDER BY ts ASC, id ASC LIMIT ?",
             (persona_id, max(0, int(limit))),
         )
+
+    # ----- life plans -----
+
+    def ensure_plan(
+        self,
+        persona_id: str,
+        plan_date: str,
+        task_id: str,
+        kind: str,
+        scheduled_at: str = "",
+    ) -> int:
+        row = self._one(
+            "SELECT id FROM life_plans WHERE persona_id = ? AND plan_date = ? AND task_id = ?",
+            (persona_id, plan_date, task_id),
+        )
+        if row is not None:
+            return int(row["id"])
+        cur = self._execute(
+            "INSERT INTO life_plans (persona_id, plan_date, task_id, kind, scheduled_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (persona_id, plan_date, task_id, kind, scheduled_at or ""),
+        )
+        return int(cur.lastrowid)
+
+    def update_plan(
+        self,
+        persona_id: str,
+        plan_date: str,
+        task_id: str,
+        status: str,
+        reason: str = "",
+        budget_used: Optional[float] = None,
+        finished_at: str = "",
+    ) -> bool:
+        sets = ["status = ?", "reason = ?"]
+        params: list[Any] = [status, reason or ""]
+        if budget_used is not None:
+            sets.append("budget_used = ?")
+            params.append(max(0.0, float(budget_used)))
+        if finished_at:
+            sets.append("finished_at = ?")
+            params.append(finished_at)
+        params += [persona_id, plan_date, task_id]
+        cur = self._execute(
+            f"UPDATE life_plans SET {', '.join(sets)} "
+            "WHERE persona_id = ? AND plan_date = ? AND task_id = ?",
+            tuple(params),
+        )
+        return cur.rowcount > 0
+
+    def list_plans(
+        self,
+        persona_id: str,
+        plan_date: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> list[dict]:
+        sql = "SELECT * FROM life_plans WHERE persona_id = ?"
+        params: list[Any] = [persona_id]
+        if plan_date:
+            sql += " AND plan_date = ?"
+            params.append(plan_date)
+        if status:
+            sql += " AND status = ?"
+            params.append(status)
+        sql += " ORDER BY scheduled_at ASC, id ASC"
+        return self._rows(sql, tuple(params))
+
+    def plan_summary(self, persona_id: str, plan_date: str) -> dict[str, Any]:
+        rows = self._rows(
+            "SELECT status, COUNT(*) AS n, COALESCE(SUM(budget_used), 0) AS budget "
+            "FROM life_plans WHERE persona_id = ? AND plan_date = ? GROUP BY status",
+            (persona_id, plan_date),
+        )
+        counts = {"done": 0, "pending": 0, "skipped": 0, "failed": 0}
+        total = 0
+        budget = 0.0
+        for row in rows:
+            status = str(row["status"] or "")
+            total += int(row["n"] or 0)
+            budget += float(row["budget"] or 0)
+            if status in counts:
+                counts[status] = int(row["n"] or 0)
+        return {
+            "persona_id": persona_id,
+            "plan_date": plan_date,
+            "total": total,
+            "budget_used": budget,
+            **counts,
+        }
 
     def soft_delete_note(
         self, persona_id: str, note_id: int, actor: str = "owner", reason: str = ""

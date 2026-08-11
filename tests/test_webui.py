@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -83,6 +84,18 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         invalid = await handlers["wishlist_action"]()
         self.assertFalse(invalid["ok"])
 
+    async def test_plans_handler(self):
+        today = datetime.now().strftime("%Y-%m-%d")
+        self.db.ensure_plan("shelly", today, "browse-10-00", "browse",
+                            scheduled_at=f"{today} 10:00:00")
+        self.db.update_plan("shelly", today, "browse-10-00", "done", budget_used=5)
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=None, config=self.config)
+        result = await handlers["plans"]()
+        self.assertEqual(result["plan_date"], today)
+        self.assertEqual(result["summary"]["total"], 1)
+        self.assertEqual(result["items"][0]["status"], "done")
+
     async def test_timeline_handler(self):
         self.db.add_note("shelly", None, "hn", "https://x", "T", "s", url_hash="tl")
         handlers = build_handlers(self.db, service=None, share_gate=None,
@@ -118,7 +131,8 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/astrbot_plugin_your_own_life/api/trash_restore", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/change_log", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/injection_log", routes)
-        self.assertEqual(len(routes), 20)
+        self.assertIn("/astrbot_plugin_your_own_life/api/plans", routes)
+        self.assertEqual(len(routes), 21)
 
 
 if __name__ == "__main__":

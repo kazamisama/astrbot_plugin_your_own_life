@@ -221,6 +221,7 @@ select, input[type="date"], input[type="text"] {
     <button class="tab" data-tab="memory">记忆</button>
     <button class="tab" data-tab="share">分享</button>
     <button class="tab" data-tab="timeline">时间轴</button>
+    <button class="tab" data-tab="plans">排期</button>
   </nav>
 
   <section id="tab-life">
@@ -314,6 +315,19 @@ select, input[type="date"], input[type="text"] {
       <button class="btn" id="timelineMore">加载更多</button>
     </div>
   </section>
+
+  <section id="tab-plans" hidden>
+    <div class="stats">
+      <div class="stat"><span class="label">计划总数</span><span class="value" id="planTotal">-</span></div>
+      <div class="stat"><span class="label">已完成</span><span class="value" id="planDone">-</span></div>
+      <div class="stat"><span class="label">待执行</span><span class="value" id="planPending">-</span></div>
+      <div class="stat"><span class="label">跳过 / 失败</span><span class="value" id="planSkipFail">-</span></div>
+    </div>
+    <div class="panel">
+      <div class="chip-row" id="planFilters"></div>
+      <ul class="note-list" id="planList"></ul>
+    </div>
+  </section>
 </div>
 
 <script>
@@ -323,7 +337,8 @@ var state = {
   tab: "life",
   category: "",
   timelineTypes: "",
-  timelineOffset: 0
+  timelineOffset: 0,
+  planStatus: ""
 };
 
 var dateInput = document.getElementById("dateInput");
@@ -418,9 +433,11 @@ function switchTab(name) {
   document.getElementById("tab-memory").hidden = name !== "memory";
   document.getElementById("tab-share").hidden = name !== "share";
   document.getElementById("tab-timeline").hidden = name !== "timeline";
+  document.getElementById("tab-plans").hidden = name !== "plans";
   if (name === "memory") { loadMemory(); loadWishlist(); }
   if (name === "share") loadShare();
   if (name === "timeline") { renderTimelineFilters(); loadTimeline(true); }
+  if (name === "plans") { renderPlanFilters(); loadPlans(); }
 }
 
 function loadPersonas() {
@@ -712,6 +729,68 @@ function loadTimeline(reset) {
     .catch(function () { showError("时间轴加载失败。"); });
 }
 
+function renderPlanFilters() {
+  var box = document.getElementById("planFilters");
+  box.innerHTML = "";
+  var opts = [["", "全部"], ["pending", "待执行"], ["done", "已完成"], ["skipped", "跳过"], ["failed", "失败"]];
+  opts.forEach(function (opt) {
+    var chip = document.createElement("button");
+    chip.className = "chip" + (state.planStatus === opt[0] ? " active" : "");
+    chip.textContent = opt[1];
+    chip.addEventListener("click", function () {
+      state.planStatus = opt[0];
+      renderPlanFilters();
+      loadPlans();
+    });
+    box.appendChild(chip);
+  });
+}
+
+function loadPlans() {
+  var params = { persona: state.persona, date: dateInput.value || today() };
+  if (state.planStatus) params.status = state.planStatus;
+  fetch(API + "/plans?" + qs(params), { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var summary = data.summary || {};
+      document.getElementById("planTotal").textContent = summary.total || 0;
+      document.getElementById("planDone").textContent = summary.done || 0;
+      document.getElementById("planPending").textContent = summary.pending || 0;
+      document.getElementById("planSkipFail").textContent = (summary.skipped || 0) + (summary.failed || 0);
+      var ul = document.getElementById("planList");
+      ul.innerHTML = "";
+      var items = data.items || [];
+      if (!items.length) {
+        var empty = document.createElement("li");
+        empty.className = "empty";
+        empty.textContent = "这一天还没有排期任务。";
+        ul.appendChild(empty);
+        return;
+      }
+      var labels = { browse: "漫游", peek: "轻接触", diary: "复盘" };
+      items.forEach(function (item) {
+        var li = document.createElement("li");
+        li.className = "timeline-item";
+        var head = document.createElement("div");
+        head.className = "note-title";
+        head.textContent = "[" + (labels[item.kind] || item.kind) + "] " + item.task_id;
+        li.appendChild(head);
+        var meta = document.createElement("div");
+        meta.className = "note-src";
+        meta.textContent = item.status + (item.reason ? " · " + item.reason : "") + " · 预算 " + item.budget_used;
+        li.appendChild(meta);
+        if (item.scheduled_at) {
+          var time = document.createElement("div");
+          time.className = "note-src";
+          time.textContent = "排期 " + item.scheduled_at;
+          li.appendChild(time);
+        }
+        ul.appendChild(li);
+      });
+    })
+    .catch(function () { showError("排期板加载失败。"); });
+}
+
 function loadWishlist() {
   fetch(API + "/wishlist?" + qs({ persona: state.persona }), { headers: { "Accept": "application/json" } })
     .then(function (r) { return r.json(); })
@@ -893,6 +972,7 @@ function load() {
     if (state.tab === "memory") { loadMemory(); loadWishlist(); }
     if (state.tab === "share") loadShare();
     if (state.tab === "timeline") { renderTimelineFilters(); loadTimeline(true); }
+    if (state.tab === "plans") { renderPlanFilters(); loadPlans(); }
   });
 }
 

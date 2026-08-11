@@ -2,6 +2,15 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.3.9] - 2026-08-12
+
+### Added
+
+- L1.5-02 排期板：新增 `life_plans` 表与 `ensure_plan / update_plan / list_plans / plan_summary`；调度器每日播种当天固定槽位任务，执行后记录 `done / skipped / failed` 状态、原因与 tokens 预算用量；WebUI 新增“排期”tab 与 `GET /plans` 接口；新增 `query_life_plans` 只读 LLM 工具。
+
+### Notes
+
+- 测试：157 passed（新增排期板生命周期、调度器播种/状态映射/预算增量、WebUI plans、LLM plans 工具用例）。
 ## [0.3.8] - 2026-08-12
 
 ### Added
