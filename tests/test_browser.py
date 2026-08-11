@@ -1,4 +1,5 @@
 import os
+import random
 import sys
 import tempfile
 import unittest
@@ -22,9 +23,11 @@ class _FakeLLM:
         self.payload = payload
         self.error = error
         self.calls = 0
+        self.prompts: list[str] = []
 
     async def chat_json_managed(self, prompt, retry_limit=3, can_call=None, on_usage=None):
         self.calls += 1
+        self.prompts.append(prompt)
         if can_call is not None:
             can_call()
         if self.error:
@@ -147,6 +150,47 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["fallback"])
         diary = self.db.get_diary("shelly", datetime.now().strftime("%Y-%m-%d"))
         self.assertEqual(diary["signature"], "")
+
+    async def test_diary_revisits_old_note(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 23, 0)
+        old_id = self.db.add_note(
+            "shelly", None, "hacker-news", "https://old", "旧短记", "旧摘要",
+            opinion="旧观点", url_hash="old-revisit",
+        )
+        self.db._execute("UPDATE notes SET fetched_at = ? WHERE id = ?", ("2026-08-05 10:00:00", old_id))
+        self.service.rng = random.Random(1)
+        self.service.config.revisit_probability = 1.0
+        self.service.config.revisit_days = [7, 30]
+        self.service.llm = _FakeLLM(payload={
+            "diary_text": "今天看了新东西，也回看了七天前的旧短记。后来的我再看这件事，想法不太一样。",
+            "signature": "回头看，路没白走",
+            "mood": "curious",
+            "energy_change": -0.05,
+            "revisit_day_offset": 7,
+            "revisit_note_ids": [old_id],
+            "interest_updates": {},
+        })
+        result = await self.service.run_nightly_diary("shelly")
+        self.assertEqual(result["revisit_day"], 7)
+        self.assertEqual(result["revisit_notes"], 1)
+        prompt = self.service.llm.prompts[-1]
+        self.assertIn("回看素材", prompt)
+        self.assertIn("7 天前", prompt)
+        self.assertIn("旧短记", prompt)
+        today = datetime.now().strftime("%Y-%m-%d")
+        diary = self.db.get_diary("shelly", today)
+        self.assertIn("后来的我再看这件事", diary["content"])
+
+    async def test_diary_revisit_without_history_does_not_trigger(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 23, 0)
+        self.service.rng = random.Random(1)
+        self.service.config.revisit_probability = 1.0
+        self.service.config.revisit_days = [7, 30]
+        result = await self.service.run_nightly_diary("shelly")
+        self.assertEqual(result["revisit_day"], 7)
+        self.assertEqual(result["revisit_notes"], 0)
+        diary = self.db.get_diary("shelly", datetime.now().strftime("%Y-%m-%d"))
+        self.assertEqual(diary["content"], "今天没出门。没有特别的见闻，只是安静地待着。")
 
     async def test_diary_llm_failure_does_not_write_diary(self):
         self.db.add_note("shelly", None, "hn", "https://x", "X", "s", url_hash="dx")

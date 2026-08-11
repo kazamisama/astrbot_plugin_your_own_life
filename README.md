@@ -50,6 +50,7 @@
 - `injection_log_enabled`：记录疑似提示词注入内容到审计日志（默认开）。
 - `lease_ttl_seconds`：同人格任务租约 TTL（默认 300 秒），多实例共享 SQLite 时保证单写者。
 - `signature_enabled`：夜间复盘生成今日签名（默认开）。
+- `revisit_days` / `revisit_probability`：旧事新感回看天数（默认 `[7, 30]`）与触发概率（默认 0.5）。
 - `owner_ids`：允许执行命令的主人 ID（留空则仅要求管理员权限）。
 - `share_sessions` / `share_daily_cap` / `share_cooldown_minutes`：分享白名单（每行 `persona_id:sid`）与频率控制。
 - `persona_cache_hours` / `persona_prompt_max_chars`：人格缓存刷新间隔与截断长度。

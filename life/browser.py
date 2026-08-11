@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Optional, Sequence
 
 import httpx
@@ -69,6 +70,7 @@ class LifeService:
         self.log = logger or logging.getLogger("your_own_life")
         self.now_fn = now_fn or datetime.now
         self.fetcher_fn = fetcher_fn or fetch_all
+        self.rng = random.Random()
 
     # ----- persona gate -----
 
@@ -345,6 +347,16 @@ class LifeService:
             "target": str(raw.get("target") or ""),
         }
 
+    def _pick_revisit(self, persona_id: str, date: str) -> tuple[Optional[int], list[dict]]:
+        """Randomly pick notes from revisit_days ago for the nightly diary."""
+        if not self.config.revisit_days or self.rng.random() >= self.config.revisit_probability:
+            return None, []
+        day = int(self.rng.choice(self.config.revisit_days))
+        if day <= 0:
+            return None, []
+        revisit_date = (datetime.strptime(date, "%Y-%m-%d") - timedelta(days=day)).strftime("%Y-%m-%d")
+        return day, self.db.list_notes(persona_id, revisit_date, limit=20)
+
     # ----- diary -----
 
     async def run_nightly_diary(self, persona_id: str) -> dict[str, Any]:
@@ -363,6 +375,7 @@ class LifeService:
             notes = self.db.list_notes(persona_id, date, limit=200)
             snapshots = self.db.list_state_snapshots(persona_id, since_date=date, limit=200)
             mood_context = self.esm.get_mood_context(persona_id)
+            revisit_day, raw_revisit_notes = self._pick_revisit(persona_id, date)
 
             if self.config.injection_log_enabled:
                 for note in notes:
@@ -374,7 +387,7 @@ class LifeService:
                                 context="diary", field=field, preview=str(value)[:200],
                             )
 
-            if not notes:
+            if not notes and not raw_revisit_notes:
                 diary_text = "今天没出门。没有特别的见闻，只是安静地待着。"
                 mood = "calm"
                 signature = ""
@@ -389,11 +402,21 @@ class LifeService:
                     }
                     for note in notes
                 ]
+                safe_revisit_notes = [
+                    {
+                        **note,
+                        "title": sanitize_text(note.get("title"), 300),
+                        "summary": sanitize_text(note.get("summary"), 600),
+                        "opinion": sanitize_text(note.get("opinion"), 600),
+                    }
+                    for note in raw_revisit_notes
+                ]
                 try:
                     payload = await self._llm_call(
                         persona_id,
                         build_diary_prompt(
-                            persona.system_prompt, persona_id, safe_notes, snapshots, mood_context, date
+                            persona.system_prompt, persona_id, safe_notes, snapshots, mood_context,
+                            date, revisit=safe_revisit_notes, revisit_day=revisit_day,
                         ),
                     )
                 except BudgetExhausted as exc:
@@ -424,13 +447,18 @@ class LifeService:
             self.db.stage_diary(persona_id, None, date, diary_text, mood, energy, top, signature=signature)
             self.db.stage_snapshot(
                 persona_id, None, "diary", energy, mood,
-                extra=json.dumps({"notes": len(notes)}, ensure_ascii=False),
+                extra=json.dumps(
+                    {"notes": len(notes), "revisit_day": revisit_day,
+                     "revisit_notes": len(raw_revisit_notes)},
+                    ensure_ascii=False,
+                ),
             )
             if notes and interest_updates:
                 self.interests.stage_updates(persona_id, None, interest_updates, now=now)
             self.db.commit_staged(persona_id, None, status="completed")
             self.interests.daily_decay(persona_id)
-            return {"date": date, "notes": len(notes), "fallback": False}
+            return {"date": date, "notes": len(notes), "fallback": False,
+                    "revisit_day": revisit_day, "revisit_notes": len(raw_revisit_notes)}
         except Exception as exc:
             self.log.exception("nightly diary failed for %s", persona_id)
             self.db.discard_staged(persona_id, None, repr(exc))

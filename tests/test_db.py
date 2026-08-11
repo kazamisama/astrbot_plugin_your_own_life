@@ -80,6 +80,15 @@ class LifeDBTest(unittest.TestCase):
         self.assertIn("ai", note["tags"])
         self.assertIn("should_share", note["share_decision"])
 
+    def test_list_notes_filters_by_exact_date(self):
+        old_id = self.db.add_note(
+            "shelly", None, "hacker-news", "https://old", "Old", "s", url_hash="old1"
+        )
+        self.db.add_note("shelly", None, "hacker-news", "https://today", "Today", "s", url_hash="today1")
+        self.db._execute("UPDATE notes SET fetched_at = ? WHERE id = ?", ("2026-08-05 10:00:00", old_id))
+        self.assertEqual(len(self.db.list_notes("shelly", "2026-08-05", limit=10)), 1)
+        self.assertEqual(len(self.db.list_notes("shelly", "2026-08-06", limit=10)), 0)
+
     def test_diary_upsert_per_persona(self):
         self.db.add_diary("shelly", "2026-08-10", "first", mood="curious", energy=0.6)
         self.db.add_diary("shelly", "2026-08-10", "second", mood="calm", energy=0.5)

@@ -209,6 +209,21 @@
     "hint": "日记外额外生成一句短签名，随状态卡与档案展示",
     "default": true
   },
+  "revisit_days": {
+    "type": "list",
+    "description": "夜间复盘回看旧短记的天数",
+    "hint": "例如 7、30 表示回看一周前或一个月前的短记",
+    "default": [7, 30],
+    "items": {
+      "type": "int"
+    }
+  },
+  "revisit_probability": {
+    "type": "float",
+    "description": "夜间复盘触发旧事新感的概率（0-1）",
+    "hint": "触发后随机选 revisit_days 中的一天，把当天短记作为回看素材",
+    "default": 0.5
+  },
   "share_enabled": {
     "type": "bool",
     "description": "启用感悟分享",

@@ -42,6 +42,16 @@ class InjectionTest(unittest.TestCase):
         self.assertEqual(len(hits), 1)
         self.assertEqual(hits[0]["field"], "summary")
 
+    def test_diary_prompt_includes_revisit_section(self):
+        diary = build_diary_prompt(
+            "你是测试人格。", "shelly", [{"title": "t"}], [], "", "2026-08-12",
+            revisit=[{"id": 9, "title": "旧短记", "summary": "s"}], revisit_day=7,
+        )
+        self.assertIn("回看素材", diary)
+        self.assertIn("7 天前", diary)
+        self.assertIn("后来的我再看这件事", diary)
+        self.assertIn("revisit_note_ids", diary)
+
     def test_prompts_treat_material_as_untrusted(self):
         select = build_select_prompt(
             "你是测试人格。", "shelly", [{"index": 0, "title": "t"}],

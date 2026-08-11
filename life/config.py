@@ -54,6 +54,16 @@ def _as_list(value: Any, default: Sequence[str]) -> list[str]:
     return [str(p).strip() for p in parts if str(p).strip()]
 
 
+def _as_int_list(value: Any, default: Sequence[int]) -> list[int]:
+    raw = _as_list(value, [])
+    out: list[int] = []
+    for item in raw:
+        num = _as_int(item, 0)
+        if num > 0 and num not in out:
+            out.append(num)
+    return out or list(default)
+
+
 def _as_dict_of_lists(value: Any) -> dict[str, list[str]]:
     """Parse share_sessions: dict of persona -> sids, or flat 'persona:sid' lines."""
     out: dict[str, list[str]] = {}
@@ -171,6 +181,8 @@ class LifeConfig:
     injection_log_enabled: bool = True
     lease_ttl_seconds: int = 300
     signature_enabled: bool = True
+    revisit_days: list[int] = field(default_factory=lambda: [7, 30])
+    revisit_probability: float = 0.5
     share_enabled: bool = True
     share_daily_cap: int = 2
     share_cooldown_minutes: int = 360
@@ -233,6 +245,8 @@ def load_config(cfg: Any) -> LifeConfig:
         injection_log_enabled=_as_bool(_get(cfg, "injection_log_enabled"), True),
         lease_ttl_seconds=max(1, _as_int(_get(cfg, "lease_ttl_seconds"), 300)),
         signature_enabled=_as_bool(_get(cfg, "signature_enabled"), True),
+        revisit_days=_as_int_list(_get(cfg, "revisit_days"), [7, 30]),
+        revisit_probability=max(0.0, min(1.0, _as_float(_get(cfg, "revisit_probability"), 0.5))),
         share_enabled=_as_bool(_get(cfg, "share_enabled"), True),
         share_daily_cap=_as_int(_get(cfg, "share_daily_cap"), 2),
         share_cooldown_minutes=_as_int(_get(cfg, "share_cooldown_minutes"), 360),

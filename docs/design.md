@@ -154,6 +154,8 @@ hunger = 0（触发一次意外后清空）
 
 夜间槽位先 `recheck_pending` 补发被 gate 拦下的分享，再汇总当天短记与状态快照，用 LLM 生成第一人称日记 JSON（`diary_text/mood/energy_change/interest_updates`），落 `diary_entries` 并应用兴趣更新与衰减。v0.2.6 起 LLM 失败走重试语义，重试耗尽则该日复盘失败并报 error，不生成伪造日记。
 
+（已实现，v0.3.2）旧事新感：复盘时按 `revisit_probability` 随机选 `revisit_days` 中的一天，把该日短记作为“回看素材”注入 prompt，日记含“后来的我再看这件事”段落；无历史短记时不触发。
+
 ## 分享决策
 
 `ShareGate` 按序检查：分享总开关、目标会话白名单、睡眠窗口、精力门槛、每日上限、冷却、24h URL 去重、消息渲染、`Context.send_message` 返回值。成功才写 `shared` 并施加 ESM 信号；被 gate 拦下的保持 pending 状态，夜间或手动补发；配置不合法/禁分享则标记 `dropped`。

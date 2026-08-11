@@ -2,6 +2,16 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.3.2] - 2026-08-12
+
+### Added
+
+- L1-02 旧事新感：夜间复盘按概率回看 7/30 天前的短记，向日记 prompt 注入“回看素材”，LLM 生成“后来的我再看这件事”段落并输出 `revisit_day_offset` / `revisit_note_ids`；无历史时不触发。
+- 新增 `revisit_days`（默认 `[7, 30]`）、`revisit_probability`（默认 0.5）配置。
+
+### Notes
+
+- 测试：118 passed（新增回看端到端、无历史不触发、prompt 回看段、按日期查询与配置用例）。
 ## [0.3.1] - 2026-08-12
 
 ### Added

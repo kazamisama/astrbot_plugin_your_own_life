@@ -2,6 +2,18 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L1-02 旧事新感落地
+
+- 目标：夜间复盘随机回看 7/30 天前短记，让日记出现“后来的我再看这件事”。
+- 决策：回看作为可选素材注入原日记 prompt，不额外增加 LLM 调用；无历史时不触发，走现有空日记不变；回看素材同样可信化处理。
+- 改动：
+  - `life/config.py` / `_conf_schema.json`：新增 `revisit_days`（默认 `[7, 30]`）、`revisit_probability`（默认 0.5）。
+  - `life/prompts.py`：`build_diary_prompt` 新增可选 `revisit` / `revisit_day`，输出 schema 新增 `revisit_day_offset` / `revisit_note_ids`。
+  - `life/browser.py`：`LifeService` 新增可注入随机源，`_pick_revisit` 按概率选日并查历史短记，日记无今日短记但有回看短记时也调用 LLM；快照 extra 与返回值记录回看日期/数量。
+  - 版本 v0.3.1 → v0.3.2；README / CHANGELOG / features.md L1-02 / design.md / roadmap.md 同步。
+- 验证：unittest 118 passed（新增回看端到端、无历史不触发、prompt 回看段、按日期查询与配置用例）；UTF-8 读回无乱码。
+- 遗留：冷启动期判定未接入，等冷启分方向落地后再控制新 persona 是否触发回看；回看只取短记，不包含旧日记引用。
+- 下一步：L1-03 精力预算（等 ESM 契约）→ L1-04 随机不出门 → L1-05 时段模式 → L1-06 peek → L1-07 灵感抽屉 → L1-10 时间轴。
 ## 2026-08-12 L1-15 WebUI 视觉优化落地
 
 - 目标：统一后台工具风格：排版、空态、错误态、加载态、移动端适配；为状态卡/热力图提供可用的视觉层。

@@ -86,6 +86,15 @@ class ConfigTest(unittest.TestCase):
         self.assertTrue(load_config({}).signature_enabled)
         self.assertFalse(load_config({"signature_enabled": False}).signature_enabled)
 
+    def test_revisit_config(self):
+        cfg = load_config({})
+        self.assertEqual(cfg.revisit_days, [7, 30])
+        self.assertEqual(cfg.revisit_probability, 0.5)
+        cfg = load_config({"revisit_days": ["14", "30", "0"], "revisit_probability": "0.8"})
+        self.assertEqual(cfg.revisit_days, [14, 30])
+        self.assertEqual(cfg.revisit_probability, 0.8)
+        self.assertEqual(load_config({"revisit_probability": "9"}).revisit_probability, 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()
