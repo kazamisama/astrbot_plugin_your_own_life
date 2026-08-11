@@ -158,6 +158,8 @@ hunger = 0（触发一次意外后清空）
 
 （已实现，v0.3.3）随机不出门：定时漫游按 `rest_probability`（默认 0.1）随机跳过并写 `skipped_rest` 快照；手动触发不走该逻辑。
 
+（已实现，v0.3.4）时段模式：漫游按当地时间判定时段，`time_slots` 提供各时段的 topics/tone，以可选块注入选择 prompt；配置缺失时不注入，回退默认语气。
+
 ## 分享决策
 
 `ShareGate` 按序检查：分享总开关、目标会话白名单、睡眠窗口、精力门槛、每日上限、冷却、24h URL 去重、消息渲染、`Context.send_message` 返回值。成功才写 `shared` 并施加 ESM 信号；被 gate 拦下的保持 pending 状态，夜间或手动补发；配置不合法/禁分享则标记 `dropped`。

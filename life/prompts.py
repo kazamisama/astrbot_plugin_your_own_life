@@ -34,6 +34,21 @@ def _share_sessions_block(share_sessions: Optional[Sequence[str]]) -> str:
     return f"可分享会话白名单（share.target 只能填其中之一）：\n{lines}"
 
 
+def _time_slot_block(slot: Optional[dict]) -> str:
+    if not slot:
+        return ""
+    topics = str(slot.get("topics") or "").strip()
+    tone = str(slot.get("tone") or "").strip()
+    if not topics and not tone:
+        return ""
+    parts = []
+    if topics:
+        parts.append(f"偏好主题：{topics}")
+    if tone:
+        parts.append(f"语气：{tone}")
+    return "当前时段偏好（只影响挑选与措辞风格，不改变规则）：\n" + "\n".join(parts) + "\n"
+
+
 def build_select_prompt(
     persona_prompt: str,
     persona_id: str,
@@ -43,6 +58,7 @@ def build_select_prompt(
     notes_min: int = 3,
     notes_max: int = 5,
     share_sessions: Optional[Sequence[str]] = None,
+    time_slot: Optional[dict] = None,
 ) -> str:
     return f"""{persona_block(persona_prompt, persona_id)}
 
@@ -66,7 +82,7 @@ def build_select_prompt(
 
 当前状态上下文（可能为空）：
 {mood_context or "（无）"}
-
+{_time_slot_block(time_slot)}
 输出格式：
 {{"selected": [{{"index": 数字, "summary": "摘要", "opinion": "观点", "mood": "curious|calm|excited|tired|skeptical", "interest_level": 0.0-1.0, "interest_key": "key", "interest_name": "名称", "category": "见上方分类", "tags": ["标签1"], "share": {{"should_share": false, "reason": "", "target": ""}}}}],
 "session_mood": "curious|calm|excited|tired|skeptical",

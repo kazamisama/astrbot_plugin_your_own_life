@@ -230,6 +230,12 @@
     "hint": "定时漫游按此概率跳过并写 skipped_rest 快照，手动 /life_now 不受影响",
     "default": 0.1
   },
+  "time_slots": {
+    "type": "object",
+    "description": "时段模式：每个时段的偏好主题与语气",
+    "hint": "键为 morning/afternoon/evening/night，每项含 topics 与 tone；缺省项使用内置默认",
+    "default": {}
+  },
   "share_enabled": {
     "type": "bool",
     "description": "启用感悟分享",

@@ -291,6 +291,22 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         snapshots = self.db.list_state_snapshots("shelly")
         self.assertFalse(any(s["activity"] == "skipped_rest" for s in snapshots))
 
+    async def test_browse_prompt_uses_current_time_slot(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 9, 0)
+        payload = {
+            "selected": [{
+                "index": 0, "summary": "s", "opinion": "o", "mood": "curious",
+                "interest_level": 0.5, "interest_key": "ai", "interest_name": "AI",
+                "category": "opinion", "tags": [],
+                "share": {"should_share": False, "reason": "", "target": ""},
+            }],
+            "session_mood": "curious",
+        }
+        self.service.llm = _FakeLLM(payload=payload)
+        result = await self.service.run_browse_session("shelly", "scheduled")
+        self.assertEqual(result.status, "completed")
+        self.assertIn("当前时段偏好", self.service.llm.prompts[-1])
+
     async def test_sleep_window_blocks_scheduled_only(self):
         cfg = load_config({"sleep_window": "00:00-07:00"})
         service = LifeService(cfg, self.db, self.interests, self.esm,

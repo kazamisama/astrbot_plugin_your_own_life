@@ -2,6 +2,19 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L1-05 时段模式落地
+
+- 目标：同一素材在不同时段以不同偏好与语气见解。
+- 决策：`time_slots` 为可配置字典，默认提供 morning/afternoon/evening/night 四段；时段块作为可选素材注入选择 prompt，不改变规则与 JSON schema；配置缺失时不注入，回退默认语气。
+- 改动：
+  - `life/config.py`：新增 `DEFAULT_TIME_SLOTS` / `_parse_time_slots` / `current_time_slot` 与 `time_slots` 字段。
+  - `life/prompts.py`：`build_select_prompt` 新增可选 `time_slot`，有值时注入“当前时段偏好”块。
+  - `life/browser.py`：漫游时按本地时间计算当前时段并传递。
+  - `_conf_schema.json`：新增 `time_slots`。
+  - 版本 v0.3.3 → v0.3.4；README / CHANGELOG / features.md L1-05 / design.md / roadmap.md 同步。
+- 验证：unittest 126 passed（新增时段解析与判定、prompt 时段块、漫游 prompt 实际注入用例）。
+- 遗留：时段只影响选择 prompt，日记 prompt 尚未注入时段语气；后续可选择性扩展。
+- 下一步：L1-03 精力预算（等 ESM 契约）→ L1-06 peek → L1-07 灵感抽屉 → L1-10 时间轴。
 ## 2026-08-12 L1-04 随机不出门落地
 
 - 目标：定时漫游有概率跳过，让 bot 偶尔躺平但留下迹迹。

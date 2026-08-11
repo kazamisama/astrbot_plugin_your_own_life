@@ -64,6 +64,58 @@ def _as_int_list(value: Any, default: Sequence[int]) -> list[int]:
     return out or list(default)
 
 
+DEFAULT_TIME_SLOTS: dict[str, dict[str, Any]] = {
+    "morning": {"topics": "新闻、行业动态、值得清醒时读的深度内容", "tone": "清爽、好奇、有点干劲"},
+    "afternoon": {"topics": "技术实践、工具、效率与工作相关", "tone": "务实、专注、少一点抒情"},
+    "evening": {"topics": "人文、生活、轻松话题", "tone": "放松、有烟火气"},
+    "night": {"topics": "思考、长文、慢内容", "tone": "安静、内省"},
+}
+
+
+def _parse_time_slots(value: Any) -> dict[str, dict[str, Any]]:
+    """Parse time_slots into {slot: {topics, tone}} merged over defaults."""
+    out: dict[str, dict[str, Any]] = {}
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith("{"):
+            try:
+                import json
+                parsed = json.loads(text)
+                if isinstance(parsed, Mapping):
+                    value = parsed
+            except (ValueError, TypeError):
+                pass
+    raw_map = value if isinstance(value, Mapping) else {}
+    for key, raw in DEFAULT_TIME_SLOTS.items():
+        entry = dict(raw)
+        override = raw_map.get(key)
+        if isinstance(override, Mapping):
+            for field in ("topics", "tone"):
+                if override.get(field):
+                    entry[field] = str(override[field]).strip()
+        out[key] = entry
+    for key, override in raw_map.items():
+        if key in out or not isinstance(override, Mapping):
+            continue
+        out[str(key)] = {
+            "topics": str(override.get("topics") or "").strip(),
+            "tone": str(override.get("tone") or "").strip(),
+        }
+    return out
+
+
+def current_time_slot(slots: Mapping[str, Any], moment: datetime) -> str:
+    """Pick the active slot name by hour; falls back to morning on missing config."""
+    hour = moment.hour
+    if 5 <= hour < 12:
+        return "morning"
+    if 12 <= hour < 18:
+        return "afternoon"
+    if 18 <= hour < 22:
+        return "evening"
+    return "night"
+
+
 def _as_dict_of_lists(value: Any) -> dict[str, list[str]]:
     """Parse share_sessions: dict of persona -> sids, or flat 'persona:sid' lines."""
     out: dict[str, list[str]] = {}
@@ -184,6 +236,7 @@ class LifeConfig:
     revisit_days: list[int] = field(default_factory=lambda: [7, 30])
     revisit_probability: float = 0.5
     rest_probability: float = 0.1
+    time_slots: dict[str, dict[str, Any]] = field(default_factory=dict)
     share_enabled: bool = True
     share_daily_cap: int = 2
     share_cooldown_minutes: int = 360
@@ -249,6 +302,7 @@ def load_config(cfg: Any) -> LifeConfig:
         revisit_days=_as_int_list(_get(cfg, "revisit_days"), [7, 30]),
         revisit_probability=max(0.0, min(1.0, _as_float(_get(cfg, "revisit_probability"), 0.5))),
         rest_probability=max(0.0, min(1.0, _as_float(_get(cfg, "rest_probability"), 0.1))),
+        time_slots=_parse_time_slots(_get(cfg, "time_slots")),
         share_enabled=_as_bool(_get(cfg, "share_enabled"), True),
         share_daily_cap=_as_int(_get(cfg, "share_daily_cap"), 2),
         share_cooldown_minutes=_as_int(_get(cfg, "share_cooldown_minutes"), 360),

@@ -52,6 +52,20 @@ class InjectionTest(unittest.TestCase):
         self.assertIn("后来的我再看这件事", diary)
         self.assertIn("revisit_note_ids", diary)
 
+    def test_select_prompt_includes_time_slot(self):
+        prompt = build_select_prompt(
+            "你是测试人格。", "shelly", [{"index": 0, "title": "t"}],
+            ["科技"], "", 1, 1, [], time_slot={"topics": "科幻", "tone": "神秘"},
+        )
+        self.assertIn("当前时段偏好", prompt)
+        self.assertIn("科幻", prompt)
+        self.assertIn("神秘", prompt)
+        plain = build_select_prompt(
+            "你是测试人格。", "shelly", [{"index": 0, "title": "t"}],
+            ["科技"], "", 1, 1, [],
+        )
+        self.assertNotIn("当前时段偏好", plain)
+
     def test_prompts_treat_material_as_untrusted(self):
         select = build_select_prompt(
             "你是测试人格。", "shelly", [{"index": 0, "title": "t"}],

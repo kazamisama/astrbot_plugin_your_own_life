@@ -5,7 +5,7 @@ from datetime import datetime, time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from life.config import SleepWindow, load_config, parse_interest_line
+from life.config import DEFAULT_TIME_SLOTS, SleepWindow, current_time_slot, load_config, parse_interest_line
 
 
 class ConfigTest(unittest.TestCase):
@@ -99,6 +99,22 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(load_config({}).rest_probability, 0.1)
         self.assertEqual(load_config({"rest_probability": "0.25"}).rest_probability, 0.25)
         self.assertEqual(load_config({"rest_probability": "9"}).rest_probability, 1.0)
+
+    def test_time_slots_defaults_and_override(self):
+        cfg = load_config({})
+        self.assertEqual(set(cfg.time_slots), set(DEFAULT_TIME_SLOTS))
+        self.assertIn("tone", cfg.time_slots["morning"])
+        cfg = load_config({"time_slots": {"night": {"topics": "科幻", "tone": "神秘"}}})
+        self.assertEqual(cfg.time_slots["night"]["topics"], "科幻")
+        self.assertEqual(cfg.time_slots["night"]["tone"], "神秘")
+        self.assertEqual(cfg.time_slots["morning"]["tone"], DEFAULT_TIME_SLOTS["morning"]["tone"])
+
+    def test_current_time_slot_by_hour(self):
+        self.assertEqual(current_time_slot({}, datetime(2026, 8, 12, 8, 0)), "morning")
+        self.assertEqual(current_time_slot({}, datetime(2026, 8, 12, 14, 0)), "afternoon")
+        self.assertEqual(current_time_slot({}, datetime(2026, 8, 12, 20, 0)), "evening")
+        self.assertEqual(current_time_slot({}, datetime(2026, 8, 12, 23, 30)), "night")
+        self.assertEqual(current_time_slot({}, datetime(2026, 8, 12, 3, 0)), "night")
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ from typing import Any, Awaitable, Callable, Optional, Sequence
 
 import httpx
 
-from life.config import LifeConfig
+from life.config import LifeConfig, current_time_slot
 from life.db import LifeDB
 from life.esm_adapter import ESMAdapter
 from life.fetchers import FetchedItem, USER_AGENT, fetch_all
@@ -224,6 +224,9 @@ class LifeService:
                         self.config.notes_min,
                         self.config.notes_max,
                         share_sessions,
+                        time_slot=self.config.time_slots.get(
+                            current_time_slot(self.config.time_slots, now), {}
+                        ),
                     ),
                 )
             except BudgetExhausted as exc:

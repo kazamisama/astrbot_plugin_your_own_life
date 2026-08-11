@@ -2,6 +2,16 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.3.4] - 2026-08-12
+
+### Added
+
+- L1-05 时段模式：漫游时按当前时段（morning/afternoon/evening/night）向 prompt 注入偏好主题与语气，同一素材按时段产生不同风格。
+- 新增 `time_slots` 配置（每项含 topics/tone，缺省项使用内置默认）。
+
+### Notes
+
+- 测试：126 passed（新增时段解析与判定、prompt 时段块、漫游 prompt 实际注入用例）。
 ## [0.3.3] - 2026-08-12
 
 ### Added
