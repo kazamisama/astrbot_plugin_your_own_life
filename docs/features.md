@@ -40,6 +40,7 @@
 
 ### L1-01 今日人格签名
 
+- 状态：已实现（v0.3.0）。
 - 目标：每晚在日记外生成一句“今日签名”，形成可翻看的签名流。
 - 依赖：夜间复盘（L0）。
 - 模块：`life/browser.py`（生成）、`life/db.py`（`diary_entries` 加 `signature` 列或独立表）、`life/webui.py` + 页面（展示）。
@@ -99,6 +100,7 @@
 
 ### L1-08 状态小卡片
 
+- 状态：已实现（v0.3.0）。
 - 目标：Dashboard 顶部展示当前 persona 的心情、精力、今日漫游次数、最近短记标题与日记状态。
 - 依赖：WebUI（L0）。
 - 模块：`life/webui.py`（新增 `GET /status`）、`main.py`（`/life_today` 命令）、`pages/life/index.html`。
@@ -107,6 +109,7 @@
 
 ### L1-09 月历热力图
 
+- 状态：已实现（v0.3.0）。
 - 目标：按天聚合短记/漫游/日记/分享数量，纯 CSS grid 绘制贡献图式月历。
 - 依赖：WebUI（L0）。
 - 模块：`life/webui.py`（新增 `GET /timeline/heatmap?month=YYYY-MM`）、`pages/life/index.html`。

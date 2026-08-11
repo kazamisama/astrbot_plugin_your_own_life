@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS diary_entries (
     persona_id TEXT NOT NULL DEFAULT 'default',
     date TEXT NOT NULL,
     content TEXT NOT NULL,
+    signature TEXT DEFAULT '',
     mood TEXT DEFAULT '',
     energy REAL,
     interest_top TEXT DEFAULT '',
@@ -167,6 +168,7 @@ CREATE TABLE IF NOT EXISTS staging_diary (
     session_id INTEGER,
     date TEXT NOT NULL,
     content TEXT NOT NULL,
+    signature TEXT DEFAULT '',
     mood TEXT DEFAULT '',
     energy REAL,
     interest_top TEXT DEFAULT '',
@@ -247,6 +249,7 @@ class LifeDB:
             self._conn.executescript(_SCHEMA)
             self._ensure_column("notes", "deleted_at", "deleted_at TEXT DEFAULT ''")
             self._ensure_column("diary_entries", "deleted_at", "deleted_at TEXT DEFAULT ''")
+            self._ensure_column("diary_entries", "signature", "signature TEXT DEFAULT ''")
             self._conn.commit()
         self.recover_stale_runs()
 
@@ -533,13 +536,16 @@ class LifeDB:
         mood: str = "",
         energy: Optional[float] = None,
         interest_top: str = "",
+        signature: str = "",
     ) -> None:
         self._execute(
-            "INSERT INTO diary_entries (persona_id, date, content, mood, energy, interest_top, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(persona_id, date) DO UPDATE SET content = excluded.content, mood = excluded.mood, "
-            "energy = excluded.energy, interest_top = excluded.interest_top",
-            (persona_id, date, content, mood, energy, interest_top, self._now()),
+            "INSERT INTO diary_entries "
+            "(persona_id, date, content, signature, mood, energy, interest_top, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(persona_id, date) DO UPDATE SET content = excluded.content, "
+            "signature = excluded.signature, mood = excluded.mood, energy = excluded.energy, "
+            "interest_top = excluded.interest_top",
+            (persona_id, date, content, signature, mood, energy, interest_top, self._now()),
         )
 
     def get_diary(self, persona_id: str, date: str) -> Optional[dict]:
@@ -717,12 +723,13 @@ class LifeDB:
         mood: str = "",
         energy: Optional[float] = None,
         interest_top: str = "",
+        signature: str = "",
     ) -> int:
         cur = self._execute(
             "INSERT INTO staging_diary "
-            "(persona_id, session_id, date, content, mood, energy, interest_top, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (persona_id, session_id, date, content, mood, energy, interest_top, self._now()),
+            "(persona_id, session_id, date, content, signature, mood, energy, interest_top, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (persona_id, session_id, date, content, signature, mood, energy, interest_top, self._now()),
         )
         return int(cur.lastrowid)
 
@@ -792,11 +799,12 @@ class LifeDB:
             )
             self._conn.execute(
                 "INSERT INTO diary_entries "
-                "(persona_id, date, content, mood, energy, interest_top, created_at) "
-                "SELECT persona_id, date, content, mood, energy, interest_top, created_at "
+                "(persona_id, date, content, signature, mood, energy, interest_top, created_at) "
+                "SELECT persona_id, date, content, signature, mood, energy, interest_top, created_at "
                 "FROM staging_diary WHERE persona_id = ? AND "
                 "(session_id = ? OR (session_id IS NULL AND ? IS NULL)) "
-                "ON CONFLICT(persona_id, date) DO UPDATE SET content = excluded.content, mood = excluded.mood, "
+                "ON CONFLICT(persona_id, date) DO UPDATE SET content = excluded.content, "
+                "signature = excluded.signature, mood = excluded.mood, "
                 "energy = excluded.energy, interest_top = excluded.interest_top",
                 (persona_id, session_id, session_id),
             )
@@ -1269,6 +1277,84 @@ class LifeDB:
                 "shares_sent": sum(1 for s in share_logs if s["status"] == "sent"),
                 "shares_blocked": sum(1 for s in share_logs if s["status"] == "blocked"),
             },
+        }
+
+    def get_status(self, persona_id: str, date: Optional[str] = None) -> dict[str, Any]:
+        date = date or self._today()
+        sessions = self.list_sessions(persona_id, date, limit=20)
+        notes = self.list_notes(persona_id, date, limit=5)
+        diary = self.get_diary(persona_id, date)
+        snapshots = self.list_state_snapshots(persona_id, since_date=date, limit=5)
+        latest = snapshots[0] if snapshots else {}
+        completed = sum(1 for s in sessions if s["status"] == "completed")
+        return {
+            "persona_id": persona_id,
+            "date": date,
+            "mood": latest.get("mood") or (diary.get("mood") if diary else "") or "",
+            "energy": latest.get("energy")
+            if latest.get("energy") is not None
+            else (diary.get("energy") if diary else None),
+            "browse_count": completed,
+            "notes_count": len(notes),
+            "recent_notes": [
+                {"id": n["id"], "title": n["title"]} for n in notes[:5]
+            ],
+            "diary": (
+                {
+                    "date": diary["date"],
+                    "signature": diary.get("signature") or "",
+                    "content": diary.get("content") or "",
+                }
+                if diary
+                else None
+            ),
+            "sessions": [
+                {
+                    "id": s["id"],
+                    "status": s["status"],
+                    "reason": s.get("reason") or "",
+                }
+                for s in sessions[:8]
+            ],
+        }
+
+    def timeline_heatmap(self, persona_id: str, month: str) -> dict[str, Any]:
+        days: dict[str, dict[str, int]] = {}
+        default = {"notes": 0, "diaries": 0, "shares": 0, "browse": 0}
+        prefix = (month or "")[:7] + "%"
+        for row in self._rows(
+            "SELECT substr(fetched_at, 1, 10) AS d, COUNT(*) AS n "
+            "FROM notes WHERE persona_id = ? AND fetched_at LIKE ? AND deleted_at = '' "
+            "GROUP BY d",
+            (persona_id, prefix),
+        ):
+            day = days.setdefault(row["d"], dict(default))
+            day["notes"] = int(row["n"])
+        for row in self._rows(
+            "SELECT date AS d, COUNT(*) AS n FROM diary_entries "
+            "WHERE persona_id = ? AND date LIKE ? AND deleted_at = '' GROUP BY d",
+            (persona_id, prefix),
+        ):
+            day = days.setdefault(row["d"], dict(default))
+            day["diaries"] = int(row["n"])
+        for row in self._rows(
+            "SELECT substr(attempted_at, 1, 10) AS d, COUNT(*) AS n "
+            "FROM share_log WHERE persona_id = ? AND attempted_at LIKE ? GROUP BY d",
+            (persona_id, prefix),
+        ):
+            day = days.setdefault(row["d"], dict(default))
+            day["shares"] = int(row["n"])
+        for row in self._rows(
+            "SELECT substr(started_at, 1, 10) AS d, COUNT(*) AS n "
+            "FROM browse_sessions WHERE persona_id = ? AND started_at LIKE ? GROUP BY d",
+            (persona_id, prefix),
+        ):
+            day = days.setdefault(row["d"], dict(default))
+            day["browse"] = int(row["n"])
+        return {
+            "persona_id": persona_id,
+            "month": (month or "")[:7],
+            "days": [{"date": k, **v} for k, v in sorted(days.items())],
         }
 
     def archive_for_date(self, persona_id: str, date: str) -> dict[str, Any]:

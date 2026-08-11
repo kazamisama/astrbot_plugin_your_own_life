@@ -91,6 +91,7 @@ def build_diary_prompt(
 - 日记是私人档案，语气安静、真实、有自己的视角，不要写成新闻摘要。
 - 不要复述大段原文，只保留你消化后的理解。
 - interest_updates 是可选的兴趣增量：key 对应兴趣，name 是展示名，delta 在 -0.2 到 0.2 之间。
+- signature 是今天的一句话签名（短句，不超过 20 字）；素材不足时留空字符串。
 - 只输出一个 JSON 对象。
 
 今天短记：
@@ -103,7 +104,7 @@ def build_diary_prompt(
 {mood_context or "（无）"}
 
 输出格式：
-{{"diary_text": "日记正文", "mood": "curious|calm|excited|tired|skeptical", "energy_change": -0.05,
+{{"diary_text": "日记正文", "signature": "今日签名（可为空）", "mood": "curious|calm|excited|tired|skeptical", "energy_change": -0.05,
 "interest_updates": {{"key": {{"name": "名称", "delta": 0.05}}}}}}"""
 
 

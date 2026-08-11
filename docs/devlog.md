@@ -2,6 +2,22 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 高体感第一批：L1-01/08/09 落地
+
+- 目标：今日签名、状态小卡片、月历热力图三个“一眼可感知”视图先落地，为 WebUI 视觉优化打底。
+- 决策：签名随夜间复盘生成（素材不足留空），落 `diary_entries.signature`；状态卡零 schema 变更，`/life_today` 复用同一数据源；热力图按本地日期聚合四类计数。
+- 改动：
+  - `life/db.py`：`diary_entries`/`staging_diary` 增加 `signature`（含旧库 ALTER），`add_diary`/`stage_diary`/`commit_staged` 透传；新增 `get_status`、`timeline_heatmap`。
+  - `life/prompts.py`：日记 prompt 输出增加 `signature` 字段与规则。
+  - `life/browser.py`：夜间复盘生成并暂存签名（受 `signature_enabled` 控制）。
+  - `life/webui.py`：新增 `/status`、`/timeline/heatmap`。
+  - `main.py`：新增 `/life_today`；`/life` 与 `/life_archive` 展示签名。
+  - `life/config.py` / `_conf_schema.json`：新增 `signature_enabled`。
+  - 版本 v0.2.9 → v0.3.0；README / CHANGELOG / features.md L1-01/08/09 / design.md / roadmap.md 同步。
+- 验证：unittest 113 passed（新增签名、状态卡、热力图、配置与命令用例）；UTF-8 读回校验无乱码。
+- 遗留：WebUI 页面尚未实际渲染状态卡/热力图（L1-15 视觉层），时间轴（L1-10）仍未排期实现。
+- 下一步：L1-15 WebUI 视觉优化（排版/空态/错误态/移动端 + Playwright 检查）。
+
 ## 2026-08-12 L1-16 同人格单 SQL 与任务租约落地
 
 - 目标：同人格多实例共享同一 SQLite 时保证单写者，槽位不会重复执行。

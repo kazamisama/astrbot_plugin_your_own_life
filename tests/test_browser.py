@@ -128,6 +128,7 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
 
         diary_payload = {
             "diary_text": "今天看到了一些有趣的东西。",
+            "signature": "今天有风",
             "mood": "curious",
             "energy_change": -0.05,
             "interest_updates": {"ai": {"name": "人工智能", "delta": 0.05}},
@@ -139,6 +140,13 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         today = datetime.now().strftime("%Y-%m-%d")
         diary = self.db.get_diary("shelly", today)
         self.assertEqual(diary["content"], "今天看到了一些有趣的东西。")
+        self.assertEqual(diary["signature"], "今天有风")
+
+    async def test_diary_without_notes_has_no_signature(self):
+        result = await self.service.run_nightly_diary("shelly")
+        self.assertFalse(result["fallback"])
+        diary = self.db.get_diary("shelly", datetime.now().strftime("%Y-%m-%d"))
+        self.assertEqual(diary["signature"], "")
 
     async def test_diary_llm_failure_does_not_write_diary(self):
         self.db.add_note("shelly", None, "hn", "https://x", "X", "s", url_hash="dx")

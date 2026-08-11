@@ -3,6 +3,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -252,6 +253,36 @@ class LifeDBTest(unittest.TestCase):
         )
         self.assertTrue(self.db.acquire_lease("shelly", key, "inst-b", ttl_seconds=300))
         self.assertEqual(self.db.cleanup_expired_leases(), 0)
+
+    def test_diary_signature_roundtrip(self):
+        self.db.add_diary("shelly", "2026-08-12", "d", mood="calm", signature="今天有风")
+        self.assertEqual(self.db.get_diary("shelly", "2026-08-12")["signature"], "今天有风")
+
+    def test_staging_diary_signature(self):
+        self.db.stage_diary("shelly", None, "2026-08-12", "d", signature="s")
+        self.db.commit_staged("shelly", None, status="completed")
+        self.assertEqual(self.db.get_diary("shelly", "2026-08-12")["signature"], "s")
+
+    def test_get_status_empty_state(self):
+        status = self.db.get_status("shelly", "2026-08-12")
+        self.assertEqual(status["persona_id"], "shelly")
+        self.assertIsNone(status["diary"])
+        self.assertEqual(status["browse_count"], 0)
+        self.assertEqual(status["recent_notes"], [])
+
+    def test_timeline_heatmap(self):
+        self.db.add_note("shelly", None, "hn", "https://a", "A", "s", url_hash="h1")
+        self.db.add_diary("shelly", "2026-08-12", "d")
+        self.db.log_share_attempt("shelly", None, "sent", target_sid="s")
+        self.db.start_browse_session("shelly", "scheduled")
+        heat = self.db.timeline_heatmap("shelly", "2026-08")
+        today = datetime.now().strftime("%Y-%m-%d")
+        day = next((d for d in heat["days"] if d["date"] == today), None)
+        self.assertIsNotNone(day)
+        self.assertGreaterEqual(day["notes"], 1)
+        self.assertGreaterEqual(day["diaries"], 1)
+        self.assertGreaterEqual(day["shares"], 1)
+        self.assertGreaterEqual(day["browse"], 1)
 
 
 if __name__ == "__main__":

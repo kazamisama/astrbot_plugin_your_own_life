@@ -71,6 +71,16 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result["logs"]), 1)
         self.assertEqual(result["logs"][0]["context"], "browse")
 
+    async def test_status_and_heatmap_handlers(self):
+        self.db.add_note("shelly", None, "hn", "https://x", "T", "s", url_hash="hx")
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=None, config=self.config)
+        status = await handlers["status"]()
+        self.assertEqual(status["persona_id"], "shelly")
+        self.assertEqual(status["notes_count"], 1)
+        heat = await handlers["heatmap"]()
+        self.assertGreaterEqual(len(heat["days"]), 1)
+
     def test_register_api(self):
         context = _FakeContext()
         ok = register_api(context, self.db, service=None, share_gate=None,
@@ -78,13 +88,15 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ok)
         routes = [r[0] for r in context.registrations]
         self.assertIn("/astrbot_plugin_your_own_life/api/overview", routes)
+        self.assertIn("/astrbot_plugin_your_own_life/api/status", routes)
+        self.assertIn("/astrbot_plugin_your_own_life/api/timeline/heatmap", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/memory_search", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/usage", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/trash", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/trash_restore", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/change_log", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/injection_log", routes)
-        self.assertEqual(len(routes), 15)
+        self.assertEqual(len(routes), 17)
 
 
 if __name__ == "__main__":

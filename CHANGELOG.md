@@ -2,6 +2,19 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.3.0] - 2026-08-12
+
+### Added
+
+- L1-01 今日人格签名：夜间复盘在日记外生成一句短签名，落 `diary_entries.signature`；`/life`、`/life_archive` 展示，状态卡读取。
+- L1-08 状态小卡片：WebUI 新增 `GET /status`，`/life_today` 命令把心情/精力/漫游次数/最近见闻/日记状态直接发到聊天；无数据返回空态不报错。
+- L1-09 月历热力图：WebUI 新增 `GET /timeline/heatmap?month=YYYY-MM`，按天聚合短记/日记/分享/漫游次数。
+- 新增 `signature_enabled` 配置（默认开）。
+
+### Notes
+
+- 测试：113 passed（新增签名落库/空签名、状态卡、热力图、配置与命令用例）。
+
 ## [0.2.9] - 2026-08-12
 
 ### Added

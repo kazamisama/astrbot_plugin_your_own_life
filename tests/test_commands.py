@@ -41,6 +41,11 @@ class CommandsTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("生活档案 · shelly", event._result["text"])
         self.assertIn("分享", event._result["text"])
 
+    async def test_life_today_status(self):
+        event = await self._run(self.star.cmd_life_today, "/life_today")
+        self.assertIn("生活状态 · shelly", event._result["text"])
+        self.assertIn("今日漫游", event._result["text"])
+
     async def test_owner_check(self):
         event = await self._run(self.star.cmd_life, "/life", sender="intruder")
         self.assertEqual(event._result["text"], "该命令仅限主人使用。")

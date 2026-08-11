@@ -53,6 +53,16 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         date = args.get("date") or _today(config)
         return db.get_overview(persona, date)
 
+    async def status():
+        persona = await _persona_arg()
+        return db.get_status(persona)
+
+    async def heatmap():
+        args = await _query_args()
+        persona = str(args.get("persona") or _first_persona(config))
+        month = str(args.get("month") or _today(config)[:7])
+        return db.timeline_heatmap(persona, month)
+
     async def archive():
         args = await _query_args()
         persona = str(args.get("persona") or _first_persona(config))
@@ -167,6 +177,8 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
 
     return {
         "overview": overview,
+        "status": status,
+        "heatmap": heatmap,
         "archive": archive,
         "interests": interests,
         "run": run,
@@ -193,6 +205,8 @@ def register_api(context: Any, db: Any, service: Any, share_gate: Any,
     handlers = build_handlers(db, service, share_gate, personas, config)
     routes = (
         (f"{API_PREFIX}/overview", "overview", ["GET"], "Life overview"),
+        (f"{API_PREFIX}/status", "status", ["GET"], "Today status card"),
+        (f"{API_PREFIX}/timeline/heatmap", "heatmap", ["GET"], "Monthly heatmap"),
         (f"{API_PREFIX}/archive", "archive", ["GET"], "Life archive"),
         (f"{API_PREFIX}/interests", "interests", ["GET"], "Life interests"),
         (f"{API_PREFIX}/run", "run", ["POST"], "Trigger a browse session"),

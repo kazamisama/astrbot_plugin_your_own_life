@@ -425,7 +425,7 @@ LLM 可自主更改生活数据/计划/记忆，按事件链自主排期，并�
 
 ## WebUI 与 API
 
-页面由 AstrBot Dashboard 自动发现（`pages/life/index.html`），数据接口统一挂在 `/api/plug/astrbot_plugin_your_own_life/api/...`：overview、archive、interests、run、memory、memory_search、personas、persona_refresh、share、share_note，访问需要 Dashboard 登录态。
+页面由 AstrBot Dashboard 自动发现（`pages/life/index.html`），数据接口统一挂在 `/api/plug/astrbot_plugin_your_own_life/api/...`：overview、status、timeline/heatmap、archive、interests、run、memory、memory_search、usage、trash、trash_restore、change_log、injection_log、personas、persona_refresh、share、share_note，访问需要 Dashboard 登录态。
 
 ## 可被看见（方向，L1/L1.5/L2 分档）
 
@@ -433,8 +433,8 @@ LLM 可自主更改生活数据/计划/记忆，按事件链自主排期，并�
 
 ### 第一档：零迁移
 
-- 状态小卡片：新增 `GET /status`，用 `state_snapshots + browse_sessions + notes + diary_entries` 返回当前 persona 的心情、精力、今日漫游次数、最近短记标题与日记状态；WebUI 页面顶部展示。
-- 月历热力图：新增 `GET /timeline/heatmap?month=YYYY-MM`，按天聚合短记/漫游/日记/分享数量，WebUI 用纯 CSS grid 绘制贡献图式月历。
+- 状态小卡片（已实现 v0.3.0）：`GET /status` 用 `state_snapshots + browse_sessions + notes + diary_entries` 返回当前 persona 的心情、精力、今日漫游次数、最近短记标题与日记状态；WebUI 页面顶部展示，`/life_today` 可发到聊天。
+- 月历热力图（已实现 v0.3.0）：`GET /timeline/heatmap?month=YYYY-MM` 按天聚合短记/漫游/日记/分享数量，WebUI 用纯 CSS grid 绘制贡献图式月历。
 - 时间轴：新增 `GET /timeline`（或同接口带类型过滤），按时间倒序混排 notes、diary、share_log、state_snapshots，WebUI 渲染纵向时间流。
 - 命令：新增 `/life_today`，把状态卡内容直接发到聊天，方便不看 WebUI 时使用。
 

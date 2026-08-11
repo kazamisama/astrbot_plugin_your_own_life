@@ -377,6 +377,7 @@ class LifeService:
             if not notes:
                 diary_text = "今天没出门。没有特别的见闻，只是安静地待着。"
                 mood = "calm"
+                signature = ""
                 interest_updates: dict = {}
             else:
                 safe_notes = [
@@ -411,12 +412,16 @@ class LifeService:
                 diary_text = str(payload["diary_text"]).strip()
                 mood = self._valid_mood(payload.get("mood"), "calm")
                 interest_updates = payload.get("interest_updates") or {}
+                signature = (
+                    str(payload.get("signature") or "").strip()[:20]
+                    if self.config.signature_enabled else ""
+                )
 
             energy = self.esm.get_energy()
             top = ",".join(
                 row["name"] or row["key"] for row in self.db.get_interests(persona_id, limit=5)
             )
-            self.db.stage_diary(persona_id, None, date, diary_text, mood, energy, top)
+            self.db.stage_diary(persona_id, None, date, diary_text, mood, energy, top, signature=signature)
             self.db.stage_snapshot(
                 persona_id, None, "diary", energy, mood,
                 extra=json.dumps({"notes": len(notes)}, ensure_ascii=False),

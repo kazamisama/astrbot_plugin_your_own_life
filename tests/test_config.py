@@ -82,6 +82,10 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(load_config({}).lease_ttl_seconds, 300)
         self.assertEqual(load_config({"lease_ttl_seconds": "60"}).lease_ttl_seconds, 60)
 
+    def test_signature_enabled_default(self):
+        self.assertTrue(load_config({}).signature_enabled)
+        self.assertFalse(load_config({"signature_enabled": False}).signature_enabled)
+
 
 if __name__ == "__main__":
     unittest.main()

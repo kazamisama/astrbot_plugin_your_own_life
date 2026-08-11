@@ -203,6 +203,12 @@
     "hint": "多实例共享同一 SQLite 时，同一槽位只有一个执行者；过期租约自动释放",
     "default": 300
   },
+  "signature_enabled": {
+    "type": "bool",
+    "description": "夜间复盘生成今日签名",
+    "hint": "日记外额外生成一句短签名，随状态卡与档案展示",
+    "default": true
+  },
   "share_enabled": {
     "type": "bool",
     "description": "启用感悟分享",

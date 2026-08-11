@@ -164,6 +164,8 @@ class LifeStar(Star):
         lines = [f"生活档案 · {persona} · {date}", ""]
         if diary and diary.get("content"):
             lines.append("【今日日记】")
+            if diary.get("signature"):
+                lines.append(f"签名：{diary['signature']}")
             lines.append(diary["content"])
             lines.append("")
         lines.append(
@@ -182,6 +184,32 @@ class LifeStar(Star):
                 )
         else:
             lines.append("今天还没有漫游记录，可用 /life_now 立即漫游。")
+        event.set_result(event.plain_result("\n".join(lines)))
+
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command("life_today")
+    async def cmd_life_today(self, event: AstrMessageEvent):
+        if not self._is_owner(event):
+            self._deny(event)
+            return
+        args = self._command_args(event, "life_today")
+        persona = args[0] if args else self._default_persona()
+        status = self.db.get_status(persona)
+        lines = [
+            f"生活状态 · {persona} · {status['date']}",
+            f"心情：{status['mood'] or '未知'}",
+            f"精力：{status['energy'] if status['energy'] is not None else '未知'}",
+            f"今日漫游：{status['browse_count']} 次 · 短记 {status['notes_count']} 条",
+        ]
+        diary = status.get("diary")
+        if diary:
+            lines.append(f"日记：已写（{diary.get('signature') or '无签名'}）")
+        else:
+            lines.append("日记：未写")
+        recent = status.get("recent_notes") or []
+        if recent:
+            lines.append("最近见闻：")
+            lines.extend(f"- {n['title']}" for n in recent)
         event.set_result(event.plain_result("\n".join(lines)))
 
     @filter.permission_type(filter.PermissionType.ADMIN)
@@ -229,6 +257,8 @@ class LifeStar(Star):
         lines = [f"生活档案 · {persona} · {date}", ""]
         if diary and diary.get("content"):
             lines.append("【日记】")
+            if diary.get("signature"):
+                lines.append(f"签名：{diary['signature']}")
             lines.append(diary["content"])
             lines.append("")
         if notes:
