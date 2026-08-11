@@ -15,6 +15,9 @@
   --accent-soft: #ecfdf5;
   --danger: #b91c1c;
   --warn: #b45309;
+  --info: #2563eb;
+  --info-soft: #eff6ff;
+  --warn-soft: #fffbeb;
 }
 * { box-sizing: border-box; }
 body {
@@ -142,9 +145,52 @@ select, input[type="date"], input[type="text"] {
 .status-pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; background: var(--accent-soft); color: var(--accent); }
 .status-pill.bad { background: #fef2f2; color: var(--danger); }
 .tag { display: inline-block; background: #eef2f6; border-radius: 4px; padding: 0 6px; margin-right: 4px; font-size: 12px; }
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.status-grid .value { font-size: 18px; overflow-wrap: anywhere; }
+.banner {
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: var(--danger);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+.heatmap-panel { grid-column: span 8; }
+.heatmap {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+.heat-cell {
+  aspect-ratio: 1;
+  border-radius: 4px;
+  background: #eef2f6;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  min-width: 0;
+}
+.heat-cell.l1 { background: #d1fae5; color: #065f46; }
+.heat-cell.l2 { background: #6ee7b7; color: #064e3b; }
+.heat-cell.l3 { background: #10b981; color: #ffffff; }
+.heat-cell.l4 { background: #047857; color: #ffffff; }
+.heat-cell.blank { background: transparent; }
+.heatmap .empty { grid-column: 1 / -1; }
+.loading { color: var(--muted); }
+.stat .value, .note-title, .diary-text { overflow-wrap: anywhere; }
 @media (max-width: 860px) {
   .diary, .notes, .chart, .interests, .persona-panel { grid-column: span 12; }
+  .heatmap-panel { grid-column: span 12; }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 </style>
 </head>
@@ -166,6 +212,8 @@ select, input[type="date"], input[type="text"] {
     </button>
   </header>
 
+  <div class="banner" id="errorBanner" hidden></div>
+
   <nav class="tabs">
     <button class="tab active" data-tab="life">生活</button>
     <button class="tab" data-tab="memory">记忆</button>
@@ -179,6 +227,13 @@ select, input[type="date"], input[type="text"] {
       <div class="stat"><span class="label">成功 / 跳过</span><span class="value" id="statStatus">-</span></div>
       <div class="stat"><span class="label">分享 / 被拦</span><span class="value" id="statShare">-</span></div>
     </div>
+    <div class="status-grid">
+      <div class="stat"><span class="label">心情</span><span class="value" id="statusMood">-</span></div>
+      <div class="stat"><span class="label">精力</span><span class="value" id="statusEnergy">-</span></div>
+      <div class="stat"><span class="label">今日漫游</span><span class="value" id="statusBrowse">-</span></div>
+      <div class="stat"><span class="label">日记</span><span class="value" id="statusDiary">-</span></div>
+      <div class="stat"><span class="label">今日签名</span><span class="value" id="statusSignature">-</span></div>
+    </div>
     <div class="grid">
       <section class="panel diary">
         <h2>今日日记</h2>
@@ -191,6 +246,10 @@ select, input[type="date"], input[type="text"] {
       <section class="panel chart">
         <h2>精力轨迹</h2>
         <div id="chartBox"><p class="empty">暂无状态数据。</p></div>
+      </section>
+      <section class="panel heatmap-panel">
+        <h2>月历热力图</h2>
+        <div class="heatmap" id="heatmapBox"></div>
       </section>
       <section class="panel interests">
         <h2>兴趣排行</h2>
@@ -264,6 +323,66 @@ function escapeHtml(text) {
   var div = document.createElement("div");
   div.textContent = text == null ? "" : String(text);
   return div.innerHTML;
+}
+
+function showError(msg) {
+  var banner = document.getElementById("errorBanner");
+  if (!msg) {
+    banner.hidden = true;
+    banner.textContent = "";
+    return;
+  }
+  banner.textContent = msg;
+  banner.hidden = false;
+}
+
+function renderStatus(status) {
+  document.getElementById("statusMood").textContent = status.mood || "未知";
+  document.getElementById("statusEnergy").textContent =
+    status.energy == null ? "未知" : Number(status.energy).toFixed(2);
+  document.getElementById("statusBrowse").textContent = status.browse_count || 0;
+  document.getElementById("statusDiary").textContent = status.diary ? "已写" : "未写";
+  document.getElementById("statusSignature").textContent =
+    (status.diary && status.diary.signature) || "无";
+}
+
+function renderHeatmap(data) {
+  var box = document.getElementById("heatmapBox");
+  box.innerHTML = "";
+  var days = {};
+  (data.days || []).forEach(function (d) { days[d.date] = d; });
+  var month = data.month || today().slice(0, 7);
+  var parts = month.split("-");
+  var y = Number(parts[0]);
+  var m = Number(parts[1]);
+  var startDow = new Date(y, m - 1, 1).getDay();
+  var count = new Date(y, m, 0).getDate();
+  var hasAny = false;
+  for (var i = 0; i < startDow; i++) {
+    var pad = document.createElement("span");
+    pad.className = "heat-cell blank";
+    box.appendChild(pad);
+  }
+  for (var d = 1; d <= count; d++) {
+    var key = month + "-" + String(d).padStart(2, "0");
+    var info = days[key] || {};
+    var total = (info.notes || 0) + (info.diaries || 0) +
+      (info.shares || 0) + (info.browse || 0);
+    if (total > 0) hasAny = true;
+    var cell = document.createElement("span");
+    cell.className = "heat-cell" + (total ? " l" + Math.min(4, Math.ceil(total / 2)) : "");
+    cell.textContent = d;
+    cell.title = key + ": notes " + (info.notes || 0) +
+      ", diaries " + (info.diaries || 0) + ", shares " + (info.shares || 0) +
+      ", browse " + (info.browse || 0);
+    box.appendChild(cell);
+  }
+  if (!hasAny) {
+    var empty = document.createElement("p");
+    empty.className = "empty";
+    empty.textContent = "本月还没有生活记录。";
+    box.appendChild(empty);
+  }
 }
 
 function qs(params) {
@@ -469,7 +588,9 @@ function renderChart(overview) {
 
 function loadLife() {
   var date = dateInput.value || today();
-  document.getElementById("meta").textContent = "互联网生活档案 · " + state.persona + " · " + date;
+  var meta = document.getElementById("meta");
+  meta.textContent = "互联网生活档案 · " + state.persona + " · " + date + "（加载中）";
+  showError("");
   fetch(API + "/overview?" + qs({ persona: state.persona, date: date }), { headers: { "Accept": "application/json" } })
     .then(function (r) { return r.json(); })
     .then(function (data) {
@@ -478,8 +599,20 @@ function loadLife() {
       renderNotes(data);
       renderInterests(data);
       renderChart(data);
+      meta.textContent = "互联网生活档案 · " + state.persona + " · " + date;
     })
-    .catch(function () { document.getElementById("meta").textContent = "档案加载失败"; });
+    .catch(function () {
+      meta.textContent = "档案加载失败";
+      showError("生活档案加载失败，请确认插件已启用后重试。");
+    });
+  fetch(API + "/status?" + qs({ persona: state.persona }), { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(renderStatus)
+    .catch(function () {});
+  fetch(API + "/timeline/heatmap?" + qs({ persona: state.persona, month: date.slice(0, 7) }), { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(renderHeatmap)
+    .catch(function () {});
 }
 
 function renderMemoryChips(data) {
@@ -509,7 +642,8 @@ function loadMemory() {
       document.getElementById("memDiary").textContent = data.diary_count || 0;
       document.getElementById("memCategories").textContent = (data.categories || []).length || 0;
       renderMemoryChips(data);
-    });
+    })
+    .catch(function () { showError("记忆概览加载失败。"); });
   var query = document.getElementById("memoryQuery").value;
   var date = document.getElementById("memoryDate").value;
   fetch(API + "/memory_search?" + qs({ persona: state.persona, query: query, category: state.category, date: date, k: 20 }), { headers: { "Accept": "application/json" } })
@@ -550,7 +684,8 @@ function loadMemory() {
         empty.textContent = "没有匹配的记忆。";
         ul.appendChild(empty);
       }
-    });
+    })
+    .catch(function () { showError("记忆搜索失败。"); });
 }
 
 function loadShare() {
@@ -614,7 +749,8 @@ function loadShare() {
         }
         logUl.appendChild(li);
       });
-    });
+    })
+    .catch(function () { showError("分享数据加载失败。"); });
 }
 
 function load() {
