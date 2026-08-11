@@ -88,6 +88,20 @@ class LifeToolTest(unittest.IsolatedAsyncioTestCase):
         data = json.loads(raw)
         self.assertFalse(data["ok"])
 
+    async def test_tool_recall_writes_event(self):
+        tool = LifeMemoryTool(self.db, _FakePersonas())
+        self.db.add_note("shelly", None, "hn", "https://x", "AI story", "s",
+                         url_hash="h4")
+        raw = await tool.call(_FakeWrapper(), query="AI")
+        data = json.loads(raw)
+        self.assertTrue(data["ok"])
+        events = self.db.list_events("shelly")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["kind"], "recall")
+        self.assertEqual(json.loads(events[0]["payload"])["query"], "AI")
+        self.assertEqual(json.loads(events[0]["source_refs"]), [{"url": "https://x"}])
+        self.assertTrue(events[0]["idempotency_key"])
+
 
 if __name__ == "__main__":
     unittest.main()

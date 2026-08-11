@@ -2,6 +2,15 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.3.8] - 2026-08-12
+
+### Added
+
+- L1.5-01 事件链：新增 `event_chain` 表与 `append_event / find_event / list_events / replay_events` 接口；观察（漫游/peek）、表达（分享尝试）、思考（夜间复盘日记）、更改（软删除/短记提交/任务跳过）、召回（`query_life_memory`）、回滚（恢复短记/日记）全部写入事件链，每条带 `persona_id / ts / kind / payload / source_refs / idempotency_key`，幂等追加 + 只读重放。
+
+### Notes
+
+- 测试：150 passed（新增事件链幂等/过滤/重放、软删除回滚事件、分享表达事件、漫游/peek/日记/召回事件用例）。
 ## [0.3.7] - 2026-08-12
 
 ### Added

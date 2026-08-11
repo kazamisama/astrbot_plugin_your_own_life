@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 import sys
@@ -331,6 +332,71 @@ class LifeDBTest(unittest.TestCase):
         self.assertGreaterEqual(day["diaries"], 1)
         self.assertGreaterEqual(day["shares"], 1)
         self.assertGreaterEqual(day["browse"], 1)
+    def test_event_chain_append_is_idempotent(self):
+        event_id = self.db.append_event(
+            "shelly", "observe", {"count": 1}, [{"url": "https://a"}],
+            "session/1/observe", ts="2026-08-12 10:00:00",
+        )
+        self.assertIsNotNone(event_id)
+        duplicate = self.db.append_event(
+            "shelly", "observe", {"count": 1}, [{"url": "https://a"}],
+            "session/1/observe", ts="2026-08-12 10:00:00",
+        )
+        self.assertIsNone(duplicate)
+        events = self.db.list_events("shelly")
+        self.assertEqual(len(events), 1)
+        found = self.db.find_event("shelly", "session/1/observe")
+        self.assertEqual(found["kind"], "observe")
+        self.assertEqual(json.loads(found["payload"]), {"count": 1})
+        self.assertEqual(json.loads(found["source_refs"]), [{"url": "https://a"}])
+
+    def test_event_chain_list_filter_and_replay(self):
+        self.db.append_event("shelly", "observe", {"n": 1}, [], "e/1",
+                             ts="2026-08-12 10:00:00")
+        self.db.append_event("shelly", "think", {"n": 1}, [], "e/2",
+                             ts="2026-08-12 11:00:00")
+        self.db.append_event("shelly", "change", {"n": 1}, [], "e/3",
+                             ts="2026-08-12 12:00:00")
+        self.assertEqual(
+            [e["kind"] for e in self.db.list_events("shelly")],
+            ["change", "think", "observe"],
+        )
+        filtered = self.db.list_events("shelly", kinds=["think", "observe"])
+        self.assertEqual([e["kind"] for e in filtered], ["think", "observe"])
+        replay = self.db.replay_events("shelly")
+        self.assertEqual([e["kind"] for e in replay], ["observe", "think", "change"])
+        self.assertEqual(self.db.replay_events("shelly"), replay)
+        self.assertEqual(len(self.db.list_events("shelly")), 3)
+
+    def test_soft_delete_and_restore_emit_change_rollback_events(self):
+        note_id = self.db.add_note("shelly", None, "hn", "https://a", "A", "s",
+                                   url_hash="h1")
+        self.assertTrue(self.db.soft_delete_note("shelly", note_id, reason="cleanup"))
+        self.assertTrue(self.db.restore_note("shelly", note_id, reason="undo"))
+        events = self.db.list_events("shelly")
+        self.assertEqual([e["kind"] for e in events], ["rollback", "change"])
+        self.assertEqual(
+            self.db.find_event("shelly", f"note/{note_id}/restore")["kind"],
+            "rollback",
+        )
+
+    def test_soft_delete_and_restore_diary_emit_events(self):
+        self.db.add_diary("shelly", "2026-08-12", "d", mood="calm")
+        self.assertTrue(self.db.soft_delete_diary("shelly", "2026-08-12", reason="cleanup"))
+        self.assertTrue(self.db.restore_diary("shelly", "2026-08-12", reason="undo"))
+        events = self.db.list_events("shelly")
+        self.assertEqual([e["kind"] for e in events], ["rollback", "change"])
+        self.assertEqual(
+            json.loads(events[1]["payload"])["entity"], "diary",
+        )
+
+    def test_share_attempt_emits_express_event(self):
+        self.db.log_share_attempt("shelly", None, "blocked", "share_disabled", "sid-1")
+        events = self.db.list_events("shelly")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["kind"], "express")
+        self.assertEqual(json.loads(events[0]["payload"])["status"], "blocked")
+        self.assertEqual(events[0]["idempotency_key"].startswith("share_log/"), True)
 
 
 if __name__ == "__main__":

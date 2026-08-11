@@ -119,6 +119,17 @@ async def _execute_tool(tool: Any, context: Any, query: str, category: str,
     data = search_life_memory(
         tool.db, persona_id, query=query, category=category, date=date, k=k
     )
+    tool.db.append_event(
+        persona_id,
+        "recall",
+        {"query": query, "category": category, "date": date, "k": k,
+         "count": data["count"]},
+        [
+            {"url": item.get("url")}
+            for item in data["items"]
+            if item.get("url")
+        ],
+    )
     data["ok"] = True
     return json.dumps(data, ensure_ascii=False)
 

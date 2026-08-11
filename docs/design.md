@@ -19,7 +19,7 @@ Your Own Life 是一个观察者模式的 AstrBot 插件：Bot 不注册账号�
 - 思考层（thinking）：对所见即时形成观点、情绪与推理（现状短记/观点/情绪；方向 `thoughts` 思考事件）。
 - 思想层（belief）：稳定的价值、自我叙事与立场，即 center state 与人格演化可控性（方向）。
 - 发散思维与联想（association）：分层 cue、多路召回、多轮联想与灵感抽屉（方向）。
-- 线性生命链（life chain）：append-only 事件流，观察/表达/思考/更改/召回/回滚全部归位，人格经历严格线性（L1.5 方向 + 单写者约束）。
+- 线性生命链（life chain）：append-only 事件流，观察/表达/思考/更改/召回/回滚全部归位，人格经历严格线性（L1.5-01 已落地 v0.3.8 + 单写者约束）。
 - 记忆的结构与检索（memory）：统一记忆库、实体关系、多尺度金字塔、模糊/具象化与既视感（方向）。
 
 最终形态：同一人格在多个平台拥有一致的生活档案与社交表达，跨平台可被看见、可分享、可被召回；v1 只做 owner 侧档案，群聊主动/被动表达与生命链整体处理为后续方向。
@@ -57,7 +57,8 @@ Your Own Life 是一个观察者模式的 AstrBot 插件：Bot 不注册账号�
 - `change_log`：写操作变更账本（软删除/恢复等，配合回收站）。
 - `injection_log`：疑似提示词注入审计日志。
 - `life_leases`：同人格任务租约（多实例单写者，v1 本地兜底）。
-- 未来新增表：`event_chain`、`life_plans`、`action_log`、`wishlist`、`center_state`、`thoughts`、`entities / entity_mentions / entity_links` 等，随对应功能落地（见 `docs/features.md` 与本文档方向章节）。
+- `event_chain`：append-only 事件流，观察/表达/思考/更改/召回/回滚归位，支持幂等追加与只读重放。
+- 未来新增表：`life_plans`、`action_log`、`wishlist`、`center_state`、`thoughts`、`entities / entity_mentions / entity_links` 等，随对应功能落地（见 `docs/features.md` 与本文档方向章节）。
 
 ## 实体与维度模型（方向，已排期 L2）
 
@@ -382,6 +383,7 @@ LLM 可自主更改生活数据/计划/记忆，按事件链自主排期，并�
 ### 事件链
 
 - append-only 事件流：`{persona_id, ts, kind, payload, source_refs, idempotency_key}`；观察/表达/思考/更改/召回/回滚都是事件，支持重放与幂等。
+- L1.5-01 已落地（v0.3.8）：`event_chain` 表 + `append_event / find_event / list_events / replay_events`，漫游/peek/分享/复盘/软删除恢复/召回/任务跳过已接入。
 - 排期从固定槽位升级为事件驱动：动作带前置条件（`browse_done → revisit`、`energy_low → 降级计划`）；调度器仍由系统仲裁（睡眠窗口、精力、行动上限）。
 
 ### 变更账本与版本
@@ -421,7 +423,7 @@ LLM 可自主更改生活数据/计划/记忆，按事件链自主排期，并�
 ### 落地顺序
 
 1. 变更账本 + 回收站 + 手动/owner 编辑（v1.1）。
-2. 事件链 + 自主排期（v1.5）。
+2. 事件链（v0.3.8 已落地）+ 自主排期（v1.5 剩余）。
 3. LLM 自主更改 + 自动回滚（v2，配合硬依赖）。
 
 ## 冷启动与人格生命周期（方向，未实现）

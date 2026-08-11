@@ -194,9 +194,10 @@
 
 ### L1.5-01 事件链
 
+- 状态：已实现（v0.3.8）。
 - 目标：append-only 事件流，支持重放与幂等。
 - 依赖：变更账本（L1-13）。
-- 模块：`life/db.py`（`event_chain` 表）、`life/browser.py`、`life/scheduler.py`。
+- 模块：`life/db.py`（`event_chain` 表）、`life/browser.py`（漫游/复盘/peek/跳过事件）、`life/life_tool.py`（召回事件）。
 - 配置：无。
 - 验收：观察/表达/思考/更改/召回/回滚都是事件；每条带 `{persona_id, ts, kind, payload, source_refs, idempotency_key}`；重放不产生重复副作用。
 

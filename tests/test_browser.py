@@ -1,3 +1,4 @@
+import json
 import os
 import random
 import sys
@@ -394,6 +395,59 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.reason, "sleep_window")
         manual = await service.run_browse_session("shelly", "manual", force=True)
         self.assertNotEqual(manual.status, "skipped")
+    async def test_browse_emits_observe_and_change_events(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 9, 0)
+        self.service.llm = _FakeLLM(payload={
+            "selected": [{
+                "index": 0, "summary": "s", "opinion": "o", "mood": "curious",
+                "interest_level": 0.5, "interest_key": "ai", "interest_name": "AI",
+                "category": "opinion", "tags": [],
+                "share": {"should_share": False, "reason": "", "target": ""},
+            }],
+            "session_mood": "curious",
+        })
+        result = await self.service.run_browse_session("shelly", "scheduled")
+        self.assertEqual(result.status, "completed")
+        events = self.db.list_events("shelly")
+        self.assertEqual([e["kind"] for e in events], ["change", "observe"])
+        observe = json.loads(events[1]["payload"])
+        self.assertEqual(observe["session_id"], result.session_id)
+        self.assertEqual(observe["notes_count"], 1)
+        self.assertTrue(events[1]["idempotency_key"].startswith("session/"))
+        self.assertEqual(json.loads(events[0]["payload"])["entity"], "note")
+
+    async def test_diary_emits_think_event(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 23, 0)
+        self.service.rng = random.Random(1)
+        self.service.config.revisit_probability = 0
+        result = await self.service.run_nightly_diary("shelly")
+        self.assertFalse(result.get("error"))
+        events = self.db.list_events("shelly")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["kind"], "think")
+        self.assertEqual(json.loads(events[0]["payload"])["date"], "2026-08-12")
+        self.assertEqual(events[0]["idempotency_key"], "diary/2026-08-12")
+
+    async def test_peek_emits_observe_event(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 9, 0)
+        result = await self.service.run_peek("shelly")
+        self.assertEqual(result.status, "completed")
+        events = self.db.list_events("shelly")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["kind"], "observe")
+        self.assertEqual(json.loads(events[0]["payload"])["entity"], "peek")
+
+    async def test_record_skipped_duplicate_emits_event(self):
+        self.service.record_skipped_duplicate(
+            "shelly", "browse", datetime(2026, 8, 12, 10, 0)
+        )
+        events = self.db.list_events("shelly")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["kind"], "change")
+        self.assertEqual(json.loads(events[0]["payload"])["reason"], "skipped_duplicate")
+        self.assertEqual(
+            events[0]["idempotency_key"], "task/browse/2026-08-12 10:00",
+        )
 
 
 if __name__ == "__main__":

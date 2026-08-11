@@ -2,6 +2,14 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L1.5-01 事件链落地
+
+- 目标：append-only 事件流，观察/表达/思考/更改/召回/回滚全部归位，支持幂等追加与只读重放。
+- 决策：新增 `event_chain` 表（`persona_id, ts, kind, payload, source_refs, idempotency_key`，`(persona_id, idempotency_key)` 唯一）；`append_event` 幂等追加，`find_event / list_events / replay_events` 只读接口；事件写入点：漫游成功（observe + change）、peek（observe）、夜间复盘（think）、分享尝试（express）、软删除（change）/恢复（rollback）、任务跳过（change）、`query_life_memory` 召回（recall）；重放为只读重建，写侧幂等由唯一键 + 既有租约/唯一约束兜底。
+- 改动：`life/db.py`（`event_chain` 表 + 事件接口 + soft_delete/restore/share 接入）、`life/browser.py`（漫游/peek/复盘/跳过事件）、`life/life_tool.py`（召回事件）、`tests/test_db.py`、`tests/test_browser.py`、`tests/test_life_tool.py`；版本 v0.3.7 → v0.3.8；README / CHANGELOG / features.md L1.5-01 / design.md / roadmap.md 同步。
+- 验证：unittest 150 passed（skipped=1；新增事件链幂等/过滤/重放、软删除回滚、分享表达、漫游/peek/日记/召回事件用例）。
+- 遗留：事件链 WebUI 可视化属 L1.5-06；`add_diary` 直写等非主路径尚未全部接事件；重放目前只读，重建状态机待 L2 检查点阶段。
+- 下一步：L1.5-02 排期板（`life_plans`）。
 ## 2026-08-12 L1-03 精力预算标记 blocked
 
 - 决策：L1-03 依赖 ESM `consume_energy` 或等效公开方法（`docs/requirements.md` 未实现），按 features.md 允许的“上游 API 未实现前不交付”处置，在 features.md 明确标记 blocked 并留待上游契约同批。

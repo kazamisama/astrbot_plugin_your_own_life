@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -124,6 +125,20 @@ CREATE TABLE IF NOT EXISTS change_log (
     ts TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_change_log_persona_time ON change_log(persona_id, ts);
+CREATE TABLE IF NOT EXISTS event_chain (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    persona_id TEXT NOT NULL DEFAULT 'default',
+    ts TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    payload TEXT DEFAULT '{}',
+    source_refs TEXT DEFAULT '[]',
+    idempotency_key TEXT NOT NULL,
+    UNIQUE(persona_id, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_event_chain_persona_time
+    ON event_chain(persona_id, ts);
+CREATE INDEX IF NOT EXISTS idx_event_chain_persona_kind_time
+    ON event_chain(persona_id, kind, ts);
 CREATE TABLE IF NOT EXISTS injection_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     persona_id TEXT NOT NULL DEFAULT 'default',
@@ -1071,7 +1086,21 @@ class LifeDB:
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (persona_id, note_id, self._now(), status, reason, target_sid, message),
         )
-        return int(cur.lastrowid)
+        share_id = int(cur.lastrowid)
+        self.append_event(
+            persona_id,
+            "express",
+            {
+                "entity": "share",
+                "note_id": note_id,
+                "status": status,
+                "reason": reason,
+                "target_sid": target_sid,
+            },
+            [{"note_id": note_id}] if note_id else [],
+            f"share_log/{share_id}",
+        )
+        return share_id
 
     def list_share_log(
         self, persona_id: str, date: Optional[str] = None, limit: int = 100
@@ -1193,6 +1222,83 @@ class LifeDB:
             (persona_id, limit),
         )
 
+    # ----- event chain -----
+
+    def append_event(
+        self,
+        persona_id: str,
+        kind: str,
+        payload: Any = None,
+        source_refs: Optional[list] = None,
+        idempotency_key: Optional[str] = None,
+        ts: Optional[str] = None,
+    ) -> Optional[int]:
+        if not kind:
+            raise ValueError("kind is required")
+        key = (idempotency_key or "").strip() or uuid.uuid4().hex
+        cur = self._execute(
+            "INSERT OR IGNORE INTO event_chain "
+            "(persona_id, ts, kind, payload, source_refs, idempotency_key) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                persona_id,
+                ts or self._now(),
+                kind,
+                json.dumps(payload or {}, ensure_ascii=False, default=str),
+                json.dumps(source_refs or [], ensure_ascii=False, default=str),
+                key,
+            ),
+        )
+        if cur.rowcount == 0:
+            return None
+        return int(cur.lastrowid)
+
+    def find_event(self, persona_id: str, idempotency_key: str) -> Optional[dict]:
+        return self._one(
+            "SELECT * FROM event_chain WHERE persona_id = ? AND idempotency_key = ?",
+            (persona_id, idempotency_key),
+        )
+
+    def list_events(
+        self,
+        persona_id: str,
+        kinds: Optional[list[str]] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        if kinds:
+            placeholders = ",".join("?" for _ in kinds)
+            return self._rows(
+                f"SELECT * FROM event_chain WHERE persona_id = ? "
+                f"AND kind IN ({placeholders}) ORDER BY ts DESC, id DESC "
+                "LIMIT ? OFFSET ?",
+                (persona_id, *kinds, max(0, int(limit)), max(0, int(offset))),
+            )
+        return self._rows(
+            "SELECT * FROM event_chain WHERE persona_id = ? "
+            "ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?",
+            (persona_id, max(0, int(limit)), max(0, int(offset))),
+        )
+
+    def replay_events(
+        self,
+        persona_id: str,
+        limit: int = 1000,
+        kinds: Optional[list[str]] = None,
+    ) -> list[dict]:
+        if kinds:
+            placeholders = ",".join("?" for _ in kinds)
+            return self._rows(
+                f"SELECT * FROM event_chain WHERE persona_id = ? "
+                f"AND kind IN ({placeholders}) ORDER BY ts ASC, id ASC LIMIT ?",
+                (persona_id, *kinds, max(0, int(limit))),
+            )
+        return self._rows(
+            "SELECT * FROM event_chain WHERE persona_id = ? "
+            "ORDER BY ts ASC, id ASC LIMIT ?",
+            (persona_id, max(0, int(limit))),
+        )
+
     def soft_delete_note(
         self, persona_id: str, note_id: int, actor: str = "owner", reason: str = ""
     ) -> bool:
@@ -1211,6 +1317,15 @@ class LifeDB:
             json.dumps(note, ensure_ascii=False, default=str),
             json.dumps({"deleted_at": now}, ensure_ascii=False),
             actor=actor, reason=reason, status="applied",
+        )
+        self.append_event(
+            persona_id,
+            "change",
+            {"entity": "note", "note_id": note_id, "action": "soft_delete",
+             "reason": reason},
+            [{"note_id": note_id, "url": note.get("url") or ""}],
+            f"note/{note_id}/soft-delete",
+            ts=now,
         )
         return True
 
@@ -1231,6 +1346,14 @@ class LifeDB:
             json.dumps({"deleted_at": note["deleted_at"]}, ensure_ascii=False),
             json.dumps({"deleted_at": ""}, ensure_ascii=False),
             actor=actor, reason=reason, status="restored",
+        )
+        self.append_event(
+            persona_id,
+            "rollback",
+            {"entity": "note", "note_id": note_id, "action": "restore",
+             "reason": reason},
+            [{"note_id": note_id, "url": note.get("url") or ""}],
+            f"note/{note_id}/restore",
         )
         return True
 
@@ -1254,6 +1377,15 @@ class LifeDB:
             json.dumps({"deleted_at": now}, ensure_ascii=False),
             actor=actor, reason=reason, status="applied",
         )
+        self.append_event(
+            persona_id,
+            "change",
+            {"entity": "diary", "date": date, "action": "soft_delete",
+             "reason": reason},
+            [{"entity": "diary", "date": date}],
+            f"diary/{date}/soft-delete",
+            ts=now,
+        )
         return True
 
     def restore_diary(
@@ -1274,6 +1406,14 @@ class LifeDB:
             json.dumps({"deleted_at": diary["deleted_at"]}, ensure_ascii=False),
             json.dumps({"deleted_at": ""}, ensure_ascii=False),
             actor=actor, reason=reason, status="restored",
+        )
+        self.append_event(
+            persona_id,
+            "rollback",
+            {"entity": "diary", "date": date, "action": "restore",
+             "reason": reason},
+            [{"entity": "diary", "date": date}],
+            f"diary/{date}/restore",
         )
         return True
 

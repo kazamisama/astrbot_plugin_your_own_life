@@ -99,6 +99,15 @@ class LifeService:
             self.db.add_state_snapshot(persona_id, "browse_skipped", extra=extra)
         else:
             self.db.add_state_snapshot(persona_id, "diary_skipped", extra=extra)
+        slot_key = slot.strftime("%Y-%m-%d %H:%M") if slot else None
+        self.db.append_event(
+            persona_id,
+            "change",
+            {"entity": "task", "kind": kind, "action": "skip",
+             "reason": "skipped_duplicate", "slot": slot_key or ""},
+            [],
+            f"task/{kind}/{slot_key}" if slot_key else None,
+        )
 
     async def _llm_call(self, persona_id: str, prompt: str) -> dict:
         """Budget-checked, retried LLM call with daily usage accounting."""
@@ -189,6 +198,13 @@ class LifeService:
                 self.db.add_state_snapshot(
                     persona_id, "browse", energy_before, "",
                     extra=json.dumps({"reason": "nothing_new"}, ensure_ascii=False),
+                )
+                self.db.append_event(
+                    persona_id, "observe",
+                    {"entity": "browse", "session_id": sid, "notes_count": 0,
+                     "reason": "nothing_new"},
+                    [],
+                    f"session/{sid}/observe",
                 )
                 return BrowseResult(sid, "completed", 0, "nothing_new")
 
@@ -281,6 +297,23 @@ class LifeService:
             notes = self.db.commit_staged(
                 persona_id, sid, status="completed",
                 notes_count=len(selected), reason="",
+            )
+            note_refs = [
+                {"note_id": note["id"], "url": note.get("url") or ""}
+                for note in notes
+            ]
+            self.db.append_event(
+                persona_id, "observe",
+                {"entity": "browse", "session_id": sid, "notes_count": len(notes)},
+                note_refs,
+                f"session/{sid}/observe",
+            )
+            self.db.append_event(
+                persona_id, "change",
+                {"entity": "note", "session_id": sid,
+                 "note_ids": [note["id"] for note in notes]},
+                note_refs,
+                f"session/{sid}/commit",
             )
             try:
                 self.esm.apply_browse_signal(persona_id, session_mood, intensity=0.3)
@@ -377,6 +410,12 @@ class LifeService:
             extra=json.dumps({"trigger": "scheduled"}, ensure_ascii=False),
         )
         self.db.finish_browse_session(sid, "completed", 0, "peek")
+        self.db.append_event(
+            persona_id, "observe",
+            {"entity": "peek", "session_id": sid},
+            [],
+            f"session/{sid}/peek",
+        )
         return BrowseResult(sid, "completed", 0, "peek")
 
     def _wishlist_candidates(self, payload: Any) -> list[dict]:
@@ -563,6 +602,23 @@ class LifeService:
             if notes and interest_updates:
                 self.interests.stage_updates(persona_id, None, interest_updates, now=now)
             self.db.commit_staged(persona_id, None, status="completed")
+            source_refs = [
+                {"note_id": note["id"], "url": note.get("url") or ""}
+                for note in notes
+            ]
+            source_refs += [
+                {"note_id": note["id"], "url": note.get("url") or ""}
+                for note in raw_revisit_notes
+            ]
+            self.db.append_event(
+                persona_id, "think",
+                {"entity": "diary", "date": date, "mood": mood,
+                 "signature": signature, "notes_count": len(notes),
+                 "revisit_day": revisit_day,
+                 "revisit_notes": len(raw_revisit_notes)},
+                source_refs,
+                f"diary/{date}",
+            )
             self.interests.daily_decay(persona_id)
             wishlist_eval = await self._evaluate_wishlist(persona_id, persona.system_prompt)
             return {"date": date, "notes": len(notes), "fallback": False,
