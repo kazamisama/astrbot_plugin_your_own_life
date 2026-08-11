@@ -171,6 +171,7 @@
 
 ### L1-16 同人格单 SQL 与任务租约（v1 多实例兜底）
 
+- 状态：已实现（v0.2.9）。
 - 目标：同人格多实例只共享一个 SQLite 文件，租约保证事件链单写者。
 - 依赖：SQLite（L0）。
 - 模块：`life/config.py`（校验同人格 `db_path` 一致）、`life/db.py`（`life_leases` 表）、`life/scheduler.py`。

@@ -80,6 +80,23 @@ class LifeService:
             self.log.error("persona %s unavailable, skipping life task: %s", persona_id, exc)
             raise
 
+    def record_skipped_duplicate(
+        self, persona_id: str, kind: str, slot: Optional[datetime] = None
+    ) -> None:
+        extra = json.dumps(
+            {
+                "reason": "skipped_duplicate",
+                "slot": slot.strftime("%Y-%m-%d %H:%M") if slot else "",
+            },
+            ensure_ascii=False,
+        )
+        if kind == "browse":
+            sid = self.db.start_browse_session(persona_id, "scheduled")
+            self.db.finish_browse_session(sid, "skipped", 0, "skipped_duplicate")
+            self.db.add_state_snapshot(persona_id, "browse_skipped", extra=extra)
+        else:
+            self.db.add_state_snapshot(persona_id, "diary_skipped", extra=extra)
+
     async def _llm_call(self, persona_id: str, prompt: str) -> dict:
         """Budget-checked, retried LLM call with daily usage accounting."""
         date = local_today(self.config.timezone, self.now_fn())

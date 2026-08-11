@@ -233,6 +233,26 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(rows[0]["detected"], 1)
         self.assertEqual(rows[0]["field"], "summary")
 
+    def test_lease_exclusivity_and_renewal(self):
+        key = "browse:2026-08-12 10:00"
+        self.assertTrue(self.db.acquire_lease("shelly", key, "inst-a", ttl_seconds=300))
+        self.assertFalse(self.db.acquire_lease("shelly", key, "inst-b", ttl_seconds=300))
+        self.assertTrue(self.db.renew_lease("shelly", key, "inst-a", ttl_seconds=300))
+        self.assertFalse(self.db.renew_lease("shelly", key, "inst-b", ttl_seconds=300))
+        self.assertTrue(self.db.release_lease("shelly", key, "inst-a"))
+        self.assertTrue(self.db.acquire_lease("shelly", key, "inst-b", ttl_seconds=300))
+
+    def test_expired_lease_can_be_reacquired(self):
+        key = "browse:2026-08-12 10:00"
+        self.assertTrue(self.db.acquire_lease("shelly", key, "inst-a", ttl_seconds=1))
+        self.db._execute(
+            "UPDATE life_leases SET expires_at = '2020-01-01 00:00:00' "
+            "WHERE persona_id = 'shelly' AND task_key = ?",
+            (key,),
+        )
+        self.assertTrue(self.db.acquire_lease("shelly", key, "inst-b", ttl_seconds=300))
+        self.assertEqual(self.db.cleanup_expired_leases(), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

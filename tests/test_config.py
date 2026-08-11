@@ -78,6 +78,10 @@ class ConfigTest(unittest.TestCase):
         self.assertTrue(load_config({}).injection_log_enabled)
         self.assertFalse(load_config({"injection_log_enabled": False}).injection_log_enabled)
 
+    def test_lease_ttl_default(self):
+        self.assertEqual(load_config({}).lease_ttl_seconds, 300)
+        self.assertEqual(load_config({"lease_ttl_seconds": "60"}).lease_ttl_seconds, 60)
+
 
 if __name__ == "__main__":
     unittest.main()

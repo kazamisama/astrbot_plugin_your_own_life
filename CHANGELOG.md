@@ -2,6 +2,19 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.2.9] - 2026-08-12
+
+### Added
+
+- L1-16 同人格单 SQL 与任务租约：新增 `life_leases` 表与 `acquire_lease` / `renew_lease` / `release_lease` / `cleanup_expired_leases`。
+- 调度器按槽位先抢租约再执行；拿不到租约的实例记录 `skipped_duplicate`（browse 落会话记录，diary 落状态快照），保证同人格单写者。
+- 新增 `lease_ttl_seconds` 配置（默认 300），过期租约自动释放；启动时回收残留 running 会话并清理过期租约。
+
+### Notes
+
+- 测试：105 passed（新增租约互斥/续租/过期重获、配置与 skipped_duplicate 用例）。
+- 部署前提：同人格多实例必须共享同一 SQLite 文件（同一主机或挂载盘）；跨主机走 v2 统一库租约。
+
 ## [0.2.8] - 2026-08-12
 
 ### Added

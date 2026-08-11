@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import uuid
 from datetime import datetime, time, timedelta
 from typing import Any, Callable, Optional, Sequence
 
@@ -43,6 +44,8 @@ class LifeScheduler:
         self.config = config
         self.log = logger or logging.getLogger("your_own_life.scheduler")
         self.now_fn = now_fn or datetime.now
+        self.db = getattr(service, "db", None) if service is not None else None
+        self._instance_id = uuid.uuid4().hex
         self._task: Optional[asyncio.Task] = None
         self._stop = asyncio.Event()
         self._lock = asyncio.Lock()
@@ -140,6 +143,15 @@ class LifeScheduler:
             key = f"{slot.strftime('%Y-%m-%d %H:%M')}:{persona_id}:{kind}"
             if key in self._done_keys:
                 continue
+            if self.db is not None and not self.db.acquire_lease(
+                persona_id, key, self._instance_id, self.config.lease_ttl_seconds
+            ):
+                self.log.warning(
+                    "lease for %s %s held by another instance, skipping", persona_id, key
+                )
+                self.service.record_skipped_duplicate(persona_id, kind, slot)
+                self._done_keys.add(key)
+                continue
             async with self._lock:
                 try:
                     if kind == "browse":
@@ -150,3 +162,5 @@ class LifeScheduler:
                     self.log.exception("scheduled %s for %s failed: %s", kind, persona_id, exc)
                 finally:
                     self._done_keys.add(key)
+                    if self.db is not None:
+                        self.db.release_lease(persona_id, key, self._instance_id)

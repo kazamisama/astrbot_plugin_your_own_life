@@ -194,6 +194,15 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(len(logs), 1)
         self.assertEqual(logs[0]["context"], "browse")
 
+    async def test_record_skipped_duplicate(self):
+        self.service.record_skipped_duplicate("shelly", "browse")
+        sessions = self.db.list_sessions("shelly")
+        self.assertEqual(sessions[0]["status"], "skipped")
+        self.assertEqual(sessions[0]["reason"], "skipped_duplicate")
+        self.service.record_skipped_duplicate("shelly", "diary")
+        snapshots = self.db.list_state_snapshots("shelly")
+        self.assertEqual(snapshots[0]["activity"], "diary_skipped")
+
     async def test_persona_unavailable_skips(self):
         self.service.personas = _FakePersonas(unavailable=True)
         result = await self.service.run_browse_session("shelly", "scheduled")

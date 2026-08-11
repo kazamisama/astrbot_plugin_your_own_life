@@ -8,14 +8,14 @@
 
 ## 功能
 
-- 每实例独立生活（现状 v0.2.8）：`life_personas` 白名单，每个 persona 拥有独立的档案、兴趣、情绪 scope 与分享记录；v1.1 起同人格多实例共享同一 SQLite 档案（见 `docs/design.md` 多实例并发）。
+- 每实例独立生活（现状 v0.2.9）：`life_personas` 白名单，每个 persona 拥有独立的档案、兴趣、情绪 scope 与分享记录；v1.1 起同人格多实例共享同一 SQLite 档案（见 `docs/design.md` 多实例并发）。
 - 人格跟随实例：人格 prompt 取自 AstrBot 对应 persona 的 `system_prompt`，缓存进 SQLite，每天自动刷新，WebUI 可查看与手动刷新；解析失败则跳过该 persona 当天任务。
 - 定时漫游：默认每天 10:00 / 15:00 各一次（±2 小时确定性波动），夜间 23:00 复盘写日记（±1 小时，日期锚定原始槽位）。
 - 免密钥信息源：Hacker News、GitHub 公开搜索、Reddit 公开 JSON、自定义 RSS/Atom；可选 Tavily 搜索。
 - 感悟分享：LLM 决定每条感悟是否分享、分享给哪个白名单会话；ShareGate 管每日上限、冷却、去重、睡眠窗口与精力门槛；`/life_share` 与 WebUI 可手动补发。
 - 记忆分类：8 类固定分类 + 标签，WebUI 提供分类筛选、关键词搜索与统计；LLM 可通过 `query_life_memory` 工具查询自己写过的档案。
 - 摘要优先：只持久化摘要、观点与链接，不保存网页原文。
-- 生态联动（现状 v0.2.8）：可选接入 ESM 读取精力/情绪、施加信号；缺失时静默降级；v1.1 计划内新契约不再默认降级。
+- 生态联动（现状 v0.2.9）：可选接入 ESM 读取精力/情绪、施加信号；缺失时静默降级；v1.1 计划内新契约不再默认降级。
 
 ## 安装
 
@@ -46,6 +46,7 @@
 - `daily_llm_call_limit` / `daily_token_budget` / `llm_retry_limit`：LLM 每日调用/token 预算（0 = 无上限）与失败重试上限。
 - `trash_retention_days`：回收站保留天数（默认 30），超期内容可彻底清除。
 - `injection_log_enabled`：记录疑似提示词注入内容到审计日志（默认开）。
+- `lease_ttl_seconds`：同人格任务租约 TTL（默认 300 秒），多实例共享 SQLite 时保证单写者。
 - `owner_ids`：允许执行命令的主人 ID（留空则仅要求管理员权限）。
 - `share_sessions` / `share_daily_cap` / `share_cooldown_minutes`：分享白名单（每行 `persona_id:sid`）与频率控制。
 - `persona_cache_hours` / `persona_prompt_max_chars`：人格缓存刷新间隔与截断长度。

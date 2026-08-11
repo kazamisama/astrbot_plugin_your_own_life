@@ -2,6 +2,20 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L1-16 同人格单 SQL 与任务租约落地
+
+- 目标：同人格多实例共享同一 SQLite 时保证单写者，槽位不会重复执行。
+- 决策：租约表按 `(persona_id, task_key)` 唯一；调度器执行前先抢租约，拿不到则记录 `skipped_duplicate` 并跳过；TTL 过期自动释放；跨主机场景不承诺（走 v2 统一库租约）。
+- 改动：
+  - `life/db.py`：新增 `life_leases` 表与 `acquire_lease` / `renew_lease` / `release_lease` / `cleanup_expired_leases`；启动回收时顺带清理过期租约。
+  - `life/scheduler.py`：实例 id + 槽位租约抢锁，未抢到调用 `record_skipped_duplicate`。
+  - `life/browser.py`：新增 `record_skipped_duplicate`（browse 落会话，diary 落快照）。
+  - `life/config.py` / `_conf_schema.json`：新增 `lease_ttl_seconds`（默认 300）。
+  - 版本 v0.2.8 → v0.2.9；README / CHANGELOG / features.md L1-16 / design.md / roadmap.md 同步。
+- 验证：unittest 105 passed（新增租约互斥/续租/过期重获、配置与 skipped_duplicate 用例）；UTF-8 读回校验无乱码。
+- 遗留：多进程真实并发需 test kit 双实例冒烟（本机单库可跑，未在本轮执行）；跨主机共享 SQLite 不在 v1 范围。
+- 下一步：工程基线全部完成，进入高体感批次：L1-01 今日签名 → L1-08 状态卡 → L1-09 热力图 → L1-15 WebUI 优化。
+
 ## 2026-08-12 L1-14 不可信内容与记忆卫生落地
 
 - 目标：外部抓取/历史素材只当数据，防提示词注入与记忆污染，疑似注入可审计。

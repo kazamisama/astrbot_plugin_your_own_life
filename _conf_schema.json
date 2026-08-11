@@ -197,6 +197,12 @@
     "hint": "抓取内容/历史档案出现注入特征时记录并在 WebUI 审计",
     "default": true
   },
+  "lease_ttl_seconds": {
+    "type": "int",
+    "description": "同人格任务租约 TTL（秒）",
+    "hint": "多实例共享同一 SQLite 时，同一槽位只有一个执行者；过期租约自动释放",
+    "default": 300
+  },
   "share_enabled": {
     "type": "bool",
     "description": "启用感悟分享",

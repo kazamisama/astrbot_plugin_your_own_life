@@ -133,6 +133,14 @@ CREATE TABLE IF NOT EXISTS injection_log (
     detected INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS idx_injection_log_persona_time ON injection_log(persona_id, ts);
+CREATE TABLE IF NOT EXISTS life_leases (
+    persona_id TEXT NOT NULL,
+    task_key TEXT NOT NULL,
+    holder TEXT NOT NULL,
+    acquired_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    PRIMARY KEY (persona_id, task_key)
+);
 CREATE TABLE IF NOT EXISTS staging_notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     persona_id TEXT NOT NULL DEFAULT 'default',
@@ -856,6 +864,9 @@ class LifeDB:
             self._conn.execute(
                 "DELETE FROM staging_diary WHERE session_id IS NULL"
             )
+            self._conn.execute(
+                "DELETE FROM life_leases WHERE expires_at <= ?", (self._now(),)
+            )
         return len(rows)
 
     def _delete_staging(self, persona_id: str, session_id: Optional[int]) -> None:
@@ -891,6 +902,57 @@ class LifeDB:
             "SELECT * FROM daily_usage WHERE persona_id = ? ORDER BY date DESC LIMIT ?",
             (persona_id, limit),
         )
+
+    # ----- task leases -----
+
+    def _lease_expires(self, ttl_seconds: int) -> str:
+        return to_local(
+            datetime.now() + timedelta(seconds=max(1, int(ttl_seconds))),
+            self.timezone,
+        ).strftime("%Y-%m-%d %H:%M:%S")
+
+    def acquire_lease(
+        self, persona_id: str, task_key: str, holder: str, ttl_seconds: int = 300
+    ) -> bool:
+        now = self._now()
+        expires = self._lease_expires(ttl_seconds)
+        with self._transaction():
+            self._conn.execute(
+                "DELETE FROM life_leases WHERE persona_id = ? AND task_key = ? "
+                "AND expires_at <= ?",
+                (persona_id, task_key, now),
+            )
+            cur = self._conn.execute(
+                "INSERT OR IGNORE INTO life_leases "
+                "(persona_id, task_key, holder, acquired_at, expires_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (persona_id, task_key, holder, now, expires),
+            )
+            return cur.rowcount > 0
+
+    def renew_lease(
+        self, persona_id: str, task_key: str, holder: str, ttl_seconds: int = 300
+    ) -> bool:
+        expires = self._lease_expires(ttl_seconds)
+        cur = self._execute(
+            "UPDATE life_leases SET acquired_at = ?, expires_at = ? "
+            "WHERE persona_id = ? AND task_key = ? AND holder = ? AND expires_at > ?",
+            (self._now(), expires, persona_id, task_key, holder, self._now()),
+        )
+        return cur.rowcount > 0
+
+    def release_lease(self, persona_id: str, task_key: str, holder: str) -> bool:
+        cur = self._execute(
+            "DELETE FROM life_leases WHERE persona_id = ? AND task_key = ? AND holder = ?",
+            (persona_id, task_key, holder),
+        )
+        return cur.rowcount > 0
+
+    def cleanup_expired_leases(self) -> int:
+        cur = self._execute(
+            "DELETE FROM life_leases WHERE expires_at <= ?", (self._now(),)
+        )
+        return int(cur.rowcount)
 
     # ----- share log -----
 
@@ -1245,6 +1307,7 @@ class LifeDB:
                 "daily_usage",
                 "change_log",
                 "injection_log",
+                "life_leases",
                 "staging_notes",
                 "staging_diary",
                 "staging_snapshots",
