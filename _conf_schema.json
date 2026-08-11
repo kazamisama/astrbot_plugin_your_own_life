@@ -185,6 +185,12 @@
     "hint": "指数退避重试，耗尽后任务标记 failed 并报 error",
     "default": 3
   },
+  "trash_retention_days": {
+    "type": "int",
+    "description": "回收站保留天数",
+    "hint": "软删除内容保留该天数后可彻底清除",
+    "default": 30
+  },
   "share_enabled": {
     "type": "bool",
     "description": "启用感悟分享",

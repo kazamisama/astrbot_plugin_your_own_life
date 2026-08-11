@@ -2,6 +2,19 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L1-13 变更账本与回收站落地
+
+- 目标：写操作可审计、可回滚，删除进回收站，owner 可恢复。
+- 决策：`change_log` 只先覆盖软删除/恢复等可逆写操作，后续 L1.5 事件链在账本上扩展；软删除采用 `deleted_at` tombstone，正常查询自动排除回收站；`trash_retention_days` 默认 30。
+- 改动：
+  - `life/db.py`：新增 `change_log` 表、`deleted_at` 列（含旧库 ALTER 迁移）、`log_change` / `list_change_log`、`soft_delete_note/diary`、`restore_note/diary`、`list_trash`、`purge_trash`；正常查询加 deleted 过滤。
+  - `life/config.py` / `_conf_schema.json`：新增 `trash_retention_days`。
+  - `life/webui.py`：新增 `/trash`、`/trash_restore`、`/change_log` 接口。
+  - 版本 v0.2.6 → v0.2.7；README / CHANGELOG / features.md L1-13 / design.md / roadmap.md 同步。
+- 验证：unittest 92 passed（新增 5 个 L1-13 用例）；UTF-8 读回校验无乱码。
+- 遗留：WebUI 页面尚未渲染回收站/账本视图（属 L1-15 视觉层）；`change_log` 尚未覆盖兴趣/分享等内部写操作（事件链阶段扩展）。
+- 下一步：工程基线 L1-14 不可信内容与记忆卫生。
+
 ## 2026-08-12 L1-11 预算/重试/崩溃落地
 
 - 目标：LLM 调用有预算与重试上限，run 级崩溃不污染档案，移除确定性 fallback。

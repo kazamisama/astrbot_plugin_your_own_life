@@ -53,6 +53,16 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["persona_id"], "shelly")
         self.assertEqual(result["usage"][0]["llm_calls"], 2)
 
+    async def test_trash_and_change_log_handlers(self):
+        note_id = self.db.add_note("shelly", None, "hn", "https://x", "T", "s", url_hash="hx")
+        self.db.soft_delete_note("shelly", note_id)
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=None, config=self.config)
+        trash = await handlers["trash"]()
+        self.assertEqual(len(trash["notes"]), 1)
+        logs = await handlers["change_log"]()
+        self.assertEqual(len(logs["logs"]), 1)
+
     def test_register_api(self):
         context = _FakeContext()
         ok = register_api(context, self.db, service=None, share_gate=None,
@@ -62,7 +72,10 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/astrbot_plugin_your_own_life/api/overview", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/memory_search", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/usage", routes)
-        self.assertEqual(len(routes), 11)
+        self.assertIn("/astrbot_plugin_your_own_life/api/trash", routes)
+        self.assertIn("/astrbot_plugin_your_own_life/api/trash_restore", routes)
+        self.assertIn("/astrbot_plugin_your_own_life/api/change_log", routes)
+        self.assertEqual(len(routes), 14)
 
 
 if __name__ == "__main__":

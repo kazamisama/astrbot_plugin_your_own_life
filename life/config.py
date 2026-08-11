@@ -167,6 +167,7 @@ class LifeConfig:
     daily_llm_call_limit: int = 0
     daily_token_budget: int = 0
     llm_retry_limit: int = 3
+    trash_retention_days: int = 30
     share_enabled: bool = True
     share_daily_cap: int = 2
     share_cooldown_minutes: int = 360
@@ -225,6 +226,7 @@ def load_config(cfg: Any) -> LifeConfig:
         daily_llm_call_limit=max(0, _as_int(_get(cfg, "daily_llm_call_limit"), 0)),
         daily_token_budget=max(0, _as_int(_get(cfg, "daily_token_budget"), 0)),
         llm_retry_limit=max(1, _as_int(_get(cfg, "llm_retry_limit"), 3)),
+        trash_retention_days=max(0, _as_int(_get(cfg, "trash_retention_days"), 30)),
         share_enabled=_as_bool(_get(cfg, "share_enabled"), True),
         share_daily_cap=_as_int(_get(cfg, "share_daily_cap"), 2),
         share_cooldown_minutes=_as_int(_get(cfg, "share_cooldown_minutes"), 360),

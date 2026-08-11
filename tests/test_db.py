@@ -191,6 +191,38 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(db2._rows("SELECT COUNT(*) AS n FROM staging_notes")[0]["n"], 0)
         db2.close()
 
+    def test_soft_delete_and_restore_note(self):
+        note_id = self.db.add_note("shelly", None, "hn", "https://a", "A", "s", url_hash="h1")
+        self.assertTrue(self.db.soft_delete_note("shelly", note_id, actor="owner", reason="cleanup"))
+        self.assertIsNone(self.db.get_note(note_id))
+        self.assertEqual(self.db.list_notes("shelly"), [])
+        trash = self.db.list_trash("shelly")
+        self.assertEqual(len(trash["notes"]), 1)
+        self.assertTrue(self.db.restore_note("shelly", note_id, actor="owner", reason="undo"))
+        self.assertEqual(self.db.get_note(note_id)["title"], "A")
+        logs = self.db.list_change_log("shelly")
+        self.assertEqual(len(logs), 2)
+        self.assertEqual(logs[0]["status"], "restored")
+
+    def test_soft_delete_diary_and_restore(self):
+        self.db.add_diary("shelly", "2026-08-12", "d", mood="calm")
+        self.assertTrue(self.db.soft_delete_diary("shelly", "2026-08-12", reason="cleanup"))
+        self.assertIsNone(self.db.get_diary("shelly", "2026-08-12"))
+        self.assertEqual(len(self.db.list_trash("shelly")["diaries"]), 1)
+        self.assertTrue(self.db.restore_diary("shelly", "2026-08-12", reason="undo"))
+        self.assertEqual(self.db.get_diary("shelly", "2026-08-12")["content"], "d")
+
+    def test_purge_trash_respects_retention(self):
+        note_id = self.db.add_note("shelly", None, "hn", "https://a", "A", "s", url_hash="h1")
+        self.db.soft_delete_note("shelly", note_id)
+        self.db._execute(
+            "UPDATE notes SET deleted_at = '2020-01-01 00:00:00' WHERE id = ?", (note_id,)
+        )
+        purged = self.db.purge_trash("shelly", retention_days=30)
+        self.assertEqual(purged, 1)
+        self.assertEqual(self.db.list_trash("shelly")["notes"], [])
+        self.assertEqual(len(self.db.list_change_log("shelly")), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

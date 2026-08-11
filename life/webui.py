@@ -103,6 +103,32 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
             personas.mark_error(persona, str(exc))
             return {"ok": False, "persona_id": persona, "error": str(exc)}
 
+    async def trash():
+        persona = await _persona_arg()
+        return db.list_trash(persona)
+
+    async def trash_restore():
+        body = await _json_body()
+        persona = str(body.get("persona") or _first_persona(config))
+        entity = str(body.get("entity") or "")
+        actor = str(body.get("actor") or "owner")
+        reason = str(body.get("reason") or "")
+        if entity == "note":
+            try:
+                note_id = int(body.get("id") or 0)
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "invalid note id"}
+            ok = db.restore_note(persona, note_id, actor=actor, reason=reason)
+        elif entity == "diary":
+            ok = db.restore_diary(persona, str(body.get("date") or ""), actor=actor, reason=reason)
+        else:
+            return {"ok": False, "error": "entity must be note or diary"}
+        return {"ok": ok, "persona_id": persona, "entity": entity}
+
+    async def change_log():
+        persona = await _persona_arg()
+        return {"persona_id": persona, "logs": db.list_change_log(persona)}
+
     async def share():
         args = await _query_args()
         persona = str(args.get("persona") or _first_persona(config))
@@ -145,6 +171,9 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         "usage": usage,
         "personas": personas_list,
         "persona_refresh": persona_refresh,
+        "trash": trash,
+        "trash_restore": trash_restore,
+        "change_log": change_log,
         "share": share,
         "share_note": share_note,
     }
@@ -165,6 +194,9 @@ def register_api(context: Any, db: Any, service: Any, share_gate: Any,
         (f"{API_PREFIX}/memory", "memory", ["GET"], "Memory categories overview"),
         (f"{API_PREFIX}/memory_search", "memory_search", ["GET"], "Search life memory"),
         (f"{API_PREFIX}/usage", "usage", ["GET"], "Daily LLM usage"),
+        (f"{API_PREFIX}/trash", "trash", ["GET"], "Trash list"),
+        (f"{API_PREFIX}/trash_restore", "trash_restore", ["POST"], "Restore a trashed item"),
+        (f"{API_PREFIX}/change_log", "change_log", ["GET"], "Change log"),
         (f"{API_PREFIX}/personas", "personas", ["GET"], "Persona cache list"),
         (f"{API_PREFIX}/persona_refresh", "persona_refresh", ["POST"], "Refresh persona cache"),
         (f"{API_PREFIX}/share", "share", ["GET"], "Share log and pending"),

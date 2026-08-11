@@ -68,6 +68,12 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(cfg.daily_token_budget, 1000)
         self.assertEqual(cfg.llm_retry_limit, 4)
 
+    def test_trash_retention_default(self):
+        cfg = load_config({})
+        self.assertEqual(cfg.trash_retention_days, 30)
+        cfg = load_config({"trash_retention_days": "7"})
+        self.assertEqual(cfg.trash_retention_days, 7)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -53,7 +53,9 @@ Your Own Life 是一个观察者模式的 AstrBot 插件：Bot 不注册账号�
 - `seen_items`：按 URL 哈希去重缓存。
 - `share_log`：分享尝试日志。
 - `persona_prompts`：人格 prompt 缓存与错误状态。
-- 未来新增表：`daily_usage`、`life_leases`、`change_log`、`event_chain`、`life_plans`、`action_log`、`wishlist`、`center_state`、`thoughts`、`entities / entity_mentions / entity_links` 等，随对应功能落地（见 `docs/features.md` 与本文档方向章节）。
+- `daily_usage`：每日 LLM 调用/token 用量。
+- `change_log`：写操作变更账本（软删除/恢复等，配合回收站）。
+- 未来新增表：`life_leases`、`event_chain`、`life_plans`、`action_log`、`wishlist`、`center_state`、`thoughts`、`entities / entity_mentions / entity_links` 等，随对应功能落地（见 `docs/features.md` 与本文档方向章节）。
 
 ## 实体与维度模型（方向，已排期 L2）
 

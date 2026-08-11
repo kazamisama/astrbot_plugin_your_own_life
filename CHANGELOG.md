@@ -2,6 +2,18 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.2.7] - 2026-08-12
+
+### Added
+
+- L1-13 变更账本与回收站：新增 `change_log` 表记录写操作（entity / old_value / new_value / actor / reason / ts / status）。
+- `notes` 与 `diary_entries` 增加 `deleted_at` 软删除字段，删除进回收站，owner 可恢复；新增 `trash_retention_days` 配置（默认 30）与 `purge_trash` 清理接口。
+- WebUI 新增 `/trash`、`/trash_restore`、`/change_log` 接口；正常查询自动排除回收站内容。
+
+### Notes
+
+- 测试：92 passed（新增软删除/恢复、回收站清理、change_log、配置与 WebUI 用例）。
+
 ## [0.2.6] - 2026-08-12
 
 ### Added

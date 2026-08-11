@@ -5,7 +5,7 @@ import json
 import sqlite3
 import threading
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator, Optional
 
@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS notes (
     share_decision TEXT DEFAULT '',
     share_status TEXT DEFAULT '',
     url_hash TEXT NOT NULL,
+    deleted_at TEXT DEFAULT '',
     UNIQUE(persona_id, url_hash)
 );
 CREATE TABLE IF NOT EXISTS diary_entries (
@@ -61,6 +62,7 @@ CREATE TABLE IF NOT EXISTS diary_entries (
     energy REAL,
     interest_top TEXT DEFAULT '',
     created_at TEXT NOT NULL,
+    deleted_at TEXT DEFAULT '',
     UNIQUE(persona_id, date)
 );
 CREATE TABLE IF NOT EXISTS interests (
@@ -107,6 +109,19 @@ CREATE TABLE IF NOT EXISTS persona_prompts (
     error TEXT DEFAULT '',
     updated_at TEXT DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS change_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    persona_id TEXT NOT NULL DEFAULT 'default',
+    entity TEXT NOT NULL,
+    entity_id TEXT DEFAULT '',
+    old_value TEXT DEFAULT '',
+    new_value TEXT DEFAULT '',
+    actor TEXT DEFAULT 'owner',
+    reason TEXT DEFAULT '',
+    status TEXT DEFAULT 'applied',
+    ts TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_change_log_persona_time ON change_log(persona_id, ts);
 CREATE TABLE IF NOT EXISTS staging_notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     persona_id TEXT NOT NULL DEFAULT 'default',
@@ -211,6 +226,8 @@ class LifeDB:
             if self._is_legacy():
                 self._migrate_legacy()
             self._conn.executescript(_SCHEMA)
+            self._ensure_column("notes", "deleted_at", "deleted_at TEXT DEFAULT ''")
+            self._ensure_column("diary_entries", "deleted_at", "deleted_at TEXT DEFAULT ''")
             self._conn.commit()
         self.recover_stale_runs()
 
@@ -235,6 +252,10 @@ class LifeDB:
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
         )
         return cur.fetchone() is not None
+
+    def _ensure_column(self, table: str, column: str, ddl: str) -> None:
+        if column not in self._column_names(table):
+            self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
 
     def _is_legacy(self) -> bool:
         if not self._table_exists("notes"):
@@ -410,7 +431,7 @@ class LifeDB:
         return int(cur.lastrowid)
 
     def get_note(self, note_id: int) -> Optional[dict]:
-        return self._one("SELECT * FROM notes WHERE id = ?", (note_id,))
+        return self._one("SELECT * FROM notes WHERE id = ? AND deleted_at = ''", (note_id,))
 
     def list_notes(
         self, persona_id: str, date: Optional[str] = None, limit: int = 100
@@ -418,18 +439,19 @@ class LifeDB:
         if date:
             return self._rows(
                 "SELECT * FROM notes WHERE persona_id = ? AND fetched_at LIKE ? "
-                "ORDER BY fetched_at DESC LIMIT ?",
+                "AND deleted_at = '' ORDER BY fetched_at DESC LIMIT ?",
                 (persona_id, date + "%", limit),
             )
         return self._rows(
-            "SELECT * FROM notes WHERE persona_id = ? ORDER BY fetched_at DESC LIMIT ?",
+            "SELECT * FROM notes WHERE persona_id = ? AND deleted_at = '' "
+            "ORDER BY fetched_at DESC LIMIT ?",
             (persona_id, limit),
         )
 
     def pending_share_notes(self, persona_id: str, limit: int = 50) -> list[dict]:
         return self._rows(
             "SELECT * FROM notes WHERE persona_id = ? AND share_status = '' "
-            "AND share_decision != '' ORDER BY fetched_at ASC LIMIT ?",
+            "AND share_decision != '' AND deleted_at = '' ORDER BY fetched_at ASC LIMIT ?",
             (persona_id, limit),
         )
 
@@ -446,7 +468,7 @@ class LifeDB:
         date: str = "",
         limit: int = 10,
     ) -> list[dict]:
-        sql = "SELECT * FROM notes WHERE persona_id = ?"
+        sql = "SELECT * FROM notes WHERE persona_id = ? AND deleted_at = ''"
         params: list[Any] = [persona_id]
         if query:
             sql += " AND (title LIKE ? OR summary LIKE ? OR opinion LIKE ? OR tags LIKE ?)"
@@ -470,7 +492,7 @@ class LifeDB:
         date: str = "",
         limit: int = 10,
     ) -> list[dict]:
-        sql = "SELECT * FROM diary_entries WHERE persona_id = ?"
+        sql = "SELECT * FROM diary_entries WHERE persona_id = ? AND deleted_at = ''"
         params: list[Any] = [persona_id]
         if query:
             sql += " AND content LIKE ?"
@@ -503,13 +525,15 @@ class LifeDB:
 
     def get_diary(self, persona_id: str, date: str) -> Optional[dict]:
         return self._one(
-            "SELECT * FROM diary_entries WHERE persona_id = ? AND date = ?",
+            "SELECT * FROM diary_entries WHERE persona_id = ? AND date = ? "
+            "AND deleted_at = ''",
             (persona_id, date),
         )
 
     def list_diaries(self, persona_id: str, limit: int = 30) -> list[dict]:
         return self._rows(
-            "SELECT * FROM diary_entries WHERE persona_id = ? ORDER BY date DESC LIMIT ?",
+            "SELECT * FROM diary_entries WHERE persona_id = ? AND deleted_at = '' "
+            "ORDER BY date DESC LIMIT ?",
             (persona_id, limit),
         )
 
@@ -919,10 +943,170 @@ class LifeDB:
         threshold = now - hours * 3600
         rows = self._rows(
             "SELECT n.url_hash AS h FROM share_log s JOIN notes n ON n.id = s.note_id "
-            "WHERE s.persona_id = ? AND s.status = 'sent' AND s.attempted_at >= ?",
+            "WHERE s.persona_id = ? AND s.status = 'sent' AND s.attempted_at >= ? "
+            "AND n.deleted_at = ''",
             (persona_id, to_local(datetime.fromtimestamp(threshold), self.timezone).strftime("%Y-%m-%d %H:%M:%S")),
         )
         return {row["h"] for row in rows if row["h"]}
+
+    # ----- change log & trash -----
+
+    def log_change(
+        self,
+        persona_id: str,
+        entity: str,
+        entity_id: Any,
+        old_value: Any = "",
+        new_value: Any = "",
+        actor: str = "owner",
+        reason: str = "",
+        status: str = "applied",
+    ) -> int:
+        cur = self._execute(
+            "INSERT INTO change_log "
+            "(persona_id, entity, entity_id, old_value, new_value, actor, reason, status, ts) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                persona_id,
+                entity,
+                str(entity_id),
+                old_value or "",
+                new_value or "",
+                actor or "owner",
+                reason or "",
+                status or "applied",
+                self._now(),
+            ),
+        )
+        return int(cur.lastrowid)
+
+    def list_change_log(self, persona_id: str, limit: int = 100) -> list[dict]:
+        return self._rows(
+            "SELECT * FROM change_log WHERE persona_id = ? "
+            "ORDER BY ts DESC, id DESC LIMIT ?",
+            (persona_id, limit),
+        )
+
+    def soft_delete_note(
+        self, persona_id: str, note_id: int, actor: str = "owner", reason: str = ""
+    ) -> bool:
+        note = self._one(
+            "SELECT * FROM notes WHERE id = ? AND persona_id = ?", (note_id, persona_id)
+        )
+        if note is None or note.get("deleted_at"):
+            return False
+        now = self._now()
+        self._execute(
+            "UPDATE notes SET deleted_at = ? WHERE id = ? AND persona_id = ?",
+            (now, note_id, persona_id),
+        )
+        self.log_change(
+            persona_id, "note", note_id,
+            json.dumps(note, ensure_ascii=False, default=str),
+            json.dumps({"deleted_at": now}, ensure_ascii=False),
+            actor=actor, reason=reason, status="applied",
+        )
+        return True
+
+    def restore_note(
+        self, persona_id: str, note_id: int, actor: str = "owner", reason: str = ""
+    ) -> bool:
+        note = self._one(
+            "SELECT * FROM notes WHERE id = ? AND persona_id = ?", (note_id, persona_id)
+        )
+        if note is None or not note.get("deleted_at"):
+            return False
+        self._execute(
+            "UPDATE notes SET deleted_at = '' WHERE id = ? AND persona_id = ?",
+            (note_id, persona_id),
+        )
+        self.log_change(
+            persona_id, "note", note_id,
+            json.dumps({"deleted_at": note["deleted_at"]}, ensure_ascii=False),
+            json.dumps({"deleted_at": ""}, ensure_ascii=False),
+            actor=actor, reason=reason, status="restored",
+        )
+        return True
+
+    def soft_delete_diary(
+        self, persona_id: str, date: str, actor: str = "owner", reason: str = ""
+    ) -> bool:
+        diary = self._one(
+            "SELECT * FROM diary_entries WHERE persona_id = ? AND date = ?",
+            (persona_id, date),
+        )
+        if diary is None or diary.get("deleted_at"):
+            return False
+        now = self._now()
+        self._execute(
+            "UPDATE diary_entries SET deleted_at = ? WHERE persona_id = ? AND date = ?",
+            (now, persona_id, date),
+        )
+        self.log_change(
+            persona_id, "diary", date,
+            json.dumps(diary, ensure_ascii=False, default=str),
+            json.dumps({"deleted_at": now}, ensure_ascii=False),
+            actor=actor, reason=reason, status="applied",
+        )
+        return True
+
+    def restore_diary(
+        self, persona_id: str, date: str, actor: str = "owner", reason: str = ""
+    ) -> bool:
+        diary = self._one(
+            "SELECT * FROM diary_entries WHERE persona_id = ? AND date = ?",
+            (persona_id, date),
+        )
+        if diary is None or not diary.get("deleted_at"):
+            return False
+        self._execute(
+            "UPDATE diary_entries SET deleted_at = '' WHERE persona_id = ? AND date = ?",
+            (persona_id, date),
+        )
+        self.log_change(
+            persona_id, "diary", date,
+            json.dumps({"deleted_at": diary["deleted_at"]}, ensure_ascii=False),
+            json.dumps({"deleted_at": ""}, ensure_ascii=False),
+            actor=actor, reason=reason, status="restored",
+        )
+        return True
+
+    def list_trash(self, persona_id: str, limit: int = 100) -> dict[str, Any]:
+        notes = self._rows(
+            "SELECT * FROM notes WHERE persona_id = ? AND deleted_at != '' "
+            "ORDER BY deleted_at DESC LIMIT ?",
+            (persona_id, limit),
+        )
+        diaries = self._rows(
+            "SELECT * FROM diary_entries WHERE persona_id = ? AND deleted_at != '' "
+            "ORDER BY deleted_at DESC LIMIT ?",
+            (persona_id, limit),
+        )
+        return {"persona_id": persona_id, "notes": notes, "diaries": diaries}
+
+    def purge_trash(self, persona_id: str, retention_days: int) -> int:
+        cutoff = to_local(
+            datetime.now() - timedelta(days=max(0, int(retention_days))), self.timezone
+        ).strftime("%Y-%m-%d %H:%M:%S")
+        with self._transaction():
+            note_rows = self._conn.execute(
+                "SELECT id FROM notes WHERE persona_id = ? AND deleted_at != '' "
+                "AND deleted_at <= ?",
+                (persona_id, cutoff),
+            ).fetchall()
+            diary_rows = self._conn.execute(
+                "SELECT date FROM diary_entries WHERE persona_id = ? AND deleted_at != '' "
+                "AND deleted_at <= ?",
+                (persona_id, cutoff),
+            ).fetchall()
+            for row in note_rows:
+                self._conn.execute("DELETE FROM notes WHERE id = ?", (int(row["id"]),))
+            for row in diary_rows:
+                self._conn.execute(
+                    "DELETE FROM diary_entries WHERE persona_id = ? AND date = ?",
+                    (persona_id, row["date"]),
+                )
+        return len(note_rows) + len(diary_rows)
 
     # ----- persona prompt cache -----
 
@@ -1016,6 +1200,7 @@ class LifeDB:
                 "browse_sessions",
                 "share_log",
                 "daily_usage",
+                "change_log",
                 "staging_notes",
                 "staging_diary",
                 "staging_snapshots",
