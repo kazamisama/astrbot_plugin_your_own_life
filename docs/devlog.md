@@ -2,6 +2,14 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L1.5-03 固定/可选任务分层落地
+
+- 目标：固定任务只有 owner 可改，可选任务 LLM 可 `add / reorder / defer / skip`，跳过留痕，系统按依赖顺序执行。
+- 决策：`life_plans` 新增 `fixed` 列（默认漫游/peek/复盘槽位 seed 为固定任务）；DB 新增 `add_optional_plan / reorder_plan / defer_plan / skip_plan`，固定任务一律拒绝修改并写事件链；新增 `edit_life_plan` LLM 工具（kind 限 browse/peek/diary，add 缺省 23:59，reorder 为 1-based 位置且不可越过固定任务）；调度器 `next_target` 改为优先按当天 pending 排期板选目标，fallback 配置槽位，并返回 `task_id` 供记账。
+- 改动：`life/db.py`、`life/scheduler.py`、`life/life_tool.py`、`main.py`、`tests/test_db.py`、`tests/test_scheduler.py`、`tests/test_life_tool.py`；版本 v0.3.9 → v0.4.0；README / CHANGELOG / features.md L1.5-03 / design.md / roadmap.md 同步。
+- 验证：unittest 162 passed（skipped=1；新增固定任务不可改、可选增/排/延/跳与事件、按可选任务选目标、edit_life_plan 工具用例）。
+- 遗留：reorder 目前通过交换 `scheduled_at` 实现，固定任务不可位移；可选任务 kind 暂限可执行类型，revisit/surprise/memory_review 等动作词表在 L1.5-04 扩展。
+- 下一步：L1.5-04 LLM 自主排期（动作词表 + 偏好时间窗 + `/life_plan`）。
 ## 2026-08-12 L1.5-02 排期板落地
 
 - 目标：`life_plans` 运行时视图，任务带状态、预算用量与原因，LLM 可只读查看“做完没/还剩多少”。

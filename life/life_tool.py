@@ -80,6 +80,43 @@ PLANS_TOOL_PARAMETERS: dict[str, Any] = {
     "required": [],
 }
 
+EDIT_PLAN_TOOL_NAME = "edit_life_plan"
+EDIT_PLAN_TOOL_DESCRIPTION = (
+    "Modify the current bot persona's optional life plan tasks. "
+    "Actions: add (create a pending optional task), reorder (move an optional task to a 1-based position), "
+    "defer (move an optional task to another time), skip (mark an optional task skipped with a reason). "
+    "Fixed system tasks cannot be modified."
+)
+EDIT_PLAN_TOOL_PARAMETERS: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "action": {"type": "string", "enum": ["add", "reorder", "defer", "skip"]},
+        "date": {
+            "type": "string",
+            "description": "Plan date, YYYY-MM-DD; defaults to today.",
+            "default": "",
+        },
+        "task_id": {"type": "string", "description": "Task id, e.g. browse-extra-1."},
+        "kind": {
+            "type": "string",
+            "description": "Task kind for add: browse/peek/diary.",
+            "default": "",
+        },
+        "time": {
+            "type": "string",
+            "description": "Scheduled time HH:MM for add/defer.",
+            "default": "",
+        },
+        "position": {
+            "type": "integer",
+            "description": "1-based target position for reorder.",
+            "default": 1,
+        },
+        "reason": {"type": "string", "description": "Reason for add/defer/skip.", "default": ""},
+    },
+    "required": ["action", "task_id"],
+}
+
 
 def _parse_tags(raw: Any) -> list[str]:
     if isinstance(raw, list):
@@ -190,6 +227,85 @@ async def _execute_plans_tool(tool: Any, context: Any, date: str, status: str) -
     data = query_life_plans(tool.db, persona_id, date=date, status=status)
     data["ok"] = True
     data["count"] = len(data["items"])
+    return json.dumps(data, ensure_ascii=False)
+
+
+def _plan_time(plan_date: str, time_str: str) -> str:
+    raw = (time_str or "23:59").strip()
+    try:
+        hour, minute = raw.split(":", 1)
+        return f"{plan_date} {int(hour):02d}:{int(minute):02d}:00"
+    except (ValueError, AttributeError):
+        return f"{plan_date} 23:59:00"
+
+
+def edit_life_plan(
+    db: LifeDB,
+    persona_id: str,
+    action: str,
+    task_id: str,
+    date: str = "",
+    kind: str = "",
+    time: str = "",
+    position: int = 1,
+    reason: str = "",
+) -> dict[str, Any]:
+    plan_date = date or local_today(getattr(db, "timezone", DEFAULT_TIMEZONE))
+    task_id = str(task_id or "").strip()[:80]
+    reason = str(reason or "").strip()[:200]
+    if not task_id:
+        return {"ok": False, "error": "task_id required"}
+    if action == "add":
+        kind = str(kind or "").strip().lower()[:20]
+        if kind not in ("browse", "peek", "diary"):
+            return {"ok": False, "error": "kind must be browse/peek/diary"}
+        scheduled_at = _plan_time(plan_date, str(time or ""))
+        plan_id = db.add_optional_plan(
+            persona_id, plan_date, task_id, kind, scheduled_at, reason=reason,
+        )
+        if plan_id is None:
+            return {"ok": False, "error": "task already exists on this date"}
+        return {"ok": True, "action": action, "plan_id": plan_id,
+                "plan_date": plan_date, "task_id": task_id, "scheduled_at": scheduled_at}
+    if action == "reorder":
+        ok = db.reorder_plan(persona_id, plan_date, task_id, int(position or 1))
+        return {"ok": ok, "action": action, "plan_date": plan_date,
+                "task_id": task_id,
+                "error": "" if ok else "cannot reorder fixed or missing task"}
+    if action == "defer":
+        scheduled_at = _plan_time(plan_date, str(time or ""))
+        ok = db.defer_plan(persona_id, plan_date, task_id, scheduled_at, reason=reason)
+        return {"ok": ok, "action": action, "plan_date": plan_date,
+                "task_id": task_id, "scheduled_at": scheduled_at,
+                "error": "" if ok else "cannot defer fixed or missing task"}
+    if action == "skip":
+        ok = db.skip_plan(persona_id, plan_date, task_id, reason=reason or "llm_skip")
+        return {"ok": ok, "action": action, "plan_date": plan_date,
+                "task_id": task_id,
+                "error": "" if ok else "cannot skip fixed or missing task"}
+    return {"ok": False, "error": "action must be add/reorder/defer/skip"}
+
+
+async def _execute_edit_plan_tool(
+    tool: Any, context: Any, action: str, task_id: str,
+    date: str, kind: str, time: str, position: int, reason: str,
+) -> str:
+    persona_id = await tool._resolve_persona(context)
+    if not persona_id:
+        return json.dumps(
+            {"ok": False, "error": "cannot resolve current persona"},
+            ensure_ascii=False,
+        )
+    whitelist = getattr(getattr(tool.personas, "config", None), "life_personas", None)
+    if whitelist is not None and persona_id not in whitelist:
+        return json.dumps(
+            {"ok": False, "error": "persona not whitelisted"},
+            ensure_ascii=False,
+        )
+    data = edit_life_plan(
+        tool.db, persona_id, action, task_id, date=date, kind=kind,
+        time=time, position=position, reason=reason,
+    )
     return json.dumps(data, ensure_ascii=False)
 
 
@@ -317,3 +433,54 @@ else:
 
         async def call(self, context: Any, date: str = "", status: str = "") -> str:
             return await _execute_plans_tool(self, context, date, status)
+
+
+if _HAS_ASTRBOT_TOOL:
+
+    class LifePlanEditTool(_LifeMemoryToolMixin, FunctionTool[AstrAgentContext]):
+        """AstrBot-native optional plan mutation tool."""
+
+        def __init__(self, db: LifeDB, personas: PersonaService):
+            super().__init__(
+                name=EDIT_PLAN_TOOL_NAME,
+                description=EDIT_PLAN_TOOL_DESCRIPTION,
+                parameters=EDIT_PLAN_TOOL_PARAMETERS,
+                handler=None,
+            )
+            self._init(db, personas)
+
+        async def call(
+            self,
+            context: ContextWrapper[AstrAgentContext],
+            action: str,
+            task_id: str,
+            date: str = "",
+            kind: str = "",
+            time: str = "",
+            position: int = 1,
+            reason: str = "",
+        ) -> ToolExecResult:
+            return await _execute_edit_plan_tool(
+                self, context, action, task_id, date, kind, time, position, reason,
+            )
+
+else:
+
+    class LifePlanEditTool(_LifeMemoryToolMixin):
+        """Duck-typed fallback used by unit tests outside AstrBot."""
+
+        name = EDIT_PLAN_TOOL_NAME
+        description = EDIT_PLAN_TOOL_DESCRIPTION
+        parameters = EDIT_PLAN_TOOL_PARAMETERS
+
+        def __init__(self, db: LifeDB, personas: PersonaService):
+            self._init(db, personas)
+
+        async def call(
+            self, context: Any, action: str, task_id: str,
+            date: str = "", kind: str = "", time: str = "", position: int = 1,
+            reason: str = "",
+        ) -> str:
+            return await _execute_edit_plan_tool(
+                self, context, action, task_id, date, kind, time, position, reason,
+            )

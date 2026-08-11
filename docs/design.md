@@ -58,7 +58,7 @@ Your Own Life 是一个观察者模式的 AstrBot 插件：Bot 不注册账号�
 - `injection_log`：疑似提示词注入审计日志。
 - `life_leases`：同人格任务租约（多实例单写者，v1 本地兜底）。
 - `event_chain`：append-only 事件流，观察/表达/思考/更改/召回/回滚归位，支持幂等追加与只读重放。
-- `life_plans`：每日排期板运行时视图，任务带状态/原因/预算用量。
+- `life_plans`：每日排期板运行时视图，任务带状态/原因/预算用量与 `fixed` 分层。
 - 未来新增表：`action_log`、`wishlist`、`center_state`、`thoughts`、`entities / entity_mentions / entity_links` 等，随对应功能落地（见 `docs/features.md` 与本文档方向章节）。
 
 ## 实体与维度模型（方向，已排期 L2）
@@ -402,6 +402,7 @@ LLM 可自主更改生活数据/计划/记忆，按事件链自主排期，并�
 - 经历完整性：只要一次操作消耗模型且可能影响人格自身，就作为事件写入事件链（读内容、写短记、生成日记/签名/thought、做总结、做计划、改参数、发起/跳过/重排任务、召回记忆）。
 - 排期板：`life_plans` 运行时视图 `{task_id, kind, deadline, status(pending/done/skipped/failed), budget_used, reason}`；LLM 做计划前可见“做完没、还剩多少、可加/可换序”。
 - L1.5-02 已落地（v0.3.9）：`life_plans` 表 + 调度器播种/记账 + WebUI 排期板 + `query_life_plans` 只读工具；增删改/可换序工具属 L1.5-03/04。
+- L1.5-03 已落地（v0.4.0）：`fixed` 标记 + `edit_life_plan`（add/reorder/defer/skip），固定任务不可改，跳过留痕并写事件链。
 - 固定任务：昨日记忆总结/分块、每日检查点、温度衰减、今日计划生成，只有 owner 可改，系统按依赖顺序执行。
 - 可选任务：revisit、surprise、memory_review、灵感抽屉、实体整合、签名润色等；LLM 可 `add_task / reorder_task / defer_task / skip_task`，跳过必须带 reason 并留痕。
 - 系统裁决：每日行动预算、精力 gate、依赖校验与睡眠窗口始终优先，越界动作拒绝并回退计划。

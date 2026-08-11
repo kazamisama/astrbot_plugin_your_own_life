@@ -213,9 +213,10 @@
 
 ### L1.5-03 固定/可选任务分层
 
+- 状态：已实现（v0.4.0）。
 - 目标：固定任务只有 owner 可改，可选任务 LLM 可 `add_task / reorder_task / defer_task / skip_task`。
 - 依赖：排期板（L1.5-02）。
-- 模块：`life/scheduler.py`、`life/life_tool.py`（新增计划工具）。
+- 模块：`life/db.py`（`fixed` 标记与增/排/延/跳接口）、`life/scheduler.py`（按 pending 顺序选目标）、`life/life_tool.py`（`edit_life_plan`）。
 - 配置：固定任务清单在代码中，`life_plans` 中标记 `fixed=true`。
 - 验收：LLM 不能改固定任务；跳过可选任务留痕；系统按依赖顺序执行。
 

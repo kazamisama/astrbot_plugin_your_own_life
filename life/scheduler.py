@@ -111,21 +111,46 @@ class LifeScheduler:
                 slots.append((self._jittered_slot(persona_id, base, "peek"), "peek"))
         return slots
 
+    def _plan_datetime(self, row: dict) -> Optional[datetime]:
+        raw = (row.get("scheduled_at") or "").strip()
+        try:
+            return datetime.strptime(raw, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return None
+
     def next_target(
         self, now: datetime, personas: Sequence[str]
-    ) -> Optional[tuple[datetime, str, str]]:
-        best: Optional[tuple[datetime, str, str]] = None
+    ) -> Optional[tuple[datetime, str, str, str]]:
+        best: Optional[tuple[datetime, str, str, str]] = None
+        seen: set[tuple[datetime, str, str]] = set()
+
+        def consider(slot: datetime, persona_id: str, kind: str, task_id: str) -> None:
+            nonlocal best
+            key = (slot, persona_id, kind)
+            if key in seen:
+                return
+            seen.add(key)
+            if slot > now and (best is None or slot < best[0]):
+                best = (slot, persona_id, kind, task_id)
+
+        if self.db is not None:
+            day_str = now.date().strftime("%Y-%m-%d")
+            for persona_id in personas:
+                for row in self.db.list_plans(persona_id, day_str, status="pending"):
+                    slot = self._plan_datetime(row)
+                    if slot is not None:
+                        consider(slot, persona_id, str(row.get("kind") or ""),
+                                 str(row.get("task_id") or ""))
         for offset in (0, 1):
             day = now.date() + timedelta(days=offset)
             for persona_id in personas:
                 for slot, kind in self._slot_datetimes(persona_id, day):
-                    if slot > now and (best is None or slot < best[0]):
-                        best = (slot, persona_id, kind)
+                    consider(slot, persona_id, kind, f"{kind}-{slot.strftime('%H-%M')}")
         return best
 
     def _current_target(
         self, personas: Sequence[str]
-    ) -> Optional[tuple[datetime, str, str]]:
+    ) -> Optional[tuple[datetime, str, str, str]]:
         now_local = local_now(self.config.timezone, self.now_fn())
         return self.next_target(now_local, personas)
 
@@ -140,6 +165,7 @@ class LifeScheduler:
                 self.db.ensure_plan(
                     persona_id, plan_date, f"{kind}-{slot.strftime('%H-%M')}",
                     kind, scheduled_at=slot.strftime("%Y-%m-%d %H:%M:%S"),
+                    fixed=True,
                 )
                 count += 1
         return count
@@ -181,7 +207,7 @@ class LifeScheduler:
             if target is None:
                 await self._stop.wait()
                 break
-            slot, persona_id, kind = target
+            slot, persona_id, kind, task_id = target
             now_local = local_now(self.config.timezone, self.now_fn())
             wait = max(1.0, (slot - now_local).total_seconds())
             try:
@@ -194,7 +220,6 @@ class LifeScheduler:
             if key in self._done_keys:
                 continue
             plan_date = slot.strftime("%Y-%m-%d")
-            task_id = f"{kind}-{slot.strftime('%H-%M')}"
             if self.db is not None and not self.db.acquire_lease(
                 persona_id, key, self._instance_id, self.config.lease_ttl_seconds
             ):

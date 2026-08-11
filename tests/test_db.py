@@ -429,6 +429,62 @@ class LifeDBTest(unittest.TestCase):
         again = self.db.ensure_plan("shelly", "2026-08-12", "browse-10-00", "browse")
         self.assertEqual(again, 1)
         self.assertEqual(len(self.db.list_plans("shelly", "2026-08-12")), 1)
+    def test_optional_plan_mutations_and_events(self):
+        self.db.ensure_plan("shelly", "2026-08-12", "browse-10-00", "browse",
+                            scheduled_at="2026-08-12 10:00:00", fixed=True)
+        plan_id = self.db.add_optional_plan(
+            "shelly", "2026-08-12", "extra-1", "browse",
+            "2026-08-12 12:00:00", reason="llm",
+        )
+        self.assertIsNotNone(plan_id)
+        self.assertIsNone(self.db.add_optional_plan(
+            "shelly", "2026-08-12", "extra-1", "browse",
+            "2026-08-12 12:00:00",
+        ))
+        self.assertTrue(self.db.defer_plan(
+            "shelly", "2026-08-12", "extra-1", "2026-08-12 14:00:00", reason="busy",
+        ))
+        self.assertTrue(self.db.skip_plan(
+            "shelly", "2026-08-12", "extra-1", "not_now",
+        ))
+        items = self.db.list_plans("shelly", "2026-08-12")
+        extra = next(item for item in items if item["task_id"] == "extra-1")
+        self.assertEqual(extra["status"], "skipped")
+        self.assertEqual(extra["reason"], "not_now")
+        actions = [
+            json.loads(e["payload"])["action"]
+            for e in self.db.list_events("shelly")
+            if e["kind"] == "change"
+        ]
+        self.assertIn("add", actions)
+        self.assertIn("defer", actions)
+        self.assertIn("skip", actions)
+
+    def test_fixed_plan_cannot_be_mutated(self):
+        self.db.ensure_plan("shelly", "2026-08-12", "browse-10-00", "browse",
+                            scheduled_at="2026-08-12 10:00:00", fixed=True)
+        self.assertFalse(self.db.defer_plan(
+            "shelly", "2026-08-12", "browse-10-00", "2026-08-12 14:00:00",
+        ))
+        self.assertFalse(self.db.skip_plan(
+            "shelly", "2026-08-12", "browse-10-00", "no",
+        ))
+        self.assertEqual(len(self.db.list_events("shelly")), 0)
+
+    def test_reorder_plan_swaps_optional_tasks(self):
+        self.db.ensure_plan("shelly", "2026-08-12", "browse-10-00", "browse",
+                            scheduled_at="2026-08-12 10:00:00", fixed=True)
+        self.db.add_optional_plan("shelly", "2026-08-12", "extra-1", "peek",
+                                  "2026-08-12 12:00:00")
+        self.db.add_optional_plan("shelly", "2026-08-12", "extra-2", "peek",
+                                  "2026-08-12 14:00:00")
+        self.assertTrue(self.db.reorder_plan("shelly", "2026-08-12", "extra-1", 3))
+        items = self.db.list_plans("shelly", "2026-08-12")
+        self.assertEqual(
+            [item["task_id"] for item in items],
+            ["browse-10-00", "extra-2", "extra-1"],
+        )
+        self.assertFalse(self.db.reorder_plan("shelly", "2026-08-12", "extra-1", 1))
 
 
 if __name__ == "__main__":

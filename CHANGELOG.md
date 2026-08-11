@@ -2,6 +2,15 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.4.0] - 2026-08-12
+
+### Added
+
+- L1.5-03 固定/可选任务分层：`life_plans` 新增 `fixed` 标记（默认漫游/peek/复盘槽位为固定任务）；新增 `edit_life_plan` LLM 工具，可选任务支持 `add / reorder / defer / skip`，固定任务不可被 LLM 修改；跳过留痕并写事件链；调度器按排期板 pending 顺序选下一个任务。
+
+### Notes
+
+- 测试：162 passed（新增固定任务不可改、可选任务增/排/延/跳与事件、调度器按可选任务选目标、edit_life_plan 工具用例）。
 ## [0.3.9] - 2026-08-12
 
 ### Added

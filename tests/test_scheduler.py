@@ -99,11 +99,24 @@ class SchedulerPlansTest(unittest.TestCase):
         items = self.db.list_plans("shelly", "2026-08-12")
         self.assertEqual(len(items), 4)
         self.assertTrue(all(item["status"] == "pending" for item in items))
+        self.assertTrue(all(item["fixed"] == 1 for item in items))
         task_ids = {item["task_id"] for item in items}
         self.assertIn("browse-10-00", task_ids)
         self.assertIn("browse-15-00", task_ids)
         self.assertIn("peek-09-00", task_ids)
         self.assertIn("diary-23-00", task_ids)
+
+    def test_next_target_includes_pending_optional_plan(self):
+        self.scheduler.seed_plans(["shelly"], datetime(2026, 8, 12))
+        self.db.add_optional_plan(
+            "shelly", "2026-08-12", "extra-1", "peek",
+            "2026-08-12 08:00:00",
+        )
+        target = self.scheduler.next_target(datetime(2026, 8, 12, 7, 0), ["shelly"])
+        self.assertEqual(target[0], datetime(2026, 8, 12, 8, 0))
+        self.assertEqual(target[1], "shelly")
+        self.assertEqual(target[2], "peek")
+        self.assertEqual(target[3], "extra-1")
 
     def test_plan_status_mapping(self):
         class _Result:

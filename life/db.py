@@ -146,6 +146,7 @@ CREATE TABLE IF NOT EXISTS life_plans (
     task_id TEXT NOT NULL,
     kind TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
+    fixed INTEGER NOT NULL DEFAULT 0,
     reason TEXT DEFAULT '',
     budget_used REAL DEFAULT 0,
     scheduled_at TEXT DEFAULT '',
@@ -306,6 +307,7 @@ class LifeDB:
             self._ensure_column("diary_entries", "signature", "signature TEXT DEFAULT ''")
             self._ensure_column("browse_sessions", "kind", "kind TEXT NOT NULL DEFAULT 'browse'")
             self._ensure_column("wishlist", "interest_name", "interest_name TEXT DEFAULT ''")
+            self._ensure_column("life_plans", "fixed", "fixed INTEGER NOT NULL DEFAULT 0")
             self._conn.commit()
         self.recover_stale_runs()
 
@@ -1324,6 +1326,7 @@ class LifeDB:
         task_id: str,
         kind: str,
         scheduled_at: str = "",
+        fixed: bool = False,
     ) -> int:
         row = self._one(
             "SELECT id FROM life_plans WHERE persona_id = ? AND plan_date = ? AND task_id = ?",
@@ -1332,9 +1335,9 @@ class LifeDB:
         if row is not None:
             return int(row["id"])
         cur = self._execute(
-            "INSERT INTO life_plans (persona_id, plan_date, task_id, kind, scheduled_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (persona_id, plan_date, task_id, kind, scheduled_at or ""),
+            "INSERT INTO life_plans (persona_id, plan_date, task_id, kind, fixed, scheduled_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (persona_id, plan_date, task_id, kind, 1 if fixed else 0, scheduled_at or ""),
         )
         return int(cur.lastrowid)
 
@@ -1403,6 +1406,142 @@ class LifeDB:
             "budget_used": budget,
             **counts,
         }
+
+    def add_optional_plan(
+        self,
+        persona_id: str,
+        plan_date: str,
+        task_id: str,
+        kind: str,
+        scheduled_at: str,
+        reason: str = "",
+    ) -> Optional[int]:
+        existing = self._one(
+            "SELECT id FROM life_plans WHERE persona_id = ? AND plan_date = ? AND task_id = ?",
+            (persona_id, plan_date, task_id),
+        )
+        if existing is not None:
+            return None
+        cur = self._execute(
+            "INSERT INTO life_plans "
+            "(persona_id, plan_date, task_id, kind, status, fixed, reason, scheduled_at) "
+            "VALUES (?, ?, ?, ?, 'pending', 0, ?, ?)",
+            (persona_id, plan_date, task_id, kind, reason or "", scheduled_at or ""),
+        )
+        plan_id = int(cur.lastrowid)
+        self.append_event(
+            persona_id,
+            "change",
+            {"entity": "plan", "action": "add", "plan_date": plan_date,
+             "task_id": task_id, "kind": kind, "reason": reason},
+            [{"entity": "plan", "plan_date": plan_date, "task_id": task_id}],
+            f"plan/{plan_date}/{task_id}/add",
+        )
+        return plan_id
+
+    def reorder_plan(
+        self,
+        persona_id: str,
+        plan_date: str,
+        task_id: str,
+        position: int,
+    ) -> bool:
+        rows = self.list_plans(persona_id, plan_date)
+        indexes = {str(row["task_id"]): i for i, row in enumerate(rows)}
+        if task_id not in indexes:
+            return False
+        current = indexes[task_id]
+        if rows[current].get("fixed"):
+            return False
+        target = max(0, min(int(position) - 1, len(rows) - 1))
+        if target == current:
+            return True
+        if rows[target].get("fixed"):
+            return False
+        neighbor = rows[target]
+        cur = self._execute(
+            "UPDATE life_plans SET scheduled_at = ? "
+            "WHERE persona_id = ? AND plan_date = ? AND task_id = ?",
+            (neighbor.get("scheduled_at") or "", persona_id, plan_date, task_id),
+        )
+        self._execute(
+            "UPDATE life_plans SET scheduled_at = ? "
+            "WHERE persona_id = ? AND plan_date = ? AND task_id = ?",
+            (rows[current].get("scheduled_at") or "", persona_id, plan_date, neighbor["task_id"]),
+        )
+        if cur.rowcount == 0:
+            return False
+        self.append_event(
+            persona_id,
+            "change",
+            {"entity": "plan", "action": "reorder", "plan_date": plan_date,
+             "task_id": task_id, "position": target + 1},
+            [{"entity": "plan", "plan_date": plan_date, "task_id": task_id}],
+            f"plan/{plan_date}/{task_id}/reorder/{target + 1}",
+        )
+        return True
+
+    def defer_plan(
+        self,
+        persona_id: str,
+        plan_date: str,
+        task_id: str,
+        scheduled_at: str,
+        reason: str = "",
+    ) -> bool:
+        row = self._one(
+            "SELECT * FROM life_plans WHERE persona_id = ? AND plan_date = ? AND task_id = ?",
+            (persona_id, plan_date, task_id),
+        )
+        if row is None or row.get("fixed"):
+            return False
+        cur = self._execute(
+            "UPDATE life_plans SET scheduled_at = ?, reason = ? "
+            "WHERE persona_id = ? AND plan_date = ? AND task_id = ?",
+            (scheduled_at or "", reason or "", persona_id, plan_date, task_id),
+        )
+        if cur.rowcount == 0:
+            return False
+        self.append_event(
+            persona_id,
+            "change",
+            {"entity": "plan", "action": "defer", "plan_date": plan_date,
+             "task_id": task_id, "scheduled_at": scheduled_at, "reason": reason},
+            [{"entity": "plan", "plan_date": plan_date, "task_id": task_id}],
+            f"plan/{plan_date}/{task_id}/defer",
+        )
+        return True
+
+    def skip_plan(
+        self,
+        persona_id: str,
+        plan_date: str,
+        task_id: str,
+        reason: str = "",
+    ) -> bool:
+        row = self._one(
+            "SELECT * FROM life_plans WHERE persona_id = ? AND plan_date = ? AND task_id = ?",
+            (persona_id, plan_date, task_id),
+        )
+        if row is None or row.get("fixed"):
+            return False
+        now = self._now()
+        cur = self._execute(
+            "UPDATE life_plans SET status = 'skipped', reason = ?, finished_at = ? "
+            "WHERE persona_id = ? AND plan_date = ? AND task_id = ?",
+            (reason or "skipped", now, persona_id, plan_date, task_id),
+        )
+        if cur.rowcount == 0:
+            return False
+        self.append_event(
+            persona_id,
+            "change",
+            {"entity": "plan", "action": "skip", "plan_date": plan_date,
+             "task_id": task_id, "reason": reason},
+            [{"entity": "plan", "plan_date": plan_date, "task_id": task_id}],
+            f"plan/{plan_date}/{task_id}/skip",
+        )
+        return True
 
     def soft_delete_note(
         self, persona_id: str, note_id: int, actor: str = "owner", reason: str = ""

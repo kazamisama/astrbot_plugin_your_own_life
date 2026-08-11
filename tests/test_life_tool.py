@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from life.db import LifeDB
-from life.life_tool import LifeMemoryTool, LifePlansTool, search_life_memory
+from life.life_tool import LifeMemoryTool, LifePlanEditTool, LifePlansTool, search_life_memory
 
 
 class _FakeEvent:
@@ -116,6 +116,28 @@ class LifeToolTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["summary"]["pending"], 0)
         self.assertEqual(data["items"][0]["budget_used"], 3)
         self.assertEqual(data["items"][0]["status"], "done")
+
+    async def test_edit_plan_tool_add_skip_and_fixed_guard(self):
+        self.db.ensure_plan("shelly", "2026-08-12", "browse-10-00", "browse",
+                            scheduled_at="2026-08-12 10:00:00", fixed=True)
+        tool = LifePlanEditTool(self.db, _FakePersonas())
+        raw = await tool.call(_FakeWrapper(), action="add", task_id="extra-1",
+                              date="2026-08-12", kind="peek", time="12:00",
+                              reason="try")
+        data = json.loads(raw)
+        self.assertTrue(data["ok"])
+        raw = await tool.call(_FakeWrapper(), action="skip", task_id="extra-1",
+                              date="2026-08-12", reason="not now")
+        data = json.loads(raw)
+        self.assertTrue(data["ok"])
+        raw = await tool.call(_FakeWrapper(), action="skip", task_id="browse-10-00",
+                              date="2026-08-12", reason="no")
+        data = json.loads(raw)
+        self.assertFalse(data["ok"])
+        items = self.db.list_plans("shelly", "2026-08-12")
+        extra = next(item for item in items if item["task_id"] == "extra-1")
+        self.assertEqual(extra["status"], "skipped")
+        self.assertEqual(extra["reason"], "not now")
 
 
 if __name__ == "__main__":
