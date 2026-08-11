@@ -2,9 +2,13 @@
 
 观察者模式的 AstrBot 插件。每个白名单 persona 独立拥有一份"互联网生活"：Bot 不注册账号、不发帖，按定时任务漫游国际互联网，用 LLM 把所见转化为摘要、观点、情绪、兴趣演化与分享决策，沉淀为主人专属的可查询生活档案。
 
+北极星目标：从行为、思考层、思想层、发散思维与联想、线性生命链、记忆结构与检索六个维度，实现拟人化的 bot 生命活动与跨平台社交交互。
+
+当前 v1 仅 owner 侧档案，不进入群聊主动表达；跨平台社交交互为后续方向。
+
 ## 功能
 
-- 每实例独立生活：`life_personas` 白名单，每个 persona 拥有独立的档案、兴趣、情绪 scope 与分享记录。
+- 每实例独立生活（现状 v0.2.4）：`life_personas` 白名单，每个 persona 拥有独立的档案、兴趣、情绪 scope 与分享记录；v1.1 起同人格多实例共享同一 SQLite 档案（见 `docs/design.md` 多实例并发）。
 - 人格跟随实例：人格 prompt 取自 AstrBot 对应 persona 的 `system_prompt`，缓存进 SQLite，每天自动刷新，WebUI 可查看与手动刷新；解析失败则跳过该 persona 当天任务。
 - 定时漫游：默认每天 10:00 / 15:00 各一次（±2 小时确定性波动），夜间 23:00 复盘写日记（±1 小时，日期锚定原始槽位）。
 - 免密钥信息源：Hacker News、GitHub 公开搜索、Reddit 公开 JSON、自定义 RSS/Atom；可选 Tavily 搜索。
@@ -20,6 +24,17 @@
 ## WebUI
 
 插件页面由 AstrBot Dashboard 自动发现：在管理面板的插件详情里进入「Your Own Life」页面（`pages/life/index.html`），无需单独注册路由。页面数据接口由插件在启动时通过 `register_web_api` 注册，统一挂在 `/api/plug/astrbot_plugin_your_own_life/api/...` 下，访问需要 Dashboard 登录态。
+
+## 文档
+
+- `AGENTS.md`：项目开发守则（agent 会话自动加载）。
+- `docs/README.md`：文档索引与阅读顺序。
+- `docs/devlog.md`：开发日志，跨会话/上下文压缩后的续接入口。
+- `docs/design.md`：架构、数据流与方向模型。
+- `docs/features.md`：功能分层开发清单（状态/依赖/模块/配置/验收）。
+- `docs/roadmap.md`：生活感功能路线图（v1.1 / v2 / 未排期方向）。
+- `docs/requirements.md`：上游对接需求、硬依赖与生态兼容约束。
+- `docs/workflow.md`：开发与发布工作流。
 
 ## 配置
 
@@ -54,6 +69,5 @@ python -m unittest discover -s tests -v
 
 ## Roadmap
 
-- 全平台消息事件统一处理的"生命链"，实现多平台记忆与对人际印象的一致性。
-- 群聊入档、记忆编辑/删除、语义召回（FTS5/向量）与 engram_core 联动。
-- ESM 互联网漫游专用信号与后台任务精力语义（上游需求，见 `docs/requirements.md`）。
+- 详细路线图与未排期方向见 `docs/roadmap.md`。
+- 上游插件对接需求见 `docs/requirements.md`。

@@ -1,13 +1,54 @@
 # 上游插件需求（Your Own Life 生态对接）
 
-本文档记录 `astrbot_plugin_your_own_life` 对 kazamisama 插件族的对接需求。v1 只消费 ESM 现有能力；以下条目用于与上游同步版本计划，不阻塞本插件运行。
+本文档记录 `astrbot_plugin_your_own_life` 对 kazamisama 插件族的对接需求。v0.2.4 现状只消费 ESM 现有能力；v1.1 起按计划消费新增契约（如 `consume_energy`）并同步上游，以下条目用于与上游同步版本计划，不阻塞本插件运行。
+
+## 未来规划基调（硬依赖）
+
+- v2 起，本插件将把 ESM 与统一记忆宿主（engram_core 或未来 life-chain 插件）视为硬依赖，不再以“缺失静默降级”为默认目标；v1 的降级仅作过渡。
+- 允许对这两个插件做大规模架构级变动：精力消费语义与后台任务预算、统一记忆 API 与记忆权威、生命链事件流与跨平台身份解析。
+- 上游契约按硬依赖设计：能力探测只用于版本兼容诊断与报错，不用于功能开关。
+
+## 生态兼容性约束
+
+kazamisama 仓库下的 AstrBot 插件是一整个需要互操作的家庭，任何架构级变动都必须以全家族兼容为前提：
+
+- 覆盖范围：`astrbot_plugin_emotion_state_machine`、`astrbot_plugin_social_context`、`astrbot_plugin_xml_structured_output`、`astrbot_plugin_vector_meme`、`astrbot_plugin_firewall`、`astrbot_plugin_litepoke`、`astrbot_plugin_private_proactive_reply`、`astrbot_plugin_engram_core`、`astrbot-plugin-media-warden` 与本插件。
+- 公开契约版本化：所有跨插件 API（ESM 信号/精力、统一记忆库、社会上下文等）必须版本化并写入对应 `_PUBLIC_API.md`，不得静默改签名。
+- 适配层保护：下游只通过适配层调用上游，API 变更只改对应 adapter；上游先发布兼容版本，下游再升级。
+- 协调升级：涉及硬依赖的架构变动（如精力消费语义、统一记忆库权威化）需要整族协调发版，避免一个插件升级导致其他插件行为漂移。
+- 不吝啬改动：兼容不等于冻结；允许对家族内任一插件做架构级重构、新增共享层或改公开契约，只要通过版本化契约与适配层保证互操作，并整族协调发版。
+- 兼容矩阵：见下文「兼容矩阵（2026-08-12 快照）」，作为升级检查表；每次跨插件改动前先复核快照。
+
+### 兼容矩阵（2026-08-12 快照）
+
+数据来自各仓库 `metadata.yaml` / `CHANGELOG.md` / `_PUBLIC_API.md` / `git remote` / `git log`（读取时间 2026-08-12，subagent 只读调研 + 主 agent 抽查核对）。升级前以对应仓库最新 commit 复核。
+
+| 插件 | 本地版本 | 公开 API 契约 | 远端仓库 | 与本插件对接点 |
+| --- | --- | --- | --- | --- |
+| astrbot_plugin_emotion_state_machine | v0.10.4 | `_PUBLIC_API.md`（v0.10.0+ 跨插件互操作契约，无独立契约版本号） | kazamisama/astrbot_plugin_emotion_state_machine | v1 已接：精力 gate / 情绪 / `apply_self_reply_signal`（经 `life/esm_adapter.py`） |
+| astrbot_plugin_social_context | v0.8.19 | 无 | kazamisama/astrbot_plugin_social_context | 方向：群聊氛围快照，群聊入档时只读接入 |
+| astrbot_plugin_xml_structured_output | 0.2.9 | `_PUBLIC_API.md`（Public API · v1） | kazamisama/astrbot_plugin_xml_structured_output | 方向：行为/思想层结构化输出路由 |
+| astrbot_plugin_vector_meme | 0.7.3 | 无（`search_sticker_for_external()` 见 README/CHANGELOG） | kazamisama/astrbot_plugin_vector_meme | 方向：分享消息表情行为承接 |
+| astrbot_plugin_firewall | v0.1.2 | 无 | kazamisama/astrbot_plugin_firewall | 方向：记忆/安全边界（可信块剥离） |
+| astrbot_plugin_litepoke | v1.4.8 | 无 | kazamisama/astrbot_plugin_litepoke | 方向：行为层信号源（情绪透传/氛围概率） |
+| astrbot_plugin_private_proactive_reply | v0.11.2 | 无 | kazamisama/astrbot_plugin_private_proactive_reply | 方向：主动社交行为层（复用人格/记忆/工具链） |
+| astrbot_plugin_engram_core | 1.74.0 | 无（`<engram-context>` 注入与 `extra_user_content_parts` 为 README 约定） | kazamisama/astrbot-plugin-engram-core | v2 硬依赖：统一记忆库/日记写入/召回，经 `LifeMemoryAdapter` |
+| astrbot-plugin-media-warden | 1.8.1 | 无 | kazamisama/astrbot-plugin-media-warden | 方向：素材采集/记忆原料，未见显式契约 |
+| astrbot_plugin_your_own_life（本插件） | v0.2.4 | 无独立 `_PUBLIC_API.md`；跨插件调用全部经适配层 | kazamisama/astrbot_plugin_your_own_life | 本插件 |
+
+升级检查表：
+
+- 上游升级前先复核本表快照（版本、公开契约、remote），并确认该插件源码中是否有指向本插件的调用。
+- 涉及 ESM 精力/信号或统一记忆 API 的升级 = 整族协调发版；先上游兼容版本，后下游适配层升级。
+- 本插件对上游只经 adapter 调用；API 变更只改 adapter，不散落进业务模块。
+- `_PUBLIC_API.md` 缺失的插件，接入前先补契约文档或至少确认调用面（小阶段 + 测试）。
 
 ## ESM（astrbot_plugin_emotion_state_machine）
 
 - 互联网漫游专用 signal：建议新增 `novelty`（新鲜感）、`info_binge`（信息摄入疲劳）等 signal，语义与群聊信号解耦，避免漫游内容污染群聊关系层。
 - 后台任务精力语义：当前 `get_bot_energy()` 只反映自回复消耗；建议提供 `consume_energy(amount, reason)` 或等效公开方法，让定时漫游/日记任务真实消耗精力并持久化。
 - 非聊天 scope 契约：`internet-life` 这类非群聊 scope 目前依赖内部归一化规则；建议在 `_PUBLIC_API.md` 中明确非群聊 scope 的创建、衰减与清理语义。
-- 稳定跨插件契约：为 v0.11 规划版本化适配层（能力探测 + 方法清单），使下游插件无需探测私有方法。
+- 稳定跨插件契约：现状 v0.10.4 已有 `_PUBLIC_API.md`（v0.10.0+ 互操作契约，无独立契约版本号，见兼容矩阵）；为 v0.11 规划契约升级版（能力探测 + 方法清单），使下游插件无需探测私有方法。
 
 ## Your Own Life 自身上游需求
 
@@ -19,6 +60,7 @@
 - 公开日记写入 API：把 `DiaryStore.add_line(DailyLine(...))` / `Service.store_diary(...)` 提升为跨插件公开 API，固定字段、返回值和版本承诺。
 - Bot 视角生活日记：当前日记层以群聊消息为素材；建议支持外部插件注入“非聊天生活事件”（如互联网漫游短记），并保留来源标签。
 - 公开召回接口：供后续把“最近日记/见闻”注入 LLM 请求时使用，避免本插件直接 import `hippocampus` 内部包。
+- 每 persona 任务租约 API：`claim_task(persona_id, task_kind, ttl)` / `renew_task` / `release_task`，供多实例同人格防撞锁，本插件经 `LifeMemoryAdapter` 调用。
 
 ## social_context（后置）
 
