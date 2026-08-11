@@ -2,6 +2,13 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 上游契约复审计（第二次）
+
+- 复审计结果：ESM 仍为 v0.10.4、源码无 `consume_energy`；engram_core 仍为 1.74.0（HEAD `8dc41f2`）、无 `_PUBLIC_API.md`。L1-03 与 L2 闸门未解锁。
+- 决策：把 `LifeMemoryAdapter`（store_diary_line / query_recent_memory / claim_task / renew_task / release_task）与 ESM `consume_energy` 的适配层接口草案写入 `docs/requirements.md`，仅作设计、不实现，等待上游契约定稿。
+- 改动：`docs/requirements.md`（适配层接口草案）、`docs/devlog.md`；纯文档，不 bump 版本。
+- 验证：UTF-8 读回无乱码。
+- 下一步：上游发布后按草案落地；在此之前不再新增下游实现。
 ## 2026-08-12 上游契约审计与提案
 
 - 目标：确认剩余阶段（L1-03 / L2）的解锁条件，并把契约提案落盘供上游协调。

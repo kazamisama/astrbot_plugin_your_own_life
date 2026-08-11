@@ -80,6 +80,29 @@ kazamisama 仓库下的 AstrBot 插件是一整个需要互操作的家庭，任
 - 本插件落点：新增 `life/memory_adapter.py`（`LifeMemoryAdapter`），本地 SQLite 降级为缓存；L2 各子项（统一记忆库、实体关系、关注对象、故地重游、记忆温度、回顾/胶囊等）按 `docs/features.md` 顺序推进。
 - 发布流程：上游先发兼容版本并补契约，本插件再整族协调升级（见“生态兼容性约束”）。
 
+### 适配层接口草案（仅设计，不实现）
+
+解锁后按以下接口实现，签名以上游 `_PUBLIC_API.md` 定稿为准：
+
+```python
+# life/memory_adapter.py（草案）
+class LifeMemoryAdapter:
+    async def store_diary_line(
+        self, persona_id: str, date: str, content: str,
+        mood: str = "", signature: str = "", source_refs: list = None,
+    ) -> str: ...
+    async def query_recent_memory(
+        self, persona_id: str, query: str = "", k: int = 5,
+        since: str = "",
+    ) -> list[dict]: ...
+    async def claim_task(self, persona_id: str, task_kind: str, ttl: int) -> bool: ...
+    async def renew_task(self, persona_id: str, task_kind: str, ttl: int) -> bool: ...
+    async def release_task(self, persona_id: str, task_kind: str) -> bool: ...
+
+# life/esm_adapter.py（草案，L1-03）
+    async def consume_energy(self, persona_id: str, amount: float, reason: str) -> float: ...
+```
+
 ### 对齐闸门
 
 - ESM `consume_energy` 未发布：L1-03 保持 blocked（features.md 已标注）。
