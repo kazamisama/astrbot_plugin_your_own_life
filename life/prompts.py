@@ -15,6 +15,17 @@ MEMORY_CATEGORIES = (
     "other",
 )
 
+PLAN_ACTION_VOCABULARY = (
+    "browse",
+    "revisit",
+    "signature",
+    "diary",
+    "share",
+    "rest",
+    "surprise",
+    "memory_review",
+)
+
 
 def _json_text(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, indent=2)
@@ -180,3 +191,31 @@ def build_share_prompt(
 来源：{note.get("url", "")}
 
 只输出一个 JSON 对象：{{"message": "分享文本"}}"""
+
+
+def build_plan_prompt(
+    persona_prompt: str,
+    persona_id: str,
+    plan_date: str,
+    board_text: str,
+    sleep_window_text: str,
+    action_cap: int = 5,
+) -> str:
+    cap_line = (
+        f"每天最多新增 {action_cap} 个可选任务。"
+        if action_cap > 0
+        else "每天可选任务数量不受限制。"
+    )
+    return f"""{persona_block(persona_prompt, persona_id)}
+
+你在为自己安排 {plan_date} 的“今天做什么”。系统已经排好了固定任务，你只能新增可选任务，并给出偏好的时间窗，精确时刻由系统决定。
+
+动作只能从封闭词表选择：{", ".join(PLAN_ACTION_VOCABULARY)}。
+规则：
+- 未知动作、无效时间窗会被系统直接拒绝；宁可少排，不要编造。
+- 时间窗用 24 小时 HH:MM 表示，必须在 {plan_date} 当天；避免落在睡眠窗口：{sleep_window_text}。
+- 不要重复已经存在或已完成的固定任务；{cap_line}
+- 只输出 JSON：{{"actions": [{{"action": "动作", "window_start": "HH:MM", "window_end": "HH:MM", "reason": "一句话理由"}}]}}；没有可加的任务时输出 {{"actions": []}}。
+
+当前排期板：
+{board_text}"""

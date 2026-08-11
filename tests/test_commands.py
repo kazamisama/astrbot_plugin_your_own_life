@@ -92,6 +92,20 @@ class CommandsTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("已清空", event._result["text"])
         self.assertEqual(self.star.db.list_notes("shelly"), [])
 
+    async def test_life_plan_command(self):
+        async def fake_plan(persona_id):
+            return {
+                "date": "2026-08-12",
+                "accepted": [{"action": "browse", "scheduled_at": "2026-08-12 12:00:00"}],
+                "rejected": [{"action": "surprise", "reason": "not_supported_yet"}],
+            }
+
+        self.star.service.generate_plan = fake_plan
+        event = await self._run(self.star.cmd_life_plan, "/life_plan")
+        self.assertIn("今日计划 · shelly", event._result["text"])
+        self.assertIn("browse 2026-08-12 12:00:00", event._result["text"])
+        self.assertIn("surprise", event._result["text"])
+
 
 if __name__ == "__main__":
     unittest.main()

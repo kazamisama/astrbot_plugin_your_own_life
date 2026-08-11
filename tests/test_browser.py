@@ -4,13 +4,13 @@ import random
 import sys
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, time
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from life.browser import LifeService
-from life.config import load_config
+from life.config import SleepWindow, load_config
 from life.db import LifeDB
 from life.esm_adapter import ESMAdapter
 from life.fetchers import FetchedItem
@@ -448,6 +448,61 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             events[0]["idempotency_key"], "task/browse/2026-08-12 10:00",
         )
+
+    async def test_generate_plan_validates_actions(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 8, 0)
+        self.service.config.sleep_window = SleepWindow(time(23, 0), time(7, 0))
+        self.service.config.plan_daily_action_cap = 5
+        self.service.llm = _FakeLLM(payload={
+            "actions": [
+                {"action": "browse", "window_start": "09:00", "window_end": "10:00",
+                 "reason": "补一次"},
+                {"action": "diary", "window_start": "22:00", "window_end": "22:30",
+                 "reason": "提前复盘"},
+                {"action": "surprise", "window_start": "10:00", "window_end": "11:00",
+                 "reason": "意外"},
+                {"action": "evil_action", "window_start": "09:00", "window_end": "10:00",
+                 "reason": "hack"},
+                {"action": "diary", "window_start": "01:00", "window_end": "02:00",
+                 "reason": "夜里写"},
+                {"action": "diary", "window_start": "25:00", "window_end": "26:00",
+                 "reason": "bad"},
+            ],
+        })
+        result = await self.service.generate_plan("shelly")
+        self.assertFalse(result.get("error"))
+        self.assertEqual(
+            [item["action"] for item in result["accepted"]],
+            ["browse", "diary"],
+        )
+        reasons = {item["action"]: item["reason"] for item in result["rejected"]}
+        self.assertEqual(reasons["surprise"], "not_supported_yet")
+        self.assertEqual(reasons["evil_action"], "unknown_action")
+        diary_reasons = [
+            item["reason"] for item in result["rejected"] if item["action"] == "diary"
+        ]
+        self.assertIn("sleep_window", diary_reasons)
+        self.assertIn("invalid_window", diary_reasons)
+        plans = self.db.list_plans("shelly", "2026-08-12")
+        optional = [item for item in plans if not item["fixed"]]
+        self.assertEqual(len(optional), 2)
+        self.assertIn("封闭词表", self.service.llm.prompts[-1])
+        self.assertIn("browse", self.service.llm.prompts[-1])
+
+    async def test_generate_plan_respects_action_cap(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 8, 0)
+        self.service.config.plan_daily_action_cap = 1
+        self.service.llm = _FakeLLM(payload={
+            "actions": [
+                {"action": "browse", "window_start": "09:00", "window_end": "10:00",
+                 "reason": "a"},
+                {"action": "browse", "window_start": "11:00", "window_end": "12:00",
+                 "reason": "b"},
+            ],
+        })
+        result = await self.service.generate_plan("shelly")
+        self.assertEqual(len(result["accepted"]), 1)
+        self.assertEqual(result["rejected"][0]["reason"], "daily_action_cap")
 
 
 if __name__ == "__main__":

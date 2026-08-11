@@ -222,11 +222,13 @@
 
 ### L1.5-04 LLM 自主排期
 
+- 状态：已实现（v0.4.1）。
 - 目标：LLM 产出封闭动作词表与偏好时间窗，系统决定精确时刻。
 - 依赖：L1.5-02/03。
-- 模块：`life/prompts.py`、`life/scheduler.py`、`life/life_tool.py`、`main.py`（`/life_plan`）。
-- 配置：动作词表（`browse / revisit / signature / diary / share / rest / surprise / memory_review`）。
+- 模块：`life/prompts.py`（计划 prompt）、`life/browser.py`（`generate_plan` 校验链路）、`life/scheduler.py`、`life/life_tool.py`、`main.py`（`/life_plan`）。
+- 配置：动作词表（`browse / revisit / signature / diary / share / rest / surprise / memory_review`）+ `plan_daily_action_cap`（默认 5，0 = 不限制）。
 - 验收：未知动作拒绝并回退默认固定计划；睡眠窗口、精力 gate、每日行动上限优先于 LLM 计划。
+- 备注：当前可执行动作子集为 `browse / diary`（词表内其余动作标记 `not_supported_yet` 拒绝，不回退默认计划）。
 
 ### L1.5-05 系统裁决
 

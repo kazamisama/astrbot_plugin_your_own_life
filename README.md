@@ -20,6 +20,7 @@
 - 事件链（v0.3.8）：append-only 事件流，观察/表达/思考/更改/召回/回滚归位，每条带 `persona_id / ts / kind / payload / source_refs / idempotency_key`，幂等追加、只读重放。
 - 排期板（v0.3.9）：`life_plans` 运行时视图，任务带状态/原因/预算，调度器播种与记账；WebUI“排期”tab + `query_life_plans` 只读 LLM 工具。
 - 固定/可选任务分层（v0.4.0）：默认漫游/peek/复盘槽位为固定任务，LLM 只能对可选任务执行 `add / reorder / defer / skip`，固定任务不可改，跳过留痕并写事件链。
+- LLM 自主排期（v0.4.1）：`/life_plan` 让 LLM 按封闭动作词表与偏好时间窗排可选任务；未知动作、睡眠窗口、精力 gate 与每日行动上限优先，拒绝项留痕并回退默认固定计划。
 - 摘要优先：只持久化摘要、观点与链接，不保存网页原文。
 - 生态联动（现状 v0.3.0）：可选接入 ESM 读取精力/情绪、施加信号；缺失时静默降级；v1.1 计划内新契约不再默认降级。
 
@@ -58,6 +59,7 @@
 - `rest_probability`：定时漫游随机跳过概率（默认 0.1），写 `skipped_rest` 快照；手动 `/life_now` 不受影响。
 - `time_slots`：时段模式（morning/afternoon/evening/night 各项含 topics/tone）；缺省时使用内置默认语气。
 - `peek_times` / `peek_daily_cap`：轻接触时间（默认 09:00/13:00/17:00/21:00）与每日上限（0 = 不限制）；peek 不调用 LLM、不写短记。
+- `plan_daily_action_cap`：LLM 自主排期每日可选任务上限（默认 5，0 = 不限制）。
 - `wishlist_enabled`：灵感抽屉开关（默认开）；日记可写入灵感，复盘时评估升级为兴趣种子或丢弃。
 - `owner_ids`：允许执行命令的主人 ID（留空则仅要求管理员权限）。
 - `share_sessions` / `share_daily_cap` / `share_cooldown_minutes`：分享白名单（每行 `persona_id:sid`）与频率控制。
@@ -71,6 +73,7 @@
 | `/life [persona]` | 今日概览 |
 | `/life_today [persona]` | 今日状态卡（心情/精力/漫游/最近见闻） |
 | `/life_now [persona]` | 立即漫游一次 |
+| `/life_plan [persona]` | 让 LLM 按封闭动作词表生成今日可选任务 |
 | `/life_archive <YYYY-MM-DD> [persona]` | 查看指定日期档案 |
 | `/life_interest [persona]` | 兴趣排行 |
 | `/life_personas [refresh <persona>]` | 查看/刷新人格缓存 |

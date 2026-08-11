@@ -2,6 +2,14 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L1.5-04 LLM 自主排期落地
+
+- 目标：LLM 产出封闭动作词表与偏好时间窗，系统决定精确时刻；未知动作拒绝并回退默认固定计划。
+- 决策：`PLAN_ACTION_VOCABULARY` 常量 + `build_plan_prompt`（排期板/睡眠窗口/动作上限注入）；`LifeService.generate_plan` 走预算受控 LLM 调用，`_apply_plan_payload` 依次裁决：非词表（unknown_action）→ 未实现动作（not_supported_yet）→ 每日上限（daily_action_cap）→ 时间窗格式（invalid_window）→ 睡眠窗口（sleep_window）→ 精力 gate（energy_gate）；通过后取窗口中点落库为可选任务；新增 `plan_daily_action_cap` 配置（默认 5）与 `/life_plan` 命令。
+- 改动：`life/prompts.py`、`life/browser.py`、`life/config.py`、`_conf_schema.json`、`main.py`、`metadata.yaml`（help）、`tests/test_browser.py`、`tests/test_config.py`、`tests/test_commands.py`；版本 v0.4.0 → v0.4.1；README / CHANGELOG / features.md L1.5-04 / design.md / roadmap.md 同步。
+- 验证：unittest 166 passed（skipped=1；新增计划动作校验/睡眠窗口/上限裁决、配置与命令用例）。
+- 遗留：词表内 revisit/signature/share/rest/surprise/memory_review 尚未有执行实现，当前标记 not_supported_yet；能量 gate 在生成期一次性裁决，执行期仍由既有 browse/diary gate 兜底。
+- 下一步：L1.5-05 系统裁决（预算/依赖校验硬约束 + 所有拒绝写事件链）。
 ## 2026-08-12 L1.5-03 固定/可选任务分层落地
 
 - 目标：固定任务只有 owner 可改，可选任务 LLM 可 `add / reorder / defer / skip`，跳过留痕，系统按依赖顺序执行。

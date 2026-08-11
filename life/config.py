@@ -239,6 +239,7 @@ class LifeConfig:
     time_slots: dict[str, dict[str, Any]] = field(default_factory=dict)
     peek_times: list[str] = field(default_factory=lambda: ["09:00", "13:00", "17:00", "21:00"])
     peek_daily_cap: int = 0
+    plan_daily_action_cap: int = 5
     wishlist_enabled: bool = True
     share_enabled: bool = True
     share_daily_cap: int = 2
@@ -308,6 +309,7 @@ def load_config(cfg: Any) -> LifeConfig:
         time_slots=_parse_time_slots(_get(cfg, "time_slots")),
         peek_times=_as_list(_get(cfg, "peek_times"), ["09:00", "13:00", "17:00", "21:00"]),
         peek_daily_cap=max(0, _as_int(_get(cfg, "peek_daily_cap"), 0)),
+        plan_daily_action_cap=max(0, _as_int(_get(cfg, "plan_daily_action_cap"), 5)),
         wishlist_enabled=_as_bool(_get(cfg, "wishlist_enabled"), True),
         share_enabled=_as_bool(_get(cfg, "share_enabled"), True),
         share_daily_cap=_as_int(_get(cfg, "share_daily_cap"), 2),

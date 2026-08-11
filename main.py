@@ -238,6 +238,40 @@ class LifeStar(Star):
         event.set_result(event.plain_result(f"[{persona}] {status_text}"))
 
     @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command("life_plan")
+    async def cmd_life_plan(self, event: AstrMessageEvent):
+        if not self._is_owner(event):
+            self._deny(event)
+            return
+        args = self._command_args(event, "life_plan")
+        persona = args[0] if args else self._default_persona()
+        result = await self.service.generate_plan(persona)
+        if result.get("error"):
+            event.set_result(event.plain_result(
+                f"[{persona}] 计划生成失败：{result['error']}"
+            ))
+            return
+        lines = [f"今日计划 · {persona} · {result['date']}", ""]
+        accepted = result.get("accepted") or []
+        rejected = result.get("rejected") or []
+        if accepted:
+            lines.append("【新增可选任务】")
+            lines.extend(
+                f"- {item['action']} {item['scheduled_at']}"
+                for item in accepted
+            )
+        else:
+            lines.append("本次没有新增可选任务，沿用默认固定计划。")
+        if rejected:
+            lines.append("")
+            lines.append("【被系统裁决拒绝】")
+            lines.extend(
+                f"- {item['action']}：{item.get('reason') or ''}"
+                for item in rejected
+            )
+        event.set_result(event.plain_result("\n".join(lines)))
+
+    @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("life_archive")
     async def cmd_life_archive(self, event: AstrMessageEvent):
         if not self._is_owner(event):

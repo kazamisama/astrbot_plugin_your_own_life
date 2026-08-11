@@ -128,6 +128,11 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(current_time_slot({}, datetime(2026, 8, 12, 23, 30)), "night")
         self.assertEqual(current_time_slot({}, datetime(2026, 8, 12, 3, 0)), "night")
 
+    def test_plan_daily_action_cap_default(self):
+        self.assertEqual(load_config({}).plan_daily_action_cap, 5)
+        self.assertEqual(load_config({"plan_daily_action_cap": "0"}).plan_daily_action_cap, 0)
+        self.assertEqual(load_config({"plan_daily_action_cap": "8"}).plan_daily_action_cap, 8)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -20,7 +20,9 @@ from life.llm import BudgetExhausted, LLMClient, LLMError
 from life.persona import PersonaService, PersonaUnavailable
 from life.prompts import (
     MEMORY_CATEGORIES,
+    PLAN_ACTION_VOCABULARY,
     build_diary_prompt,
+    build_plan_prompt,
     build_select_prompt,
     build_wishlist_eval_prompt,
 )
@@ -633,3 +635,110 @@ class LifeService:
                 extra=json.dumps({"error": repr(exc), "notes": len(notes)}, ensure_ascii=False),
             )
             return {"date": date, "notes": len(notes), "fallback": False, "error": repr(exc)}
+
+    # ----- plan -----
+
+    async def generate_plan(self, persona_id: str) -> dict[str, Any]:
+        try:
+            persona = await self._resolve_persona(persona_id)
+        except PersonaUnavailable:
+            return {"date": local_today(self.config.timezone, self.now_fn()),
+                    "accepted": [], "rejected": [], "error": "persona_unavailable"}
+        date = local_today(self.config.timezone, self.now_fn())
+        summary = self.db.plan_summary(persona_id, date)
+        pending = self.db.list_plans(persona_id, date, status="pending")
+        board_lines = [
+            f"总数 {summary['total']}，已完成 {summary['done']}，"
+            f"待执行 {summary['pending']}，跳过 {summary['skipped']}，"
+            f"失败 {summary['failed']}"
+        ]
+        for row in pending[:20]:
+            board_lines.append(
+                f"- {row['task_id']} ({row['kind']}) {row['scheduled_at']} "
+                f"{'固定' if row.get('fixed') else '可选'}"
+            )
+        sleep = self.config.sleep_window
+        sleep_text = f"{sleep.start.strftime('%H:%M')}-{sleep.end.strftime('%H:%M')}"
+        try:
+            payload = await self._llm_call(
+                persona_id,
+                build_plan_prompt(
+                    persona.system_prompt, persona_id, date,
+                    "\n".join(board_lines), sleep_text,
+                    action_cap=int(self.config.plan_daily_action_cap or 0),
+                ),
+            )
+        except BudgetExhausted as exc:
+            return {"date": date, "accepted": [], "rejected": [],
+                    "error": f"budget_exhausted: {exc}"}
+        except LLMError as exc:
+            return {"date": date, "accepted": [], "rejected": [],
+                    "error": f"llm_error: {exc}"}
+        return self._apply_plan_payload(persona_id, date, payload)
+
+    def _apply_plan_payload(self, persona_id: str, date: str, payload: Any) -> dict[str, Any]:
+        accepted: list[dict[str, Any]] = []
+        rejected: list[dict[str, Any]] = []
+        raw_actions = payload.get("actions") if isinstance(payload, dict) else None
+        if not isinstance(raw_actions, list):
+            return {"date": date, "accepted": accepted, "rejected": rejected,
+                    "error": "invalid_payload"}
+        cap = int(self.config.plan_daily_action_cap or 0)
+        energy_blocked = False
+        energy_reason = ""
+        try:
+            energy_blocked, _, energy_reason = self.esm.gate_energy()
+        except Exception:
+            energy_blocked = False
+        for index, entry in enumerate(raw_actions):
+            if not isinstance(entry, dict):
+                rejected.append({"action": str(entry)[:40], "reason": "invalid_entry"})
+                continue
+            action = str(entry.get("action") or "").strip().lower()
+            if action not in PLAN_ACTION_VOCABULARY:
+                rejected.append({"action": action or "unknown", "reason": "unknown_action"})
+                continue
+            if action not in ("browse", "peek", "diary"):
+                rejected.append({"action": action, "reason": "not_supported_yet"})
+                continue
+            if cap > 0 and len(accepted) >= cap:
+                rejected.append({"action": action, "reason": "daily_action_cap"})
+                continue
+            scheduled = self._plan_window_time(date, entry)
+            if scheduled is None:
+                rejected.append({"action": action, "reason": "invalid_window"})
+                continue
+            if self.config.sleep_window.contains(
+                datetime.strptime(scheduled, "%Y-%m-%d %H:%M:%S")
+            ):
+                rejected.append({"action": action, "reason": "sleep_window"})
+                continue
+            if energy_blocked:
+                rejected.append(
+                    {"action": action, "reason": f"energy_gate: {energy_reason}"}
+                )
+                continue
+            reason = sanitize_text(entry.get("reason"), 200)
+            task_id = f"{action}-plan-{index + 1}"
+            plan_id = self.db.add_optional_plan(
+                persona_id, date, task_id, action, scheduled, reason=reason,
+            )
+            if plan_id is None:
+                rejected.append({"action": action, "reason": "duplicate"})
+                continue
+            accepted.append({"action": action, "task_id": task_id,
+                             "scheduled_at": scheduled, "reason": reason})
+        return {"date": date, "accepted": accepted, "rejected": rejected}
+
+    def _plan_window_time(self, date: str, entry: dict) -> Optional[str]:
+        try:
+            start_h, start_m = str(entry.get("window_start") or "").split(":", 1)
+            end_h, end_m = str(entry.get("window_end") or "").split(":", 1)
+            start_min = int(start_h) * 60 + int(start_m)
+            end_min = int(end_h) * 60 + int(end_m)
+        except (ValueError, TypeError, AttributeError):
+            return None
+        if end_min <= start_min or not (0 <= start_min < 24 * 60) or not (0 <= end_min <= 24 * 60):
+            return None
+        mid = (start_min + end_min) // 2
+        return f"{date} {mid // 60:02d}:{mid % 60:02d}:00"

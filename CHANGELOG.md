@@ -2,6 +2,15 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.4.1] - 2026-08-12
+
+### Added
+
+- L1.5-04 LLM 自主排期：新增计划 prompt（封闭动作词表 + 偏好时间窗）、`generate_plan` 校验链路与 `/life_plan` 命令；未知动作、无效时间窗、睡眠窗口、精力 gate 与每日行动上限（`plan_daily_action_cap`，默认 5）优先于 LLM 计划，被拒绝项全部留痕并回退默认固定计划。
+
+### Notes
+
+- 测试：166 passed（新增计划动作校验/睡眠窗口/上限裁决、配置与命令用例）。
 ## [0.4.0] - 2026-08-12
 
 ### Added

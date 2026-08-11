@@ -251,6 +251,12 @@
     "hint": "达到上限后当天剩余 peek 跳过",
     "default": 0
   },
+  "plan_daily_action_cap": {
+    "type": "int",
+    "description": "LLM 自主排期每日可选任务上限",
+    "hint": "0 = 不限制；睡眠窗口与精力 gate 始终优先于 LLM 计划",
+    "default": 5
+  },
   "wishlist_enabled": {
     "type": "bool",
     "description": "启用灵感抽屉",
