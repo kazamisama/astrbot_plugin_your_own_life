@@ -2,6 +2,18 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 平台对话感知：忙碌延迟回复 + 对话等待窗 + 对话入事件链（v0.5.15）
+- 目标：让“bot 在忙所以晚回、回完等一会儿、然后继续生活”成为真实行为，并把平台对话本身写进事件链。
+- 已确认决策：
+  - 新增 `life/presence.py`：per-persona busy 状态与对话等待窗；生活任务开始时置忙、结束清忙，聊天侧可 `wait_until_free`。
+  - 新增 `life/chat_hooks.py`：`on_llm_request` 记录 `message_in`、忙碌时等待并注入 `<life-presence>` 块（`extra_user_content_parts` + `TextPart.mark_as_temp`）；`on_llm_response` 记录 `reply_out` 并打开等待窗；窗口超时写 `conversation_end`。
+  - 调度器按对话等待窗过滤可执行 persona，窗口内不推进该 persona 的定时事件。
+  - 新增配置 `life_presence_enabled`（默认 true）、`conversation_wait_minutes`（默认 5）、`busy_reply_max_wait_minutes`（默认 30）。
+- 改动：`life/presence.py`、`life/chat_hooks.py`、`life/config.py`、`life/browser.py`、`life/scheduler.py`、`main.py`、`_conf_schema.json`、`tests/test_presence.py`、`tests/test_chat_hooks.py`、`tests/test_scheduler.py`、`README.md`、`docs/features.md`、`docs/design.md`、`docs/roadmap.md`、`CHANGELOG.md`、`metadata.yaml`、`life/__init__.py`；版本 v0.5.14 → v0.5.15。
+- 验证：unittest 267 passed（skipped=1；新增 presence 3、chat_hooks 7、scheduler 等待窗 1）；UTF-8 读回无 `\ufffd`。
+- 遗留：“bot 自己觉得不想聊了”目前以等待窗超时作为系统兜底，LLM 主动结束信号未落地；`conversation_end` 只在窗口超时写；coze/dify 等第三方 runner 对 `extra_user_content_parts` 的透传需真实环境验证。
+- 下一步：`git diff --check` 后提交 `chore(release): v0.5.15 ...` 并推送 origin main。
+
 ## 2026-08-12 新增 query_life_status 聊天侧生活状态工具（v0.5.14）
 - 目标：让 bot 在 QQ 等对话场景能知道自己刚才/今天在干什么、读了什么新闻，补上“事件链可查但聊天侧无入口”的缺口。
 - 已确认决策：新增只读 LLM 工具 `query_life_status`，按当前 persona 返回当天 browse/peek 会话、状态快照、事件链条目与短记；调用本身写 `recall` 事件（`query=life_status`）；不新增配置项，`life_tool_enabled` 开关统一生效。

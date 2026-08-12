@@ -39,12 +39,14 @@ class LifeScheduler:
         config: LifeConfig,
         logger: Optional[logging.Logger] = None,
         now_fn: Optional[Callable[[], datetime]] = None,
+        presence: Optional[Any] = None,
     ):
         self.service = service
         self.config = config
         self.log = logger or logging.getLogger("your_own_life.scheduler")
         self.now_fn = now_fn or datetime.now
         self.db = getattr(service, "db", None) if service is not None else None
+        self.presence = presence or getattr(service, "presence", None)
         self._instance_id = uuid.uuid4().hex
         self._task: Optional[asyncio.Task] = None
         self._stop = asyncio.Event()
@@ -303,6 +305,18 @@ class LifeScheduler:
             )
         return True
 
+    def _available_personas(
+        self, personas: Sequence[str], now: datetime
+    ) -> list[str]:
+        """Personas not paused by an open conversation wait window."""
+        if self.presence is None:
+            return list(personas)
+        self.presence.close_expired_conversations(personas, self.db, now)
+        return [
+            p for p in personas
+            if not self.presence.conversation_active(p, now)
+        ]
+
     async def _run(self) -> None:
         personas = list(self.config.life_personas or [])
         while not self._stop.is_set():
@@ -317,7 +331,20 @@ class LifeScheduler:
             if today_key not in self._seeded_dates:
                 self.seed_plans(personas, today_local)
                 self._seeded_dates.add(today_key)
-            target = self._current_target(personas)
+            now_local = local_now(self.config.timezone, self.now_fn())
+            personas_ready = self._available_personas(personas, now_local)
+            if not personas_ready:
+                wait_seconds = (
+                    self.presence._conversation_wait_seconds(
+                        personas, now_local
+                    )
+                    if self.presence is not None else None
+                )
+                await asyncio.sleep(
+                    max(0.5, min((wait_seconds or 0.0) + 0.5, 60.0))
+                )
+                continue
+            target = self._current_target(personas_ready)
             if target is None:
                 await self._stop.wait()
                 break
@@ -366,6 +393,8 @@ class LifeScheduler:
             async with self._lock:
                 status = "failed"
                 reason = ""
+                if self.presence is not None:
+                    self.presence.mark_busy(persona_id, kind)
                 try:
                     keepalive = asyncio.create_task(_keepalive())
                     if kind == "browse":
@@ -391,6 +420,8 @@ class LifeScheduler:
                     )
                     status, reason = "failed", repr(exc)
                 finally:
+                    if self.presence is not None:
+                        self.presence.clear_busy(persona_id)
                     if keepalive is not None:
                         keepalive.cancel()
                     self._done_keys.add(key)

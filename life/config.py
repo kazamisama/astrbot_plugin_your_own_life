@@ -303,6 +303,9 @@ class LifeConfig:
     persona_cache_hours: float = 24.0
     esm_scope_prefix: str = "internet-life"
     life_tool_enabled: bool = True
+    life_presence_enabled: bool = True
+    conversation_wait_minutes: int = 5
+    busy_reply_max_wait_minutes: int = 30
     memory_host: str = ""
     memory_lease_ttl_seconds: int = 300
     memory_temperature_decay: float = 0.99
@@ -395,4 +398,7 @@ def load_config(cfg: Any) -> LifeConfig:
         persona_prompt_max_chars=_as_int(_get(cfg, "persona_prompt_max_chars"), 6000),
         persona_cache_hours=_as_float(_get(cfg, "persona_cache_hours"), 24.0),
         life_tool_enabled=_as_bool(_get(cfg, "life_tool_enabled"), True),
+        life_presence_enabled=_as_bool(_get(cfg, "life_presence_enabled"), True),
+        conversation_wait_minutes=max(0, _as_int(_get(cfg, "conversation_wait_minutes"), 5)),
+        busy_reply_max_wait_minutes=max(1, _as_int(_get(cfg, "busy_reply_max_wait_minutes"), 30)),
     )

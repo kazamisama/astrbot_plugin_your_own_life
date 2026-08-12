@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from life.config import LifeConfig, SleepWindow
 from life.db import LifeDB
+from life.presence import LifePresence
 from life.scheduler import LifeScheduler, _parse_hhmm, deterministic_offset
 
 
@@ -79,6 +80,24 @@ class SchedulerTest(unittest.TestCase):
             ),
             datetime(2026, 8, 12, 7, 0),
         )
+
+    def test_available_personas_skips_conversation_window(self):
+        cfg = LifeConfig(life_personas=["shelly", "alice"])
+        presence = LifePresence()
+        presence.set_conversation_window(
+            "shelly", datetime(2026, 8, 12, 12, 5)
+        )
+        scheduler = LifeScheduler(
+            service=None, config=cfg, presence=presence
+        )
+        ready = scheduler._available_personas(
+            ["shelly", "alice"], datetime(2026, 8, 12, 12, 0)
+        )
+        self.assertEqual(ready, ["alice"])
+        ready_after = scheduler._available_personas(
+            ["shelly", "alice"], datetime(2026, 8, 12, 12, 6)
+        )
+        self.assertEqual(ready_after, ["shelly", "alice"])
 
     def test_current_target_uses_configured_timezone(self):
         cfg = LifeConfig(

@@ -248,6 +248,15 @@
 - 配置：无。
 - 验收：只读视图（不提供写入口）；支持 kind 过滤与分页；事件显示 `source_refs`；重放元数据可见。
 
+### L1.5-07 平台对话感知与忙碌拟人
+
+- 状态：已实现（v0.5.15）。
+- 目标：同人格在生活任务与平台对话之间保持拟人时序：忙时暂缓回复，回复后进入对话等待窗，对话本身进入事件链。
+- 依赖：事件链（L1.5-01）、LLM 工具 `query_life_status`、AstrBot `on_llm_request/on_llm_response` 钩子。
+- 模块：`life/presence.py`、`life/chat_hooks.py`、`main.py`、`life/scheduler.py`。
+- 配置：`life_presence_enabled`（默认 true）、`conversation_wait_minutes`（默认 5）、`busy_reply_max_wait_minutes`（默认 30）。
+- 验收：生活任务运行中收到平台消息时，`message_in` 事件带 `deferred=true`，请求等待任务结束；恢复后用 `query_life_status` 结果经 `extra_user_content_parts` 注入最近经历；回复后写 `reply_out` 并打开等待窗，窗口内调度器不推进该 persona 事件；窗口超时写 `conversation_end` 后继续。
+
 ## L2 v2 结构性能力（硬依赖）
 
 ### L2-01 统一记忆库

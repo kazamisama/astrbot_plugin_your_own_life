@@ -79,6 +79,7 @@ class LifeService:
         logger: Optional[logging.Logger] = None,
         now_fn: Optional[Callable[[], datetime]] = None,
         fetcher_fn: Optional[Callable[..., Awaitable[list[FetchedItem]]]] = None,
+        presence: Optional[Any] = None,
     ):
         self.config = config
         self.db = db
@@ -91,6 +92,7 @@ class LifeService:
         self.log = logger or logging.getLogger("your_own_life")
         self.now_fn = now_fn or datetime.now
         self.fetcher_fn = fetcher_fn or fetch_all
+        self.presence = presence
         self.rng = random.Random()
 
     # ----- persona gate -----

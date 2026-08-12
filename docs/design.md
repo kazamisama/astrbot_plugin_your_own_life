@@ -388,6 +388,7 @@ LLM 可自主更改生活数据/计划/记忆，按事件链自主排期，并�
 
 - append-only 事件流：`{persona_id, ts, kind, payload, source_refs, idempotency_key}`；观察/表达/思考/更改/召回/回滚都是事件，支持重放与幂等。
 - L1.5-01 已落地（v0.3.8）：`event_chain` 表 + `append_event / find_event / list_events / replay_events`，漫游/peek/分享/复盘/软删除恢复/召回/任务跳过已接入。
+- L1.5-07 平台对话入链已落地（v0.5.15）：`message_in / reply_out / conversation_end` 三类事件随 `on_llm_request / on_llm_response` 写入，配合 `life/presence.py` 的忙碌延迟与对话等待窗。
 - 排期从固定槽位升级为事件驱动：动作带前置条件（`browse_done → revisit`、`energy_low → 降级计划`）；调度器仍由系统仲裁（睡眠窗口、精力、行动上限）。
 
 ### 变更账本与版本

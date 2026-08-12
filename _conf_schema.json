@@ -471,5 +471,23 @@
     "description": "向 LLM 注册 query_life_memory 自查询工具",
     "hint": "关闭后 LLM 无法调用生活档案查询工具",
     "default": true
+  },
+  "life_presence_enabled": {
+    "type": "bool",
+    "description": "启用平台对话感知：忙碌时延迟回复并进入对话等待窗",
+    "hint": "开启后生活任务进行中收到的 LLM 请求会等待任务结束；回复后按 conversation_wait_minutes 暂停该 persona 的定时事件",
+    "default": true
+  },
+  "conversation_wait_minutes": {
+    "type": "int",
+    "description": "bot 回复后等待用户继续对话的分钟数",
+    "hint": "窗口内不推进该 persona 的定时事件；超时后写 conversation_end 事件并继续生活",
+    "default": 5
+  },
+  "busy_reply_max_wait_minutes": {
+    "type": "int",
+    "description": "忙碌时聊天最多等待回复的分钟数",
+    "hint": "超时后即使任务未结束也放行回复，避免长期无响应",
+    "default": 30
   }
 }

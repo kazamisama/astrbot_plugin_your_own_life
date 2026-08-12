@@ -49,8 +49,10 @@ from life.life_tool import (  # noqa: E402
     LifePlansTool,
     LifeStatusTool,
 )
+from life.chat_hooks import handle_llm_request, handle_llm_response  # noqa: E402
 from life.llm import LLMClient  # noqa: E402
 from life.persona import PersonaService, PersonaUnavailable  # noqa: E402
+from life.presence import LifePresence  # noqa: E402
 from life.scheduler import LifeScheduler  # noqa: E402
 from life.share import ShareGate  # noqa: E402
 from life.timeutil import DEFAULT_TIMEZONE, local_today  # noqa: E402
@@ -80,6 +82,7 @@ class LifeStar(Star):
             if self._cfg.memory_host else None
         )
         self.llm = LLMClient(context, provider_id=self._cfg.life_llm)
+        self.presence = LifePresence()
         self.interests = InterestStore(
             self.db,
             initial=self._cfg.interests_initial,
@@ -94,10 +97,11 @@ class LifeStar(Star):
         self.service = LifeService(
             self._cfg, self.db, self.interests, self.esm, self.llm,
             self.personas, share_gate=self.share_gate, memory=self.memory,
-            logger=logger, now_fn=datetime.now,
+            logger=logger, now_fn=datetime.now, presence=self.presence,
         )
         self.scheduler = LifeScheduler(
-            self.service, self._cfg, logger=logger, now_fn=datetime.now
+            self.service, self._cfg, logger=logger, now_fn=datetime.now,
+            presence=self.presence,
         )
         self.scheduler.start()
         self.life_tool = LifeMemoryTool(self.db, self.personas, memory=self.memory)
@@ -167,6 +171,32 @@ class LifeStar(Star):
 
     def _deny(self, event: AstrMessageEvent) -> None:
         event.set_result(event.plain_result("该命令仅限主人使用。"))
+
+    # ----- platform chat presence hooks -----
+
+    @filter.on_llm_request()
+    async def life_on_llm_request(
+        self, event: AstrMessageEvent, request: Any
+    ) -> None:
+        try:
+            await handle_llm_request(
+                self.context, self.presence, self.db, self._cfg,
+                event, request, now_fn=datetime.now,
+            )
+        except Exception:
+            logger.exception("life on_llm_request hook failed")
+
+    @filter.on_llm_response()
+    async def life_on_llm_response(
+        self, event: AstrMessageEvent, response: Any
+    ) -> None:
+        try:
+            await handle_llm_response(
+                self.context, self.presence, self.db, self._cfg,
+                event, response, now_fn=datetime.now,
+            )
+        except Exception:
+            logger.exception("life on_llm_response hook failed")
 
     # ----- commands -----
 

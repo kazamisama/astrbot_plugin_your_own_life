@@ -2,6 +2,18 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.15] - 2026-08-12
+
+### Added
+
+- 平台对话感知：新增 `life_presence_enabled` / `conversation_wait_minutes` / `busy_reply_max_wait_minutes`；生活任务进行中收到的平台消息会等待任务结束再回复，并用 `extra_user_content_parts` 注入 `query_life_status` 的最近经历块。
+- 对话等待窗：bot 回复后进入等待窗，窗口内暂停该 persona 的定时事件；超时写 `conversation_end` 事件后继续事件链。
+- 平台对话入事件链：`message_in` / `reply_out` / `conversation_end` 三种事件；按 persona 与同一事件去重。
+
+### Notes
+
+- 测试：267 passed（skipped=1；新增 presence、chat_hooks、scheduler 等待窗回归）。
+
 ## [0.5.14] - 2026-08-12
 
 ### Added

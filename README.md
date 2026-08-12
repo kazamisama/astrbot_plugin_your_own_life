@@ -38,6 +38,7 @@
 - 关注对象（v0.5.9）：`watchlist` 配置博客/GitHub 项目/用户/RSS，进入漫游选题；实体图标记 watched，WebUI“关注”tab 查看近期更新。
 - 故地重游（v0.5.10）：旧短记超过 `revisit_interval_days` 后夜间自动重访链接，LLM 写“后来呢”短记并引用原短记；WebUI“故地重游”tab 可串联查看原短记与后续状态。
 - 工程健壮性（v0.5.11-v0.5.13）：修复 `'items'` 启动崩溃、同秒暂存捕获/软删恢复/启动恢复与跨午夜调度锚定；v0.5.13 再收口 SVG 属性转义、睡眠窗口、reject 事件、LLM rollback 权限与长任务租约续租。
+- 平台对话感知（v0.5.15）：`life_presence_enabled` 开启后，生活任务进行中收到的平台消息会等到任务结束再回复，并注入当天经历；回复后进入 `conversation_wait_minutes` 等待窗，窗口内暂停该 persona 定时事件，用户消息/bot 回复/会话结束写入事件链。
 - 摘要优先：只持久化摘要、观点与链接，不保存网页原文。
 - 生态联动：可选接入 ESM 读取精力/情绪、施加信号；v0.4.4 起精力消费缺失时显式记录本地估算，不再默认静默降级；配置 `memory_host` 后统一记忆宿主为硬依赖。
 
@@ -126,6 +127,9 @@
 | `review_schedule` | object | `{"monthly": "1", "yearly": "01-01"}` | 月度/年度回顾触发日 |
 | `capsule_days` | int | `30` | 时间胶囊封存天数 |
 | `life_tool_enabled` | bool | `true` | 向 LLM 注册 query_life_memory 自查询工具 |
+| `life_presence_enabled` | bool | `true` | 启用平台对话感知：忙碌时延迟回复并进入对话等待窗 |
+| `conversation_wait_minutes` | int | `5` | bot 回复后等待用户继续对话的分钟数 |
+| `busy_reply_max_wait_minutes` | int | `30` | 忙碌时聊天最多等待回复的分钟数 |
 
 各字段的详细提示以 AstrBot 管理面板中展示的 schema hint 为准。
 
