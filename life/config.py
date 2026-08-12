@@ -281,6 +281,9 @@ class LifeConfig:
     )
     capsule_days: int = 30
     quarterly_review_enabled: bool = True
+    life_edit_allowed: list[str] = field(
+        default_factory=lambda: ["note.summary", "note.opinion", "interest.weight"]
+    )
 
 
 def load_config(cfg: Any) -> LifeConfig:
@@ -352,6 +355,8 @@ def load_config(cfg: Any) -> LifeConfig:
         share_cooldown_minutes=_as_int(_get(cfg, "share_cooldown_minutes"), 360),
         share_silence_rate=max(0.0, min(1.0, _as_float(_get(cfg, "share_silence_rate"), 0.15))),
         quarterly_review_enabled=_as_bool(_get(cfg, "quarterly_review_enabled"), True),
+        life_edit_allowed=_as_list(_get(cfg, "life_edit_allowed"),
+                                   ["note.summary", "note.opinion", "interest.weight"]),
         share_include_link=_as_bool(_get(cfg, "share_include_link"), True),
         share_max_chars=_as_int(_get(cfg, "share_max_chars"), 200),
         share_sessions=_as_dict_of_lists(_get(cfg, "share_sessions")),

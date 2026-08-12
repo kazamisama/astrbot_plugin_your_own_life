@@ -122,6 +122,22 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         missing = await handlers["reviews_diff"]()
         self.assertFalse(missing["ok"])
 
+    async def test_life_edits_handlers(self):
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://x", "T", "Old", url_hash="le1"
+        )
+        self.db.log_change(
+            "shelly", "note", note_id, "old", "new",
+            actor="llm", status="pending_owner",
+        )
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=None, config=self.config)
+        data = await handlers["life_edits"]()
+        self.assertEqual(len(data["edits"]), 1)
+        self.assertEqual(data["edits"][0]["status"], "pending_owner")
+        bad = await handlers["life_edits_approve"]()
+        self.assertFalse(bad["ok"])
+
     async def test_usage_handler(self):
         self.db.increment_llm_usage("shelly", "2026-08-12", calls=2, tokens=10)
         handlers = build_handlers(self.db, service=None, share_gate=None,
@@ -228,7 +244,11 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/astrbot_plugin_your_own_life/api/capsules_open", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/reviews", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/reviews_diff", routes)
-        self.assertEqual(len(routes), 28)
+        self.assertIn("/astrbot_plugin_your_own_life/api/life_edits", routes)
+        self.assertIn("/astrbot_plugin_your_own_life/api/life_edits_approve", routes)
+        self.assertIn("/astrbot_plugin_your_own_life/api/life_edits_reject", routes)
+        self.assertIn("/astrbot_plugin_your_own_life/api/life_edits_rollback", routes)
+        self.assertEqual(len(routes), 32)
 
 
 if __name__ == "__main__":

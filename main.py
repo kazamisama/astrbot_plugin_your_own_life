@@ -42,7 +42,12 @@ from life.db import LifeDB  # noqa: E402
 from life.esm_adapter import ESMAdapter  # noqa: E402
 from life.memory_adapter import LifeMemoryAdapter  # noqa: E402
 from life.interests import InterestStore  # noqa: E402
-from life.life_tool import LifeMemoryTool, LifePlanEditTool, LifePlansTool  # noqa: E402
+from life.life_tool import (  # noqa: E402
+    LifeEditTool,
+    LifeMemoryTool,
+    LifePlanEditTool,
+    LifePlansTool,
+)
 from life.llm import LLMClient  # noqa: E402
 from life.persona import PersonaService, PersonaUnavailable  # noqa: E402
 from life.scheduler import LifeScheduler  # noqa: E402
@@ -97,10 +102,14 @@ class LifeStar(Star):
         self.life_tool = LifeMemoryTool(self.db, self.personas, memory=self.memory)
         self.life_plans_tool = LifePlansTool(self.db, self.personas)
         self.life_plan_edit_tool = LifePlanEditTool(self.db, self.personas)
+        self.life_edit_tool = LifeEditTool(
+            self.db, self.personas, allowed=self._cfg.life_edit_allowed
+        )
         if self._cfg.life_tool_enabled:
             self.life_tool.register(context)
             self.life_plans_tool.register(context)
             self.life_plan_edit_tool.register(context)
+            self.life_edit_tool.register(context)
         webui.register_api(context, self.db, self.service, self.share_gate,
                            self.personas, self._cfg, self.memory, logger)
 

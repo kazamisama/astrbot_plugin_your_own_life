@@ -299,6 +299,15 @@
     "hint": "季度首日（1/4/7/10 月 1 日）基于上季度兴趣与情绪轨迹生成长期人格总结；WebUI 回顾页可查看 diff",
     "default": true
   },
+  "life_edit_allowed": {
+    "type": "list",
+    "description": "LLM 可直接修改的实体字段白名单",
+    "hint": "每项形如 note.summary / note.opinion / interest.weight；不在清单内的修改需 owner 在 WebUI 确认",
+    "default": ["note.summary", "note.opinion", "interest.weight"],
+    "items": {
+      "type": "string"
+    }
+  },
   "share_include_link": {
     "type": "bool",
     "description": "分享消息末尾附带源链接",

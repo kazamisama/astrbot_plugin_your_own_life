@@ -196,6 +196,37 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(row["reply"], "当时的我…现在的我…")
         self.assertEqual(len(self.db.capsules_due("shelly", "2026-12-01")), 0)
 
+    def test_llm_edit_apply_and_rollback(self):
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://x", "Old title", "Old summary", url_hash="edit1"
+        )
+        old = self.db.update_note_field("shelly", note_id, "summary", "New summary")
+        self.assertEqual(old, "Old summary")
+        self.assertEqual(self.db.get_note(note_id)["summary"], "New summary")
+        self.assertIsNone(self.db.update_note_field("shelly", note_id, "diary", "x"))
+        log_id = self.db.log_change(
+            "shelly", "note", note_id,
+            '{"field":"summary","value":"Old summary"}',
+            '{"field":"summary","value":"New summary"}',
+            actor="llm", status="pending_owner",
+        )
+        self.assertEqual(self.db.get_change_log_entry("shelly", log_id)["status"], "pending_owner")
+        self.assertIsNotNone(self.db.apply_change("shelly", log_id))
+        self.assertEqual(self.db.get_change_log_entry("shelly", log_id)["status"], "applied")
+        self.assertIsNotNone(self.db.rollback_change("shelly", log_id))
+        self.assertEqual(self.db.get_note(note_id)["summary"], "Old summary")
+        self.assertEqual(self.db.get_change_log_entry("shelly", log_id)["status"], "rolled_back")
+        self.assertFalse(self.db.reject_change("shelly", log_id))
+        log2 = self.db.log_change(
+            "shelly", "interest", "ai",
+            '{"key":"ai","name":"AI","weight":0.5}',
+            '{"key":"ai","name":"AI","weight":0.8}',
+            actor="llm", status="pending_owner",
+        )
+        self.assertTrue(self.db.reject_change("shelly", log2))
+        self.assertEqual(self.db.get_change_log_entry("shelly", log2)["status"], "rejected")
+        self.assertIsNone(self.db.apply_change("shelly", log2))
+
     def test_diary_upsert_per_persona(self):
         self.db.add_diary("shelly", "2026-08-10", "first", mood="curious", energy=0.6)
         self.db.add_diary("shelly", "2026-08-10", "second", mood="calm", energy=0.5)

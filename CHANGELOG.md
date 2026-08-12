@@ -2,6 +2,17 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.7] - 2026-08-12
+
+### Added
+
+- L2-08 LLM 自主更改与自动回滚：新增 `life_edit_allowed` 白名单（默认 `note.summary / note.opinion / interest.weight`）与 `edit_life_memory` LLM 工具（update/rollback）；白名单内直接应用并写 `change_log` 与 `change` 事件，越界动作落 `pending_owner`；DB 支持 `apply_change / reject_change / rollback_change`（回滚还原字段并追加回滚审计条目）；WebUI 新增“改动”tab（`GET /life_edits`、`POST /life_edits_approve|reject|rollback`），owner 可批准、拒绝、回滚任意改动。
+
+### Notes
+
+- 测试：218 passed（skipped=1；新增字段更新、apply/reject/rollback 生命周期、LLM 工具白名单/待确认/回滚、WebUI 改动接口与路由）；JS 语法检查与 Playwright 改动 tab 桌面/移动无溢出、按钮交互通过。
+- 调研：DuckDuckGo 检索（2026-08-12）agent 自主编辑与人工审批安全边界相关论文/指南（如 "SafeHarbor: Defining Precise Decision Boundaries..."、"LLM Guardrails: The Complete Guide to AI Safety Guardrails"）；采纳白名单 + owner 确认 + 回滚审计，结论按推测性借鉴标注。
+
 ## [0.5.6] - 2026-08-12
 
 ### Added

@@ -230,6 +230,7 @@ select, input[type="date"], input[type="text"] {
     <button class="tab" data-tab="entities">实体图</button>
     <button class="tab" data-tab="capsules">时间胶囊</button>
     <button class="tab" data-tab="reviews">回顾</button>
+    <button class="tab" data-tab="edits">改动</button>
   </nav>
 
   <section id="tab-life">
@@ -396,6 +397,18 @@ select, input[type="date"], input[type="text"] {
       <pre id="reviewDiffText"></pre>
     </div>
   </section>
+
+  <section id="tab-edits" hidden>
+    <div class="stats">
+      <div class="stat"><span class="label">待确认</span><span class="value" id="editPending">-</span></div>
+      <div class="stat"><span class="label">已应用</span><span class="value" id="editApplied">-</span></div>
+      <div class="stat"><span class="label">已回滚</span><span class="value" id="editRolledBack">-</span></div>
+    </div>
+    <div class="panel">
+      <ul class="note-list" id="editList"></ul>
+      <div id="editEmpty" class="empty" hidden>还没有 LLM / owner 改动记录。</div>
+    </div>
+  </section>
 </div>
 
 <script>
@@ -508,6 +521,7 @@ function switchTab(name) {
   document.getElementById("tab-entities").hidden = name !== "entities";
   document.getElementById("tab-capsules").hidden = name !== "capsules";
   document.getElementById("tab-reviews").hidden = name !== "reviews";
+  document.getElementById("tab-edits").hidden = name !== "edits";
   if (name === "memory") { loadMemory(); loadWishlist(); }
   if (name === "share") loadShare();
   if (name === "timeline") { renderTimelineFilters(); loadTimeline(true); }
@@ -516,6 +530,7 @@ function switchTab(name) {
   if (name === "entities") loadEntities();
   if (name === "capsules") loadCapsules();
   if (name === "reviews") loadReviews();
+  if (name === "edits") loadLifeEdits();
 }
 
 function loadPersonas() {
@@ -1167,6 +1182,7 @@ function load() {
     if (state.tab === "entities") loadEntities();
     if (state.tab === "capsules") loadCapsules();
     if (state.tab === "reviews") loadReviews();
+    if (state.tab === "edits") loadLifeEdits();
   });
 }
 
@@ -1300,6 +1316,76 @@ function showReviewDiff(period, periodStart) {
       panel.hidden = false;
     })
     .catch(function () { showError("diff 加载失败。"); });
+}
+
+function loadLifeEdits() {
+  var list = document.getElementById("editList");
+  fetch(API + "/life_edits?" + qs({ persona: state.persona }),
+        { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var items = data.edits || [];
+      document.getElementById("editPending").textContent =
+        items.filter(function (e) { return e.status === "pending_owner"; }).length;
+      document.getElementById("editApplied").textContent =
+        items.filter(function (e) { return e.status === "applied"; }).length;
+      document.getElementById("editRolledBack").textContent =
+        items.filter(function (e) { return e.status === "rolled_back"; }).length;
+      document.getElementById("editEmpty").hidden = items.length > 0;
+      list.textContent = "";
+      items.forEach(function (e) {
+        var li = document.createElement("li");
+        var line = document.createElement("div");
+        var title = document.createElement("strong");
+        title.textContent = e.entity + " · " + (e.entity_id || "-") +
+          " · " + e.status;
+        line.appendChild(title);
+        var chip = document.createElement("span");
+        chip.className = "chip";
+        chip.textContent = e.actor + (e.reason ? " · " + e.reason : "");
+        line.appendChild(chip);
+        li.appendChild(line);
+        var meta = document.createElement("div");
+        meta.className = "empty";
+        meta.textContent = e.ts + (e.status === "pending_owner" ? " · 需 owner 确认" : "");
+        li.appendChild(meta);
+        if (e.new_value && e.new_value !== "{}") {
+          var val = document.createElement("div");
+          val.textContent = "新值：" + e.new_value;
+          li.appendChild(val);
+        }
+        if (e.status === "pending_owner") {
+          var approve = document.createElement("button");
+          approve.className = "btn small";
+          approve.textContent = "批准";
+          approve.addEventListener("click", function () { lifeEditAction("approve", e.id); });
+          li.appendChild(approve);
+          var reject = document.createElement("button");
+          reject.className = "btn small";
+          reject.textContent = "拒绝";
+          reject.addEventListener("click", function () { lifeEditAction("reject", e.id); });
+          li.appendChild(reject);
+        } else if (e.status === "applied") {
+          var rollback = document.createElement("button");
+          rollback.className = "btn small";
+          rollback.textContent = "回滚";
+          rollback.addEventListener("click", function () { lifeEditAction("rollback", e.id); });
+          li.appendChild(rollback);
+        }
+        list.appendChild(li);
+      });
+    })
+    .catch(function () { showError("改动记录加载失败。"); });
+}
+
+function lifeEditAction(action, logId) {
+  fetch(API + "/life_edits_" + action, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ persona: state.persona, log_id: logId }),
+  }).then(function (r) { return r.json(); })
+    .then(function () { loadLifeEdits(); })
+    .catch(function () { showError("改动操作失败。"); });
 }
 
 function loadEntities() {

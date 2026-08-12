@@ -197,6 +197,46 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         return {"ok": True, "before": previous["content"],
                 "after": target["content"], "diff": diff}
 
+    async def life_edits():
+        args = await _query_args()
+        persona = str(args.get("persona") or _first_persona(config))
+        return {"edits": db.list_change_log(persona, limit=200)}
+
+    async def life_edits_approve():
+        body = await _json_body()
+        persona = str(body.get("persona") or _first_persona(config))
+        try:
+            log_id = int(body.get("log_id") or 0)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "log_id required"}
+        row = db.apply_change(persona, log_id)
+        if row is None:
+            return {"ok": False,
+                    "error": "cannot approve (missing or not pending)"}
+        return {"ok": True, "log_id": log_id, "status": "applied"}
+
+    async def life_edits_reject():
+        body = await _json_body()
+        persona = str(body.get("persona") or _first_persona(config))
+        try:
+            log_id = int(body.get("log_id") or 0)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "log_id required"}
+        ok = db.reject_change(persona, log_id)
+        return {"ok": ok, "log_id": log_id,
+                "status": "rejected" if ok else "unchanged"}
+
+    async def life_edits_rollback():
+        body = await _json_body()
+        persona = str(body.get("persona") or _first_persona(config))
+        try:
+            log_id = int(body.get("log_id") or 0)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "log_id required"}
+        row = db.rollback_change(persona, log_id, actor="owner")
+        return {"ok": row is not None, "log_id": log_id,
+                "status": "rolled_back" if row else "unchanged"}
+
     async def entities():
         persona = await _persona_arg()
         if memory_adapter is None or not getattr(config, "memory_host", ""):
@@ -411,6 +451,10 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         "capsules_open": capsules_open,
         "reviews": reviews,
         "reviews_diff": reviews_diff,
+        "life_edits": life_edits,
+        "life_edits_approve": life_edits_approve,
+        "life_edits_reject": life_edits_reject,
+        "life_edits_rollback": life_edits_rollback,
         "entities": entities,
         "entity_appears_on": entity_appears_on,
     }
@@ -439,6 +483,10 @@ def register_api(context: Any, db: Any, service: Any, share_gate: Any,
         (f"{API_PREFIX}/capsules_open", "capsules_open", ["POST"], "Open a time capsule"),
         (f"{API_PREFIX}/reviews", "reviews", ["GET"], "Generated reviews"),
         (f"{API_PREFIX}/reviews_diff", "reviews_diff", ["GET"], "Review diff view"),
+        (f"{API_PREFIX}/life_edits", "life_edits", ["GET"], "LLM/owner change log"),
+        (f"{API_PREFIX}/life_edits_approve", "life_edits_approve", ["POST"], "Approve pending LLM edit"),
+        (f"{API_PREFIX}/life_edits_reject", "life_edits_reject", ["POST"], "Reject pending LLM edit"),
+        (f"{API_PREFIX}/life_edits_rollback", "life_edits_rollback", ["POST"], "Roll back an applied edit"),
         (f"{API_PREFIX}/entities", "entities", ["GET"], "Life entity graph"),
         (f"{API_PREFIX}/entity_appears_on", "entity_appears_on", ["GET"], "Where an entity appears"),
         (f"{API_PREFIX}/usage", "usage", ["GET"], "Daily LLM usage"),

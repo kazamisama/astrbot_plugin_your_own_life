@@ -431,6 +431,7 @@ LLM 可自主更改生活数据/计划/记忆，按事件链自主排期，并�
 - 时间胶囊（v0.5.4 已落地）：短记按 `capsule_days` 封存，到期自动解锁，LLM 以封存素材写“当时的我 / 现在的我”回信；WebUI 可提前打开，回信写 `capsule` 事件。
 - 分享沉默率（v0.5.5 已落地）：ShareGate 按 `share_silence_rate` 每天概率“今天不想说”，沉默当天不写分享日志、仅留 `share_silent` 快照供日记体现；手动分享 force 绕过。
 - 季度自我评估（v0.5.6 已落地）：季度首日基于上季度兴趣/情绪轨迹生成带 confidence 的长期总结，失败回退确定性聚合；WebUI 回顾 tab 可对比上一期 diff。
+- LLM 自主更改与回滚（v0.5.7 已落地）：`life_edit_allowed` 白名单内 LLM 可直接改 note/interest，越界落 `pending_owner`；`change_log` 记录 old/new，owner 在 WebUI 批准/拒绝/回滚，回滚追加审计条目并写事件链。
 - 连续性：每次决策记录 `context_refs`（引用了哪些事件/记忆），下次决策能看到上次引用链；center state 作为人格锚。
 - 检查点：每日/每周生成结构化 life summary，事件链可重放重建，防长窗口漂移。
 

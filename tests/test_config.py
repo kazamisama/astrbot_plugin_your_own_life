@@ -123,6 +123,12 @@ class ConfigTest(unittest.TestCase):
         self.assertFalse(load_config({"quarterly_review_enabled": False}).quarterly_review_enabled)
         self.assertTrue(load_config({"quarterly_review_enabled": "yes"}).quarterly_review_enabled)
 
+    def test_life_edit_allowed_config(self):
+        self.assertEqual(load_config({}).life_edit_allowed,
+                         ["note.summary", "note.opinion", "interest.weight"])
+        cfg = load_config({"life_edit_allowed": ["note.title", "diary.content"]})
+        self.assertEqual(cfg.life_edit_allowed, ["note.title", "diary.content"])
+
     def test_signature_enabled_default(self):
         self.assertTrue(load_config({}).signature_enabled)
         self.assertFalse(load_config({"signature_enabled": False}).signature_enabled)

@@ -315,11 +315,12 @@
 
 ### L2-08 LLM 自主更改与自动回滚
 
+- 状态：已实现（v0.5.7）。
 - 目标：LLM 可改生活参数/计划/记忆，自动撤销与编辑。
 - 依赖：事件链 + 变更账本（L1.5/L1-13）。
-- 模块：`life/life_tool.py`、`life/db.py`。
-- 配置：权限边界（LLM 可改/不可改清单）。
-- 验收：越界动作需 owner 确认；回滚级联处理派生数据；owner 可覆盖任何操作。
+- 模块：`life/life_tool.py`（`edit_life_memory` 工具）、`life/db.py`（apply/reject/rollback）、`life/webui.py` + `pages/life/index.html`（改动 tab）、`life/config.py`。
+- 配置：`life_edit_allowed`（默认 `note.summary / note.opinion / interest.weight`）。
+- 验收：越界动作需 owner 确认（已满足，落 `pending_owner`，WebUI 批准/拒绝）；回滚级联处理派生数据（已满足，`rollback_change` 还原字段、追加回滚审计条目并写 `change` 事件）；owner 可覆盖任何操作（已满足，approve/reject/rollback 接口）。
 
 ### L2-09 多实例租约
 

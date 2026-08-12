@@ -9,9 +9,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from life.db import LifeDB
 from life.life_tool import (
+    LifeEditTool,
     LifeMemoryTool,
     LifePlanEditTool,
     LifePlansTool,
+    edit_life_memory,
     recall_life_memory,
     search_life_memory,
 )
@@ -89,6 +91,45 @@ class LifeToolTest(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(data["items"][0]["temperature"], 0.9)
         self.assertEqual(self.db.get_note(cold)["temperature"], 1.0)
         self.assertEqual(self.db.get_note(hot)["temperature"], 1.0)
+
+    def test_edit_life_memory_allowed_and_pending(self):
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://x", "T", "Old summary", url_hash="et1"
+        )
+        data = edit_life_memory(
+            self.db, "shelly", "update", entity="note",
+            entity_id=str(note_id), field="summary", value="New summary",
+            allowed=["note.summary"],
+        )
+        self.assertTrue(data["ok"])
+        self.assertEqual(self.db.get_note(note_id)["summary"], "New summary")
+        pending = edit_life_memory(
+            self.db, "shelly", "update", entity="note",
+            entity_id=str(note_id), field="title", value="New title",
+            allowed=["note.summary"],
+        )
+        self.assertTrue(pending["needs_owner_confirmation"])
+        entry = self.db.get_change_log_entry("shelly", pending["change_id"])
+        self.assertEqual(entry["status"], "pending_owner")
+
+    async def test_edit_tool_updates_and_rolls_back(self):
+        tool = LifeEditTool(self.db, _FakePersonas(), allowed=["note.summary"])
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://x", "T", "Old", url_hash="et2"
+        )
+        raw = await tool.call(
+            _FakeWrapper(), action="update", entity="note",
+            entity_id=str(note_id), field="summary", value="New",
+        )
+        data = json.loads(raw)
+        self.assertTrue(data["ok"])
+        change_id = data["change_id"]
+        raw = await tool.call(_FakeWrapper(), action="rollback", change_id=change_id)
+        data = json.loads(raw)
+        self.assertTrue(data["ok"])
+        self.assertEqual(self.db.get_note(note_id)["summary"], "Old")
+        events = self.db.list_events("shelly")
+        self.assertEqual(events[0]["kind"], "change")
 
     async def test_tool_resolves_persona(self):
         tool = LifeMemoryTool(self.db, _FakePersonas())

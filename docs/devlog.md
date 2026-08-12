@@ -2,6 +2,16 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L2-08 LLM 自主更改与自动回滚落地（v0.5.7）
+
+- 目标：LLM 可改生活记忆/兴趣/计划，白名单外需 owner 确认，owner 可批准、拒绝、回滚任何改动。
+- 已确认决策：新增 `life_edit_allowed` 白名单（默认 `note.summary / note.opinion / interest.weight`）；`edit_life_memory` 工具支持 `update / rollback`；白名单内直接应用并写 `change_log`（status=applied）与 `change` 事件，越界动作写 `pending_owner`；DB 新增 `update_note_field / get_change_log_entry / apply_change / reject_change / rollback_change`，回滚还原 old_value 并追加一条 `rolled_back` 审计条目；WebUI 新增“改动”tab：`GET /life_edits` + `POST /life_edits_approve|reject|rollback`。
+- 改动：`life/config.py`、`_conf_schema.json`、`life/db.py`、`life/life_tool.py`、`main.py`、`life/webui.py`、`pages/life/index.html`、`tests/test_config.py`、`tests/test_db.py`、`tests/test_life_tool.py`、`tests/test_webui.py`；版本 v0.5.6 → v0.5.7；README / CHANGELOG / features.md L2-08 / design.md / roadmap.md 同步。
+- 外部调研（DuckDuckGo，2026-08-12，已验证检索可访问）：agent 自主编辑与人工审批安全边界相关论文/指南标题（"SafeHarbor: Defining Precise Decision Boundaries..."、"LLM Guardrails: The Complete Guide to AI Safety Guardrails"）；采纳白名单 + owner 确认 + 回滚审计，未细读原文，结论按推测性借鉴标注。
+- 验证：unittest 218 passed（skipped=1；字段更新、apply/reject/rollback 生命周期、LLM 工具白名单/待确认/回滚、WebUI 接口与路由）；JS 语法检查通过；Playwright 改动 tab 桌面/移动无溢出、按钮交互通过。
+- 遗留：计划类改动仍走既有 `edit_life_plan`（固定任务不可改）；记忆宿主（engram_core）侧编辑/回滚尚未经 adapter 同步，后续可在 L2 收尾时补。
+- 下一步：L2-09 多实例租约接入 scheduler（配置 memory_host 时改用 `claim_task / renew_task / release_task`）。
+
 ## 2026-08-12 L2-07 季度自我评估落地（v0.5.6）
 
 - 目标：基于兴趣与情绪轨迹生成带 confidence 的季度人格总结，owner 可在 WebUI 对比上一期。

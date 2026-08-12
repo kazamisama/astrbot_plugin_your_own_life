@@ -1450,6 +1450,101 @@ class LifeDB:
             (persona_id, limit),
         )
 
+    def get_change_log_entry(self, persona_id: str, log_id: int) -> Optional[dict]:
+        return self._one(
+            "SELECT * FROM change_log WHERE persona_id = ? AND id = ?",
+            (persona_id, log_id),
+        )
+
+    def update_note_field(
+        self, persona_id: str, note_id: int, field: str, value: str
+    ) -> Optional[str]:
+        if field not in ("title", "summary", "opinion"):
+            return None
+        row = self._one(
+            "SELECT * FROM notes WHERE id = ? AND persona_id = ? AND deleted_at = ''",
+            (note_id, persona_id),
+        )
+        if row is None:
+            return None
+        old = str(row[field] or "")
+        self._execute(f"UPDATE notes SET {field} = ? WHERE id = ?", (value, note_id))
+        return old
+
+    def reject_change(self, persona_id: str, log_id: int) -> bool:
+        cur = self._execute(
+            "UPDATE change_log SET status = 'rejected' "
+            "WHERE persona_id = ? AND id = ? AND status = 'pending_owner'",
+            (persona_id, log_id),
+        )
+        return cur.rowcount > 0
+
+    def _apply_change_payload(
+        self, persona_id: str, entity: str, entity_id: str, payload: dict
+    ) -> bool:
+        if entity == "note":
+            field = str(payload.get("field") or "")
+            return self.update_note_field(
+                persona_id, int(entity_id or 0), field,
+                str(payload.get("value") or ""),
+            ) is not None
+        if entity == "interest":
+            key = str(payload.get("key") or entity_id or "")
+            name = str(payload.get("name") or key)
+            try:
+                weight = max(0.0, min(1.0, float(payload.get("weight") or 0.5)))
+            except (TypeError, ValueError):
+                weight = 0.5
+            self.upsert_interest(persona_id, key, name, weight)
+            return True
+        return False
+
+    def apply_change(self, persona_id: str, log_id: int) -> Optional[dict]:
+        row = self.get_change_log_entry(persona_id, log_id)
+        if row is None or row["status"] != "pending_owner":
+            return None
+        try:
+            payload = json.loads(row["new_value"] or "{}")
+        except (ValueError, TypeError):
+            return None
+        if not self._apply_change_payload(
+            persona_id, row["entity"], row["entity_id"], payload
+        ):
+            return None
+        self._execute(
+            "UPDATE change_log SET status = 'applied' WHERE id = ?", (log_id,)
+        )
+        return self.get_change_log_entry(persona_id, log_id)
+
+    def rollback_change(
+        self, persona_id: str, log_id: int, actor: str = "owner"
+    ) -> Optional[dict]:
+        row = self.get_change_log_entry(persona_id, log_id)
+        if row is None or row["status"] != "applied":
+            return None
+        try:
+            payload = json.loads(row["old_value"] or "{}")
+        except (ValueError, TypeError):
+            return None
+        if not self._apply_change_payload(
+            persona_id, row["entity"], row["entity_id"], payload
+        ):
+            return None
+        self._execute(
+            "UPDATE change_log SET status = 'rolled_back' WHERE id = ?", (log_id,)
+        )
+        self.log_change(
+            persona_id,
+            row["entity"],
+            row["entity_id"],
+            old_value=row["new_value"],
+            new_value=row["old_value"],
+            actor=actor,
+            reason=f"rollback_of:{log_id}",
+            status="rolled_back",
+        )
+        return self.get_change_log_entry(persona_id, log_id)
+
     def log_injection(
         self,
         persona_id: str,

@@ -119,6 +119,44 @@ EDIT_PLAN_TOOL_PARAMETERS: dict[str, Any] = {
     "required": ["action", "task_id"],
 }
 
+EDIT_MEMORY_TOOL_NAME = "edit_life_memory"
+EDIT_MEMORY_TOOL_DESCRIPTION = (
+    "Edit the current bot persona's life memory or interests, or roll back a previous edit. "
+    "Allowed fields are whitelisted (e.g. note.summary, note.opinion, interest.weight); "
+    "anything outside the whitelist requires owner confirmation in the WebUI and returns "
+    "needs_owner_confirmation."
+)
+EDIT_MEMORY_TOOL_PARAMETERS: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "action": {"type": "string", "enum": ["update", "rollback"]},
+        "entity": {
+            "type": "string",
+            "description": "Entity to change: note / interest.",
+        },
+        "entity_id": {
+            "type": "string",
+            "description": "Note id or interest key.",
+        },
+        "field": {
+            "type": "string",
+            "description": "Field to change: title/summary/opinion (note) or weight/name (interest).",
+        },
+        "value": {
+            "type": "string",
+            "description": "New value (JSON string for weight).",
+            "default": "",
+        },
+        "change_id": {
+            "type": "integer",
+            "description": "change_log id for action=rollback.",
+            "default": 0,
+        },
+        "reason": {"type": "string", "description": "Reason for the edit.", "default": ""},
+    },
+    "required": ["action"],
+}
+
 
 def _parse_tags(raw: Any) -> list[str]:
     if isinstance(raw, list):
@@ -383,6 +421,164 @@ async def _execute_edit_plan_tool(
     return json.dumps(data, ensure_ascii=False)
 
 
+_NOTE_FIELD_LIMITS = {"title": 300, "summary": 600, "opinion": 600}
+
+
+def _interest_current(db: LifeDB, persona_id: str, key: str) -> Optional[dict]:
+    for row in db.get_interests(persona_id):
+        if row["key"] == key:
+            return row
+    return None
+
+
+def edit_life_memory(
+    db: LifeDB,
+    persona_id: str,
+    action: str,
+    entity: str = "",
+    entity_id: str = "",
+    field: str = "",
+    value: str = "",
+    change_id: int = 0,
+    allowed: Optional[list] = None,
+    reason: str = "",
+    actor: str = "llm",
+) -> dict[str, Any]:
+    action = str(action or "").strip().lower()
+    entity = str(entity or "").strip().lower()
+    field = str(field or "").strip().lower()
+    allowed = set(str(item) for item in (allowed or []))
+    reason = str(reason or "").strip()[:200]
+
+    if action == "rollback":
+        try:
+            log_id = int(change_id or 0)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "change_id required"}
+        row = db.rollback_change(persona_id, log_id, actor=actor)
+        if row is None:
+            return {"ok": False,
+                    "error": "cannot rollback (missing or not applied)"}
+        return {"ok": True, "action": "rollback", "change_id": log_id,
+                "status": "rolled_back"}
+    if action != "update":
+        return {"ok": False, "error": "action must be update/rollback"}
+
+    if entity == "note":
+        try:
+            note_id = int(entity_id or 0)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "note_id required"}
+        note = db.get_note(note_id)
+        if note is None or note.get("persona_id") != persona_id:
+            return {"ok": False, "error": "note not found"}
+        if field not in ("title", "summary", "opinion"):
+            return {"ok": False, "error": "field must be title/summary/opinion"}
+        old = str(note.get(field) or "")
+        new = str(value or "")[:_NOTE_FIELD_LIMITS[field]]
+        old_payload = json.dumps({"field": field, "value": old}, ensure_ascii=False)
+        new_payload = json.dumps({"field": field, "value": new}, ensure_ascii=False)
+        key = f"note.{field}"
+        if key not in allowed:
+            log_id = db.log_change(
+                persona_id, "note", note_id, old_payload, new_payload,
+                actor=actor, reason=reason, status="pending_owner",
+            )
+            return {"ok": False, "needs_owner_confirmation": True,
+                    "change_id": log_id, "error": "requires owner confirmation"}
+        db.update_note_field(persona_id, note_id, field, new)
+        log_id = db.log_change(
+            persona_id, "note", note_id, old_payload, new_payload,
+            actor=actor, reason=reason, status="applied",
+        )
+        return {"ok": True, "action": "update", "entity": "note",
+                "entity_id": note_id, "field": field, "change_id": log_id}
+
+    if entity == "interest":
+        key = str(entity_id or "").strip()
+        current = _interest_current(db, persona_id, key)
+        if current is None:
+            return {"ok": False, "error": "interest not found"}
+        if field not in ("weight", "name"):
+            return {"ok": False, "error": "field must be weight/name"}
+        old_weight = float(current["weight"] or 0)
+        old_name = str(current["name"] or key)
+        if field == "weight":
+            try:
+                new_weight = max(0.0, min(1.0, float(value)))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "weight must be numeric"}
+            new_name = old_name
+        else:
+            new_name = str(value or "").strip()[:40] or key
+            new_weight = old_weight
+        old_payload = json.dumps(
+            {"key": key, "name": old_name, "weight": old_weight},
+            ensure_ascii=False,
+        )
+        new_payload = json.dumps(
+            {"key": key, "name": new_name, "weight": new_weight},
+            ensure_ascii=False,
+        )
+        edit_key = f"interest.{field}"
+        if edit_key not in allowed:
+            log_id = db.log_change(
+                persona_id, "interest", key, old_payload, new_payload,
+                actor=actor, reason=reason, status="pending_owner",
+            )
+            return {"ok": False, "needs_owner_confirmation": True,
+                    "change_id": log_id, "error": "requires owner confirmation"}
+        db.upsert_interest(persona_id, key, new_name, new_weight)
+        log_id = db.log_change(
+            persona_id, "interest", key, old_payload, new_payload,
+            actor=actor, reason=reason, status="applied",
+        )
+        return {"ok": True, "action": "update", "entity": "interest",
+                "entity_id": key, "field": field, "change_id": log_id}
+
+    return {"ok": False, "error": "entity must be note/interest"}
+
+
+async def _execute_edit_memory_tool(
+    tool: Any, context: Any, action: str, entity: str, entity_id: str,
+    field: str, value: str, change_id: int, reason: str,
+) -> str:
+    persona_id = await tool._resolve_persona(context)
+    if not persona_id:
+        return json.dumps(
+            {"ok": False, "error": "cannot resolve current persona"},
+            ensure_ascii=False,
+        )
+    whitelist = getattr(getattr(tool.personas, "config", None), "life_personas", None)
+    if whitelist is not None and persona_id not in whitelist:
+        return json.dumps(
+            {"ok": False, "error": "persona not whitelisted"},
+            ensure_ascii=False,
+        )
+    data = edit_life_memory(
+        tool.db, persona_id, action, entity=entity, entity_id=entity_id,
+        field=field, value=value, change_id=int(change_id or 0),
+        allowed=getattr(tool, "allowed", None) or [],
+        reason=reason, actor="llm",
+    )
+    change_id = data.get("change_id")
+    if data.get("ok"):
+        status = "applied" if action == "update" else "rolled_back"
+    elif data.get("needs_owner_confirmation"):
+        status = "pending_owner"
+    else:
+        status = "rejected"
+    if change_id:
+        tool.db.append_event(
+            persona_id, "change",
+            {"entity": "memory", "action": action, "status": status,
+             "detail": data},
+            [],
+            f"llm_edit/{change_id}",
+        )
+    return json.dumps(data, ensure_ascii=False)
+
+
 class _LifeMemoryToolMixin:
     def _init(self, db: LifeDB, personas: PersonaService,
               memory: Optional[Any] = None) -> None:
@@ -561,4 +757,61 @@ else:
         ) -> str:
             return await _execute_edit_plan_tool(
                 self, context, action, task_id, date, kind, time, position, reason,
+            )
+
+
+if _HAS_ASTRBOT_TOOL:
+
+    class LifeEditTool(_LifeMemoryToolMixin, FunctionTool[AstrAgentContext]):
+        """AstrBot-native life memory edit / rollback tool."""
+
+        def __init__(self, db: LifeDB, personas: PersonaService,
+                     allowed: Optional[list] = None):
+            super().__init__(
+                name=EDIT_MEMORY_TOOL_NAME,
+                description=EDIT_MEMORY_TOOL_DESCRIPTION,
+                parameters=EDIT_MEMORY_TOOL_PARAMETERS,
+                handler=None,
+            )
+            self._init(db, personas)
+            self.allowed = list(allowed or [])
+
+        async def call(
+            self,
+            context: ContextWrapper[AstrAgentContext],
+            action: str,
+            entity: str = "",
+            entity_id: str = "",
+            field: str = "",
+            value: str = "",
+            change_id: int = 0,
+            reason: str = "",
+        ) -> ToolExecResult:
+            return await _execute_edit_memory_tool(
+                self, context, action, entity, entity_id, field, value,
+                change_id, reason,
+            )
+
+else:
+
+    class LifeEditTool(_LifeMemoryToolMixin):
+        """Duck-typed fallback used by unit tests outside AstrBot."""
+
+        name = EDIT_MEMORY_TOOL_NAME
+        description = EDIT_MEMORY_TOOL_DESCRIPTION
+        parameters = EDIT_MEMORY_TOOL_PARAMETERS
+
+        def __init__(self, db: LifeDB, personas: PersonaService,
+                     allowed: Optional[list] = None):
+            self._init(db, personas)
+            self.allowed = list(allowed or [])
+
+        async def call(
+            self, context: Any, action: str, entity: str = "",
+            entity_id: str = "", field: str = "", value: str = "",
+            change_id: int = 0, reason: str = "",
+        ) -> str:
+            return await _execute_edit_memory_tool(
+                self, context, action, entity, entity_id, field, value,
+                change_id, reason,
             )
