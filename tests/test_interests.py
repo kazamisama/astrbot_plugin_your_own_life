@@ -47,6 +47,16 @@ class InterestsTest(unittest.TestCase):
         tech = [r for r in self.db.get_interests(self.persona) if r["key"] == "tech"][0]
         self.assertAlmostEqual(tech["weight"], 0.6)
 
+    def test_staging_same_key_accumulates_seen_count(self):
+        store = InterestStore(self.db, [("ai", "浜哄伐鏅鸿兘")])
+        store.seed(self.persona)
+        store.stage_note(self.persona, 1, "ai", "浜哄伐鏅鸿兘", 0.9)
+        store.stage_note(self.persona, 1, "ai", "浜哄伐鏅鸿兘", 0.9)
+        self.db.commit_staged(self.persona, 1, status="completed")
+        row = next(r for r in self.db.get_interests(self.persona) if r["key"] == "ai")
+        self.assertEqual(row["seen_count"], 2)
+        self.assertGreater(row["weight"], 0.5)
+
     def test_daily_decay(self):
         store = InterestStore(self.db, [("ai", "人工智能")])
         self.db.upsert_interest(self.persona, "ai", "人工智能", 1.0, seen_count=3)

@@ -36,6 +36,7 @@ class ShareGate:
         logger: Optional[logging.Logger] = None,
         now_fn: Optional[Callable[[], datetime]] = None,
         rng: Optional[random.Random] = None,
+        managed_llm: Optional[Callable[[str, str], Awaitable[dict]]] = None,
     ):
         self.config = config
         self.db = db
@@ -46,6 +47,7 @@ class ShareGate:
         self.log = logger or logging.getLogger("your_own_life.share")
         self.now_fn = now_fn or datetime.now
         self.rng = rng or random.Random()
+        self.managed_llm = managed_llm
 
     async def attempt_share(
         self, persona_id: str, note: dict, decision: Any, force: bool = False
@@ -174,17 +176,19 @@ class ShareGate:
         if self.config.share_include_link and note.get("url"):
             fallback = f"{fallback} {note['url']}".strip()
         fallback = fallback[: self.config.share_max_chars]
+        prompt = build_share_prompt(
+            persona_prompt,
+            persona_id,
+            safe_note,
+            target,
+            max_chars=self.config.share_max_chars,
+            include_link=self.config.share_include_link,
+        )
         try:
-            payload = await self.llm.chat_json(
-                build_share_prompt(
-                    persona_prompt,
-                    persona_id,
-                    safe_note,
-                    target,
-                    max_chars=self.config.share_max_chars,
-                    include_link=self.config.share_include_link,
-                )
-            )
+            if self.managed_llm is not None:
+                payload = await self.managed_llm(persona_id, prompt)
+            else:
+                payload = await self.llm.chat_json(prompt)
             message = str(payload.get("message") or "").strip()
             return message[: self.config.share_max_chars] or fallback
         except Exception as exc:

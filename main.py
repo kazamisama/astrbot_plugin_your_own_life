@@ -55,7 +55,7 @@ from life.persona import PersonaService, PersonaUnavailable  # noqa: E402
 from life.presence import LifePresence  # noqa: E402
 from life.scheduler import LifeScheduler  # noqa: E402
 from life.share import ShareGate  # noqa: E402
-from life.timeutil import DEFAULT_TIMEZONE, local_today  # noqa: E402
+from life.timeutil import DEFAULT_TIMEZONE, local_now, local_today  # noqa: E402
 from life import webui  # noqa: E402
 
 PLUGIN_NAME = "astrbot_plugin_your_own_life"
@@ -99,6 +99,7 @@ class LifeStar(Star):
             self.personas, share_gate=self.share_gate, memory=self.memory,
             logger=logger, now_fn=datetime.now, presence=self.presence,
         )
+        self.share_gate.managed_llm = self.service._llm_call
         self.scheduler = LifeScheduler(
             self.service, self._cfg, logger=logger, now_fn=datetime.now,
             presence=self.presence,
@@ -181,7 +182,7 @@ class LifeStar(Star):
         try:
             await handle_llm_request(
                 self.context, self.presence, self.db, self._cfg,
-                event, request, now_fn=datetime.now,
+                event, request, now_fn=lambda: local_now(self._cfg.timezone, datetime.now()),
             )
         except Exception:
             logger.exception("life on_llm_request hook failed")
@@ -193,7 +194,7 @@ class LifeStar(Star):
         try:
             await handle_llm_response(
                 self.context, self.presence, self.db, self._cfg,
-                event, response, now_fn=datetime.now,
+                event, response, now_fn=lambda: local_now(self._cfg.timezone, datetime.now()),
             )
         except Exception:
             logger.exception("life on_llm_response hook failed")

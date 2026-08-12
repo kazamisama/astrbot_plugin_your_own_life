@@ -67,6 +67,23 @@ class ShareGateTest(unittest.IsolatedAsyncioTestCase):
     def _note(self, note_id):
         return self.db.get_note(note_id)
 
+    async def test_managed_llm_is_used_for_share_render(self):
+        calls = []
+
+        async def managed_llm(persona_id, prompt):
+            calls.append((persona_id, prompt))
+            return {"message": "managed"}
+
+        self.gate.managed_llm = managed_llm
+        note_id = self.db.add_note("shelly", None, "hn", "https://x", "T", "S",
+                                   share_decision={"should_share": True, "target": "sid-1"},
+                                   url_hash="managed")
+        result = await self.gate.attempt_share("shelly", self._note(note_id),
+                                               {"should_share": True, "target": "sid-1"})
+        self.assertEqual(result.status, "sent")
+        self.assertEqual(calls[0][0], "shelly")
+        self.assertEqual(len(self.sent), 1)
+
     async def test_sent_path(self):
         note_id = self.db.add_note("shelly", None, "hn", "https://x", "T", "S",
                                    share_decision={"should_share": True, "target": "sid-1"},

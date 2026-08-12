@@ -608,12 +608,12 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(status["recent_notes"], [])
 
     def test_timeline_heatmap(self):
+        today = datetime.now().strftime("%Y-%m-%d")
         self.db.add_note("shelly", None, "hn", "https://a", "A", "s", url_hash="h1")
-        self.db.add_diary("shelly", "2026-08-12", "d")
+        self.db.add_diary("shelly", today, "d")
         self.db.log_share_attempt("shelly", None, "sent", target_sid="s")
         self.db.start_browse_session("shelly", "scheduled")
-        heat = self.db.timeline_heatmap("shelly", "2026-08")
-        today = datetime.now().strftime("%Y-%m-%d")
+        heat = self.db.timeline_heatmap("shelly", today[:7])
         day = next((d for d in heat["days"] if d["date"] == today), None)
         self.assertIsNotNone(day)
         self.assertGreaterEqual(day["notes"], 1)

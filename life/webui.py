@@ -452,7 +452,10 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
     async def share_note():
         body = await _json_body()
         persona = str(body.get("persona") or _first_persona(config))
-        note_id = int(body.get("note_id") or 0)
+        try:
+            note_id = int(body.get("note_id") or 0)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "note_id must be an integer"}
         note = db.get_note(note_id) if note_id else None
         if note is None or note.get("persona_id") != persona:
             return {"ok": False, "error": "note not found"}

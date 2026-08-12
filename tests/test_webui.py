@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 from datetime import datetime
+from unittest.mock import AsyncMock, patch
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -301,6 +302,14 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/astrbot_plugin_your_own_life/api/watchlist", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/revisit_chains", routes)
         self.assertEqual(len(routes), 34)
+
+    async def test_share_note_invalid_body_returns_error(self):
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=None, config=self.config)
+        with patch("life.webui._json_body", new=AsyncMock(return_value={"persona": "shelly", "note_id": "abc"})):
+            result = await handlers["share_note"]()
+        self.assertFalse(result["ok"])
+        self.assertIn("integer", result["error"])
 
 
 if __name__ == "__main__":

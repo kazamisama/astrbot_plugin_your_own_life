@@ -427,7 +427,7 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("回看素材", prompt)
         self.assertIn("7 天前", prompt)
         self.assertIn("旧短记", prompt)
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = "2026-08-12"
         diary = self.db.get_diary("shelly", today)
         self.assertIn("后来的我再看这件事", diary["content"])
 
@@ -439,8 +439,30 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         result = await self.service.run_nightly_diary("shelly")
         self.assertEqual(result["revisit_day"], 7)
         self.assertEqual(result["revisit_notes"], 0)
-        diary = self.db.get_diary("shelly", datetime.now().strftime("%Y-%m-%d"))
+        diary = self.db.get_diary("shelly", "2026-08-12")
         self.assertEqual(diary["content"], "今天没出门。没有特别的见闻，只是安静地待着。")
+
+    async def test_nightly_diary_keeps_committed_diary_on_aux_failure(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 23, 0)
+        self.service.config.revisit_probability = 0
+        self.db.add_note("shelly", None, "hn", "https://aux", "T", "s", url_hash="aux-note")
+        self.db._execute("UPDATE notes SET fetched_at = ? WHERE url_hash = ?", ("2026-08-12 08:00:00", "aux-note"))
+        self.service.llm = _FakeLLM(payload={
+            "diary_text": "今天看到一些东西。",
+            "signature": "",
+            "mood": "calm",
+            "interest_updates": {},
+        })
+
+        async def raise_revisit(persona_id):
+            raise RuntimeError("aux boom")
+
+        self.service.run_revisit = raise_revisit
+        result = await self.service.run_nightly_diary("shelly")
+        self.assertNotIn("error", result)
+        self.assertIn("aux_error", result)
+        self.assertEqual(result["aux_error"], "RuntimeError('aux boom')")
+        self.assertIsNotNone(self.db.get_diary("shelly", "2026-08-12"))
 
     async def test_run_revisit_writes_later_note_and_event(self):
         self.service.now_fn = lambda: datetime(2026, 8, 12, 23, 0)
@@ -518,6 +540,7 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.db.add_note(
             "shelly", None, "hn", "https://today", "Today", "s", url_hash="rv-today"
         )
+        self.db._execute("UPDATE notes SET fetched_at = ? WHERE url_hash = ?", ("2026-08-12 08:00:00", "rv-today"))
         old_id = self.db.add_note(
             "shelly", None, "hn", "https://old", "Old", "s", url_hash="rv-b4"
         )
@@ -880,7 +903,7 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("当前时段偏好", self.service.llm.prompts[-1])
 
     async def test_peek_records_snapshot_and_kind(self):
-        self.service.now_fn = lambda: datetime(2026, 8, 12, 9, 0)
+        self.service.now_fn = datetime.now
         self.service.config.peek_daily_cap = 0
         result = await self.service.run_peek("shelly")
         self.assertEqual(result.status, "completed")
@@ -891,17 +914,17 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         snapshots = self.db.list_state_snapshots("shelly")
         self.assertEqual(snapshots[0]["activity"], "peek")
         self.assertEqual(self.db.list_notes("shelly"), [])
-        self.assertEqual(self.db.count_sessions_by_kind("shelly", "2026-08-12", "peek"), 1)
+        self.assertEqual(self.db.count_sessions_by_kind("shelly", datetime.now().strftime("%Y-%m-%d"), "peek"), 1)
 
     async def test_peek_daily_cap_skips(self):
-        self.service.now_fn = lambda: datetime(2026, 8, 12, 9, 0)
+        self.service.now_fn = datetime.now
         self.service.config.peek_daily_cap = 1
         first = await self.service.run_peek("shelly")
         self.assertEqual(first.status, "completed")
         second = await self.service.run_peek("shelly")
         self.assertEqual(second.status, "skipped")
         self.assertEqual(second.reason, "peek_daily_cap")
-        self.assertEqual(self.db.count_sessions_by_kind("shelly", "2026-08-12", "peek"), 1)
+        self.assertEqual(self.db.count_sessions_by_kind("shelly", datetime.now().strftime("%Y-%m-%d"), "peek"), 1)
 
     async def test_overview_stats_exclude_peek(self):
         self.service.now_fn = lambda: datetime(2026, 8, 12, 9, 0)
@@ -933,6 +956,7 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.service.config.revisit_probability = 0
         self.db.add_note("shelly", None, "hn", "https://today", "今日见闻", "s",
                          url_hash="wish-today")
+        self.db._execute("UPDATE notes SET fetched_at = ? WHERE url_hash = ?", ("2026-08-12 08:00:00", "wish-today"))
         self.service.llm = _SequenceLLM([
             {
                 "diary_text": "今天想到一个方向。",
@@ -1026,6 +1050,7 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.service.config.plan_daily_action_cap = 5
         self.db.add_note("shelly", None, "hn", "https://plan", "今日见闻", "s",
                          url_hash="plan-note")
+        self.db._execute("UPDATE notes SET fetched_at = ? WHERE url_hash = ?", ("2026-08-12 08:00:00", "plan-note"))
         self.service.llm = _FakeLLM(payload={
             "actions": [
                 {"action": "browse", "window_start": "09:00", "window_end": "10:00",
@@ -1119,6 +1144,7 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["rejected"][0]["reason"], "dependency_not_met")
         self.db.add_note("shelly", None, "hn", "https://dep", "见闻", "s",
                          url_hash="dep-note")
+        self.db._execute("UPDATE notes SET fetched_at = ? WHERE url_hash = ?", ("2026-08-12 08:00:00", "dep-note"))
         self.service.llm = _FakeLLM(payload={
             "actions": [
                 {"action": "diary", "window_start": "22:00", "window_end": "22:30",

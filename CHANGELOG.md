@@ -2,6 +2,21 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.16] - 2026-08-13
+
+### Fixed
+
+- 修复平台对话事件与 presence 等待窗使用服务器本地时间而不是 persona 时区的问题。
+- ShareGate 分享文案渲染改走受管 LLM 路径，纳入每日调用/token 预算与重试上限。
+- InterestStore 在同一 run 内对相同兴趣 key 的 staged 更新会累计 weight 和 seen_count。
+- 夜间复盘后置动作失败不再把已提交日记标记为 error。
+- WebUI `share_note` 对非法 `note_id` 返回结构化错误，不再触发 500。
+- persona 缓存过期判断使用 persona 时区。
+
+### Notes
+
+- 测试：272 passed（skipped=1）。
+
 ## [0.5.15] - 2026-08-12
 
 ### Added

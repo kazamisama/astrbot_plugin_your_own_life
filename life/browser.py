@@ -388,6 +388,7 @@ class LifeService:
                         persona_id, exc,
                     )
                     self.db.discard_staged(persona_id, sid, f"memory_host: {exc}")
+                    self.interests.clear_staging(persona_id, sid)
                     self.db.add_state_snapshot(
                         persona_id, "browse_error", energy_before, "",
                         extra=json.dumps(
@@ -403,6 +404,7 @@ class LifeService:
                 persona_id, sid, status="completed",
                 notes_count=len(selected), reason="",
             )
+            self.interests.clear_staging(persona_id, sid)
             note_refs = [
                 {"note_id": note["id"], "url": note.get("url") or ""}
                 for note in notes
@@ -500,6 +502,7 @@ class LifeService:
         except Exception as exc:
             self.log.exception("browse session failed for %s", persona_id)
             self.db.discard_staged(persona_id, sid, repr(exc))
+            self.interests.clear_staging(persona_id, sid)
             self.db.add_state_snapshot(
                 persona_id, "browse_error", energy_before, "",
                 extra=json.dumps({"error": repr(exc)}, ensure_ascii=False),
@@ -819,6 +822,7 @@ class LifeService:
             if notes and interest_updates:
                 self.interests.stage_updates(persona_id, run_token, interest_updates, now=now)
             self.db.commit_staged(persona_id, run_token, status="completed")
+            self.interests.clear_staging(persona_id, run_token)
             if notes or raw_revisit_notes:
                 _, energy_mode = self._consume_energy(
                     persona_id, ENERGY_COST_DIARY, "internet_life:diary"
@@ -861,26 +865,39 @@ class LifeService:
                         "diary event mirror failed for %s: %s", persona_id, exc
                     )
             self.interests.daily_decay(persona_id)
-            wishlist_eval = await self._evaluate_wishlist(persona_id, persona.system_prompt)
-            capsule_result = await self.run_capsules(persona_id)
-            revisit_result = await self.run_revisit(persona_id)
-            return {"date": date, "notes": len(notes), "fallback": False,
-                    "revisit_day": revisit_day, "revisit_notes": len(raw_revisit_notes),
-                    "wishlist_promoted": wishlist_eval["promoted"],
-                    "wishlist_discarded": wishlist_eval["discarded"],
-                    "capsules_opened": capsule_result["opened"],
-                    "capsules_replied": capsule_result["replied"],
-                    "revisit_candidates": revisit_result.get("candidates", 0),
-                    "revisited": revisit_result.get("revisited", 0),
-                    "revisit_failed": revisit_result.get("failed", 0)}
         except Exception as exc:
             self.log.exception("nightly diary failed for %s", persona_id)
             self.db.discard_staged(persona_id, run_token, repr(exc))
+            self.interests.clear_staging(persona_id, run_token)
             self.db.add_state_snapshot(
                 persona_id, "diary_error", self.esm.get_energy(persona_id), "",
                 extra=json.dumps({"error": repr(exc), "notes": len(notes)}, ensure_ascii=False),
             )
             return {"date": date, "notes": len(notes), "fallback": False, "error": repr(exc)}
+
+        aux_error = ""
+        try:
+            wishlist_eval = await self._evaluate_wishlist(persona_id, persona.system_prompt)
+            capsule_result = await self.run_capsules(persona_id)
+            revisit_result = await self.run_revisit(persona_id)
+        except Exception as exc:
+            self.log.warning(
+                "nightly diary post-commit actions failed for %s: %s", persona_id, exc
+            )
+            wishlist_eval = {"promoted": 0, "discarded": 0}
+            capsule_result = {"opened": 0, "replied": 0}
+            revisit_result = {"candidates": 0, "revisited": 0, "failed": 0}
+            aux_error = repr(exc)
+        return {"date": date, "notes": len(notes), "fallback": False,
+                "revisit_day": revisit_day, "revisit_notes": len(raw_revisit_notes),
+                "wishlist_promoted": wishlist_eval["promoted"],
+                "wishlist_discarded": wishlist_eval["discarded"],
+                "capsules_opened": capsule_result["opened"],
+                "capsules_replied": capsule_result["replied"],
+                "revisit_candidates": revisit_result.get("candidates", 0),
+                "revisited": revisit_result.get("revisited", 0),
+                "revisit_failed": revisit_result.get("failed", 0),
+                "aux_error": aux_error}
 
     # ----- reviews -----
 
@@ -1430,6 +1447,7 @@ class LifeService:
             )
             self.db.stage_seen(persona_id, run_token, str(original.get("url_hash") or ""))
         committed = self.db.commit_staged(persona_id, run_token, status="completed")
+        self.interests.clear_staging(persona_id, run_token)
         for (original, payload), note in zip(staged, committed):
             self.db.mark_note_revisit(int(note["id"]), int(original["id"]))
             self.db.append_event(

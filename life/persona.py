@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from life.db import LifeDB
+from life.timeutil import local_now
 
 
 class PersonaUnavailable(RuntimeError):
@@ -46,7 +47,7 @@ class PersonaService:
         except ValueError:
             return True
         hours = float(self.config.persona_cache_hours or 24.0)
-        return datetime.now() - fetched_dt > timedelta(hours=hours)
+        return local_now(getattr(self.config, "timezone", "UTC")) - fetched_dt > timedelta(hours=hours)
 
     async def ensure_fresh(self, persona_id: str) -> None:
         row = self.db.get_persona_prompt(persona_id)

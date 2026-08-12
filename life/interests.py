@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import random
 from datetime import datetime
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 from life.db import LifeDB
 
@@ -30,6 +30,7 @@ class InterestStore:
         self.db = db
         self.decay = float(decay)
         self.initial = list(initial or [])
+        self._staged: dict[tuple[str, Optional[int], str], dict[str, Any]] = {}
 
     def seed(self, persona_id: str, initial: Optional[Sequence[tuple[str, str]]] = None) -> None:
         existing = {row["key"] for row in self.db.get_interests(persona_id)}
@@ -100,6 +101,17 @@ class InterestStore:
                 last_seen_at=now.strftime("%Y-%m-%d %H:%M:%S") if now else None,
             )
 
+    def _staged_state(self, persona_id: str, session_id: Optional[int], key: str) -> dict[str, Any]:
+        cache_key = (persona_id, session_id, key)
+        if cache_key not in self._staged:
+            current = self.db.get_interests(persona_id)
+            row = next((item for item in current if item["key"] == key), None)
+            self._staged[cache_key] = {
+                "weight": float(row["weight"] if row else 0.5),
+                "seen_count": int(row["seen_count"] or 0) if row else 0,
+            }
+        return self._staged[cache_key]
+
     def stage_note(
         self,
         persona_id: str,
@@ -111,16 +123,18 @@ class InterestStore:
     ) -> None:
         if not key:
             return
-        current = self.db.get_interests(persona_id)
-        old = next((row["weight"] for row in current if row["key"] == key), 0.5)
-        old_seen = next((row["seen_count"] for row in current if row["key"] == key), 0)
+        state = self._staged_state(persona_id, session_id, key)
+        weight = next_weight(state["weight"], interest_level)
+        seen_count = int(state["seen_count"]) + 1
+        state["weight"] = weight
+        state["seen_count"] = seen_count
         self.db.stage_interest(
             persona_id,
             session_id,
             key,
             name or key,
-            next_weight(old, interest_level),
-            int(old_seen) + 1,
+            weight,
+            seen_count,
             last_seen_at=now.strftime("%Y-%m-%d %H:%M:%S") if now else None,
         )
 
@@ -141,18 +155,25 @@ class InterestStore:
                 delta = float(spec.get("delta", 0.0))
             except (TypeError, ValueError):
                 delta = 0.0
-            current = self.db.get_interests(persona_id)
-            old = next((row["weight"] for row in current if row["key"] == key), 0.5)
-            old_seen = next((row["seen_count"] for row in current if row["key"] == key), 0)
+            state = self._staged_state(persona_id, session_id, key)
+            weight = clamp(state["weight"] + delta)
+            seen_count = int(state["seen_count"]) + 1
+            state["weight"] = weight
+            state["seen_count"] = seen_count
             self.db.stage_interest(
                 persona_id,
                 session_id,
                 key,
                 name,
-                clamp(old + delta),
-                int(old_seen) + 1,
+                weight,
+                seen_count,
                 last_seen_at=now.strftime("%Y-%m-%d %H:%M:%S") if now else None,
             )
+
+    def clear_staging(self, persona_id: str, session_id: Optional[int]) -> None:
+        for key in list(self._staged):
+            if key[0] == persona_id and key[1] == session_id:
+                del self._staged[key]
 
     def daily_decay(self, persona_id: str) -> int:
         return self.db.decay_interests(persona_id, self.decay)

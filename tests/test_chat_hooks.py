@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -17,6 +18,7 @@ from life.chat_hooks import (
 from life.config import LifeConfig
 from life.db import LifeDB
 from life.presence import LifePresence
+from life.timeutil import local_now
 
 
 class _FakeEvent:
@@ -166,6 +168,25 @@ class ChatHooksTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(ok)
         self.assertEqual(self.db.list_events("shelly"), [])
+
+    async def test_request_event_uses_passed_local_now(self):
+        tz_db = LifeDB(Path(self.tmp.name) / "tz_life.db", timezone="America/New_York")
+        tz_config = LifeConfig(
+            life_personas=["shelly"],
+            life_presence_enabled=True,
+            conversation_wait_minutes=5,
+            busy_reply_max_wait_minutes=1,
+            timezone="America/New_York",
+        )
+        request = _FakeRequest()
+        ok = await handle_llm_request(
+            self.context, self.presence, tz_db, tz_config, _FakeEvent(), request,
+            now_fn=lambda: local_now("America/New_York", datetime(2026, 8, 12, 12, 0)),
+        )
+        self.assertTrue(ok)
+        events = tz_db.list_events("shelly")
+        self.assertTrue(events[0]["ts"].startswith("2026-08-12"))
+        tz_db.close()
 
     def test_build_presence_block_uses_tags(self):
         block = build_presence_block({"sessions": [], "notes": [], "events": []})

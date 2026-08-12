@@ -2,6 +2,18 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-13 review 修复与测试基线稳定（v0.5.16）
+- 目标：修复 review 发现的时区、分享预算、兴趣 staged 累加、夜间复盘后置动作、WebUI 非法输入和 persona 缓存时区问题；先稳定日期敏感的测试基线。
+- 已确认决策：
+  - 测试日期基线只在测试内统一固定时间，不引入生产时钟基础设施改动。
+  - ShareGate 增加可选 `managed_llm`，生产环境复用 `LifeService._llm_call`；测试和旧调用保持 fallback。
+  - InterestStore 增加 per-run keyed staging 状态，避免同一批相同 interest key 覆盖。
+  - 夜间复盘 `commit_staged` 后的后置动作独立 try/except，失败只返回 `aux_error`，不再把已提交日记标为 error。
+- 改动：`main.py`、`life/chat_hooks.py`、`life/share.py`、`life/interests.py`、`life/browser.py`、`life/webui.py`、`life/persona.py`、`life/__init__.py`、`metadata.yaml`、`CHANGELOG.md`、`tests/test_db.py`、`tests/test_browser.py`、`tests/test_chat_hooks.py`、`tests/test_interests.py`、`tests/test_share.py`、`tests/test_webui.py`。
+- 验证：test-kit venv 全量 `unittest discover -s tests -v` 272 passed，skipped=1；`compileall` OK；`git diff --check` clean。
+- 遗留：网络冒烟和真实生产 WebUI/hook 行为仍未验证；多节点部署与生产时区边界仍需要实测。
+- 下一步：按仓库习惯提交 `chore(release): v0.5.16 ...` 并 push origin main。
+
 ## 2026-08-12 平台对话感知：忙碌延迟回复 + 对话等待窗 + 对话入事件链（v0.5.15）
 - 目标：让“bot 在忙所以晚回、回完等一会儿、然后继续生活”成为真实行为，并把平台对话本身写进事件链。
 - 已确认决策：
