@@ -2,6 +2,16 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L2-04 月度/年度回顾落地（v0.5.3）
+
+- 目标：按 `review_schedule` 自动生成月度/年度回顾，带来源引用、失败回退，回顾本身入事件链。
+- 已确认决策：`review_schedule` = `{"monthly": 每月几号, "yearly": "MM-DD"}`（默认 1 / 01-01，monthly 1-28、yearly 01-01 至 12-28，非法回退默认）；调度器在触发日播种 `review-monthly`（09:00）与 `review-yearly`（09:30）固定任务；新增 `reviews` 表（`UNIQUE(persona_id, period, period_start)`）与 `count_notes_between / list_notes_between / category_counts_between`；`run_review` 聚合漫游次数/出门天数/短记/日记/分享/兴趣首尾与分类，LLM 生成回顾，失败（`LLMError`）回退确定性聚合文本并标 `fallback`，预算耗尽标 `review_skipped`；回顾写 `review` 事件（幂等键 `review/{period}/{period_start}`），配置 memory_host 时镜像到宿主。
+- 改动：`life/config.py`、`_conf_schema.json`、`life/db.py`、`life/prompts.py`、`life/browser.py`、`life/scheduler.py`、`tests/test_db.py`、`tests/test_config.py`、`tests/test_scheduler.py`、`tests/test_browser.py`；版本 v0.5.2 → v0.5.3；README / CHANGELOG / features.md L2-04 / design.md / roadmap.md 同步。
+- 外部调研（DuckDuckGo，2026-08-12，已验证检索可访问）：AI agent periodic review / memory reflection 相关文章标题（如 "How to Build a Reflection and Meditation System for AI Agents"、"Memory Reflection in LLM Agents"、"Reflect — AI Agent Memory & Reflection Skill"）；采纳确定性聚合回退 + 回顾事件，未细读原文，结论按推测性借鉴标注。
+- 验证：unittest 199 passed（skipped=1；新增 reviews 表 upsert、区间统计、review_schedule 解析、调度槽位、回顾生成/回退/预算跳过用例）。
+- 遗留：多尺度金字塔摘要仍未实现，回顾统计使用确定性聚合；WebUI 暂无回顾查看视图（后续可加）。
+- 下一步：L2-05 时间胶囊（`capsule_days` 默认 30 + 到期解锁 + “当时的我/现在的我”回信）。
+
 ## 2026-08-12 L2-03 记忆温度落地（v0.5.2）
 
 - 目标：短记带热度与遗忘曲线，冷记忆淡出，被重新提及时“想起来”。

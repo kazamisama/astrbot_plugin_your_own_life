@@ -64,6 +64,26 @@ def _as_int_list(value: Any, default: Sequence[int]) -> list[int]:
     return out or list(default)
 
 
+def _parse_review_schedule(value: Any) -> dict[str, str]:
+    """Parse review_schedule: monthly = day of month, yearly = MM-DD."""
+    default = {"monthly": "1", "yearly": "01-01"}
+    if not isinstance(value, dict):
+        return default
+    out: dict[str, str] = {}
+    raw_monthly = _as_int(value.get("monthly"), 0)
+    if 1 <= raw_monthly <= 28:
+        out["monthly"] = str(raw_monthly)
+    raw_yearly = _as_str(value.get("yearly"), "")
+    if len(raw_yearly) == 5 and raw_yearly[2] == "-":
+        try:
+            month, day = (int(part) for part in raw_yearly.split("-"))
+            if 1 <= month <= 12 and 1 <= day <= 28:
+                out["yearly"] = raw_yearly
+        except ValueError:
+            pass
+    return out or default
+
+
 DEFAULT_TIME_SLOTS: dict[str, dict[str, Any]] = {
     "morning": {"topics": "新闻、行业动态、值得清醒时读的深度内容", "tone": "清爽、好奇、有点干劲"},
     "afternoon": {"topics": "技术实践、工具、效率与工作相关", "tone": "务实、专注、少一点抒情"},
@@ -255,6 +275,9 @@ class LifeConfig:
     memory_host: str = ""
     memory_lease_ttl_seconds: int = 300
     memory_temperature_decay: float = 0.99
+    review_schedule: dict[str, str] = field(
+        default_factory=lambda: {"monthly": "1", "yearly": "01-01"}
+    )
 
 
 def load_config(cfg: Any) -> LifeConfig:
@@ -298,6 +321,7 @@ def load_config(cfg: Any) -> LifeConfig:
         memory_host=_as_str(_get(cfg, "memory_host"), ""),
         memory_lease_ttl_seconds=max(1, _as_int(_get(cfg, "memory_lease_ttl_seconds"), 300)),
         memory_temperature_decay=max(0.5, min(1.0, _as_float(_get(cfg, "memory_temperature_decay"), 0.99))),
+        review_schedule=_parse_review_schedule(_get(cfg, "review_schedule")),
         source_timeout=_as_float(_get(cfg, "source_timeout"), 10.0),
         notes_min=notes_min,
         notes_max=notes_max,

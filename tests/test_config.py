@@ -99,6 +99,14 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(load_config({"memory_temperature_decay": "2"}).memory_temperature_decay, 1.0)
         self.assertEqual(load_config({"memory_temperature_decay": "0.1"}).memory_temperature_decay, 0.5)
 
+    def test_review_schedule_config(self):
+        self.assertEqual(load_config({}).review_schedule, {"monthly": "1", "yearly": "01-01"})
+        cfg = load_config({"review_schedule": {"monthly": "15", "yearly": "07-01"}})
+        self.assertEqual(cfg.review_schedule["monthly"], "15")
+        self.assertEqual(cfg.review_schedule["yearly"], "07-01")
+        invalid = load_config({"review_schedule": {"monthly": "0", "yearly": "bad"}})
+        self.assertEqual(invalid.review_schedule, {"monthly": "1", "yearly": "01-01"})
+
     def test_signature_enabled_default(self):
         self.assertTrue(load_config({}).signature_enabled)
         self.assertFalse(load_config({"signature_enabled": False}).signature_enabled)

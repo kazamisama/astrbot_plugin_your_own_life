@@ -24,6 +24,7 @@ from life.prompts import (
     PLAN_ACTION_VOCABULARY,
     build_diary_prompt,
     build_plan_prompt,
+    build_review_prompt,
     build_select_prompt,
     build_wishlist_eval_prompt,
 )
@@ -42,6 +43,14 @@ def _clamp(value: Any, low: float = 0.0, high: float = 1.0) -> float:
         return max(low, min(high, float(value)))
     except (TypeError, ValueError):
         return low
+
+
+def _first_topic(raw: str) -> str:
+    for part in str(raw or "").split(","):
+        part = part.strip()
+        if part:
+            return part
+    return "未记录"
 
 
 @dataclass
@@ -134,6 +143,8 @@ class LifeService:
             sid = self.db.start_browse_session(persona_id, "scheduled")
             self.db.finish_browse_session(sid, "skipped", 0, "skipped_duplicate")
             self.db.add_state_snapshot(persona_id, "browse_skipped", extra=extra)
+        elif kind == "review":
+            self.db.add_state_snapshot(persona_id, "review_skipped", extra=extra)
         else:
             self.db.add_state_snapshot(persona_id, "diary_skipped", extra=extra)
         slot_key = slot.strftime("%Y-%m-%d %H:%M") if slot else None
@@ -842,6 +853,197 @@ class LifeService:
                 extra=json.dumps({"error": repr(exc), "notes": len(notes)}, ensure_ascii=False),
             )
             return {"date": date, "notes": len(notes), "fallback": False, "error": repr(exc)}
+
+    # ----- reviews -----
+
+    def _review_range(self, now: datetime, period: str) -> tuple[str, str]:
+        if period == "yearly":
+            start = datetime(now.year - 1, 1, 1)
+            end = datetime(now.year - 1, 12, 31, 23, 59, 59)
+        else:
+            first_this_month = now.replace(day=1)
+            end = first_this_month - timedelta(days=1)
+            start = end.replace(day=1)
+        return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+
+    def _review_stats(
+        self,
+        persona_id: str,
+        period_start: str,
+        period_end: str,
+        period: str,
+    ) -> dict[str, Any]:
+        sessions = [
+            session for session in self.db.list_sessions(persona_id, limit=100000)
+            if (session.get("kind") or "browse") == "browse"
+            and period_start <= (session.get("started_at") or "")[:10] <= period_end
+        ]
+        completed = [s for s in sessions if s.get("status") == "completed"]
+        browse_days = len({s["started_at"][:10] for s in completed})
+        start_dt = datetime.strptime(period_start, "%Y-%m-%d")
+        end_dt = datetime.strptime(period_end, "%Y-%m-%d")
+        total_days = (end_dt - start_dt).days + 1
+        diaries = sorted(
+            (
+                d for d in self.db.list_diaries(persona_id, limit=100000)
+                if period_start <= d.get("date", "") <= period_end
+            ),
+            key=lambda d: d["date"],
+        )
+        share_logs = [
+            log for log in self.db.list_share_log(persona_id, limit=100000)
+            if log.get("status") == "sent"
+            and period_start <= (log.get("attempted_at") or "")[:10] <= period_end
+        ]
+        interest_start = diaries[0].get("interest_top") if diaries else ""
+        interest_end = diaries[-1].get("interest_top") if diaries else ""
+        return {
+            "period": period,
+            "period_start": period_start,
+            "period_end": period_end,
+            "browse_count": len(completed),
+            "browse_days": browse_days,
+            "days_without_browse": max(0, total_days - browse_days),
+            "note_count": self.db.count_notes_between(
+                persona_id, period_start, period_end
+            ),
+            "diary_count": len(diaries),
+            "share_count": len(share_logs),
+            "interest_start": _first_topic(interest_start),
+            "interest_end": _first_topic(interest_end),
+            "top_categories": [
+                {"category": row["category"], "count": int(row["n"] or 0)}
+                for row in self.db.category_counts_between(
+                    persona_id, period_start, period_end
+                )
+            ],
+        }
+
+    def _review_source_refs(
+        self, persona_id: str, period_start: str, period_end: str
+    ) -> list[dict[str, Any]]:
+        notes = self.db.list_notes_between(
+            persona_id, period_start, period_end, limit=20
+        )
+        diaries = sorted(
+            (
+                d for d in self.db.list_diaries(persona_id, limit=100000)
+                if period_start <= d.get("date", "") <= period_end
+            ),
+            key=lambda d: d["date"],
+        )
+        refs: list[dict[str, Any]] = [
+            {"note_id": note["id"], "url": note.get("url") or ""}
+            for note in notes
+        ]
+        refs += [{"diary_date": diary["date"]} for diary in diaries[:10]]
+        return refs
+
+    @staticmethod
+    def _fallback_review_text(stats: dict[str, Any]) -> str:
+        label = "这一年" if stats.get("period") == "yearly" else "这个月"
+        interest_start = stats.get("interest_start") or "未记录"
+        interest_end = stats.get("interest_end") or "未记录"
+        lines = [
+            f"{label}我漫游了 {stats.get('browse_count', 0)} 次，"
+            f"有 {stats.get('browse_days', 0)} 天出门、"
+            f"{stats.get('days_without_browse', 0)} 天没出门；"
+            f"写下了 {stats.get('note_count', 0)} 条短记、"
+            f"{stats.get('diary_count', 0)} 篇日记，分享过 "
+            f"{stats.get('share_count', 0)} 次。",
+        ]
+        if interest_start != interest_end:
+            lines.append(
+                f"兴趣从「{interest_start}」慢慢转向「{interest_end}」。"
+            )
+        return "".join(lines)
+
+    async def run_review(self, persona_id: str, period: str) -> dict[str, Any]:
+        period = "yearly" if period == "yearly" else "monthly"
+        try:
+            persona = await self._resolve_persona(persona_id)
+        except PersonaUnavailable:
+            return {"period": period, "ok": False, "error": "persona_unavailable"}
+        now = local_now(self.config.timezone, self.now_fn())
+        period_start, period_end = self._review_range(now, period)
+        idem = f"review/{period}/{period_start}"
+        existing = self.db.find_event(persona_id, idem)
+        if existing is not None:
+            rows = self.db.list_reviews(persona_id, limit=100)
+            row = next(
+                (r for r in rows
+                 if r["period"] == period and r["period_start"] == period_start),
+                None,
+            )
+            return {
+                "period": period, "period_start": period_start,
+                "period_end": period_end, "ok": True,
+                "content": row["content"] if row else "",
+                "status": row["status"] if row else "done",
+                "duplicate": True,
+            }
+        stats = self._review_stats(
+            persona_id, period_start, period_end, period
+        )
+        source_refs = self._review_source_refs(
+            persona_id, period_start, period_end
+        )
+        prompt = build_review_prompt(
+            persona.system_prompt, persona_id, period, period_start,
+            period_end, stats, source_refs,
+        )
+        fallback = False
+        try:
+            payload = await self._llm_call(persona_id, prompt)
+            content = str(payload.get("review_text") or "").strip()
+            if not content:
+                raise LLMError("review LLM 未返回回顾正文")
+            status = "done"
+        except BudgetExhausted as exc:
+            self.db.add_state_snapshot(
+                persona_id, "review_skipped", self.esm.get_energy(persona_id), "",
+                extra=json.dumps(
+                    {"reason": "budget_exhausted", "period": period},
+                    ensure_ascii=False,
+                ),
+            )
+            return {
+                "period": period, "period_start": period_start,
+                "period_end": period_end, "ok": False,
+                "skipped": "budget_exhausted", "error": str(exc),
+            }
+        except LLMError as exc:
+            self.log.warning("review LLM failed for %s: %s", persona_id, exc)
+            content = self._fallback_review_text(stats)
+            status = "fallback"
+            fallback = True
+        self.db.upsert_review(
+            persona_id, period, period_start, period_end, content,
+            status=status, source_refs=source_refs,
+        )
+        self.db.append_event(
+            persona_id, "review",
+            {"period": period, "period_start": period_start,
+             "period_end": period_end, "status": status,
+             "fallback": fallback, "content": content[:500]},
+            source_refs, idem,
+        )
+        if self.memory is not None and self.config.memory_host:
+            try:
+                self.memory.store_event(
+                    persona_id, "internet-life", "", now.timestamp(), "review",
+                    {"period": period, "period_start": period_start,
+                     "period_end": period_end, "status": status},
+                )
+            except MemoryHostError as exc:
+                self.log.warning(
+                    "review event mirror failed for %s: %s", persona_id, exc
+                )
+        return {
+            "period": period, "period_start": period_start,
+            "period_end": period_end, "ok": True,
+            "content": content, "status": status, "fallback": fallback,
+        }
 
     # ----- plan -----
 

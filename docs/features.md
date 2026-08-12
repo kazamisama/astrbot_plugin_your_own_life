@@ -279,11 +279,12 @@
 
 ### L2-04 月度/年度回顾
 
+- 状态：已实现（v0.5.3）。
 - 目标：自动生成“这个月漫游 N 次、兴趣从 X 变成 Y、有几天没出门”。
 - 依赖：统一记忆库 + 多尺度金字塔摘要（方向，未落地时回顾先用确定性聚合回退）。
-- 模块：`life/browser.py`、`life/prompts.py`。
-- 配置：`review_schedule`。
-- 验收：回顾带来源引用；LLM 失败走重试语义；回顾本身是事件。
+- 模块：`life/browser.py`（`run_review` 聚合/生成/回退）、`life/prompts.py`（`build_review_prompt`）、`life/db.py`（`reviews` 表与区间统计）、`life/scheduler.py`（`review_schedule` 槽位）、`life/config.py`。
+- 配置：`review_schedule`（默认 `{"monthly": "1", "yearly": "01-01"}`；monthly = 每月几号，yearly = MM-DD）。
+- 验收：回顾带来源引用（已满足，`reviews.source_refs` 与 `review` 事件带短记/日记引用）；LLM 失败走重试语义（已满足，`_llm_call` 指数退避重试，耗尽后确定性聚合回退并标 fallback）；回顾本身是事件（已满足，幂等键 `review/{period}/{period_start}`）。
 
 ### L2-05 时间胶囊
 

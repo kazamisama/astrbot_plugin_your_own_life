@@ -242,6 +242,48 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["fallback"])
         self.assertEqual(self.db.get_note(note_id)["temperature"], 0.5)
 
+    async def test_review_generates_and_writes_event(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 10, 0)
+        sid = self.db.start_browse_session("shelly", "scheduled")
+        self.db.finish_browse_session(sid, "completed", notes_count=1)
+        self.db._execute("UPDATE browse_sessions SET started_at = ? WHERE id = ?", ("2026-07-10 10:00:00", sid))
+        self.db.add_diary("shelly", "2026-07-31", "七月日记", interest_top="ai,tech")
+        self.service.llm = _FakeLLM(payload={
+            "review_text": "这个月我出门 1 次，写了一些关于 AI 的东西。",
+            "highlights": ["关注 AI"],
+            "mood": "calm",
+        })
+        result = await self.service.run_review("shelly", "monthly")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "done")
+        reviews = self.db.list_reviews("shelly")
+        self.assertEqual(len(reviews), 1)
+        self.assertEqual(reviews[0]["period"], "monthly")
+        self.assertEqual(reviews[0]["period_start"], "2026-07-01")
+        events = self.db.list_events("shelly")
+        self.assertEqual(events[0]["kind"], "review")
+        self.assertIn("period", events[0]["payload"])
+        self.assertIn("period_start", events[0]["payload"])
+        self.assertTrue(events[0]["source_refs"])
+
+    async def test_review_llm_failure_uses_fallback(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 10, 0)
+        self.service.llm = _FakeLLM(error=LLMError("boom"))
+        result = await self.service.run_review("shelly", "monthly")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "fallback")
+        self.assertIn("漫游了 0 次", result["content"])
+        reviews = self.db.list_reviews("shelly")
+        self.assertEqual(reviews[0]["status"], "fallback")
+
+    async def test_review_budget_exhausted_skips(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 10, 0)
+        self.service.config.daily_llm_call_limit = 1
+        self.db.increment_llm_usage("shelly", "2026-08-12", calls=1)
+        result = await self.service.run_review("shelly", "monthly")
+        self.assertEqual(result["skipped"], "budget_exhausted")
+        self.assertEqual(self.db.list_reviews("shelly"), [])
+
     async def test_diary_revisits_old_note(self):
         self.service.now_fn = lambda: datetime(2026, 8, 12, 23, 0)
         old_id = self.db.add_note(

@@ -151,6 +151,26 @@ class LifeDBTest(unittest.TestCase):
         rows = self.db.search_notes("shelly", temperature_weighted=True)
         self.assertEqual([row["id"] for row in rows], [hot, cold])
 
+    def test_reviews_upsert_and_period_notes(self):
+        self.db.add_note("shelly", None, "hn", "https://a", "A", "s", url_hash="rv-a")
+        self.db._execute("UPDATE notes SET fetched_at = ? WHERE url_hash = ?", ("2026-07-15 10:00:00", "rv-a"))
+        self.db.add_note("shelly", None, "hn", "https://b", "B", "s", url_hash="rv-b")
+        self.db._execute("UPDATE notes SET fetched_at = ? WHERE url_hash = ?", ("2026-08-02 10:00:00", "rv-b"))
+        self.assertEqual(self.db.count_notes_between("shelly", "2026-07-01", "2026-07-31"), 1)
+        self.assertEqual(len(self.db.list_notes_between("shelly", "2026-07-01", "2026-07-31")), 1)
+        cats = self.db.category_counts_between("shelly", "2026-07-01", "2026-08-31")
+        self.assertEqual(sum(int(c["n"]) for c in cats), 2)
+        rid = self.db.upsert_review(
+            "shelly", "monthly", "2026-07-01", "2026-07-31", "第一版",
+            source_refs=[{"diary_date": "2026-07-31"}],
+        )
+        self.assertGreater(rid, 0)
+        self.db.upsert_review("shelly", "monthly", "2026-07-01", "2026-07-31", "第二版", status="fallback")
+        rows = self.db.list_reviews("shelly")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["content"], "第二版")
+        self.assertEqual(rows[0]["status"], "fallback")
+
     def test_diary_upsert_per_persona(self):
         self.db.add_diary("shelly", "2026-08-10", "first", mood="curious", energy=0.6)
         self.db.add_diary("shelly", "2026-08-10", "second", mood="calm", energy=0.5)

@@ -93,22 +93,43 @@ class LifeScheduler:
             return candidate
         return slot
 
-    def _slot_datetimes(self, persona_id: str, day: Any) -> list[tuple[datetime, str]]:
-        slots: list[tuple[datetime, str]] = []
+    def _review_due(self, day: Any, period: str) -> bool:
+        schedule = self.config.review_schedule or {}
+        raw = schedule.get(period)
+        if not raw:
+            return False
+        if period == "yearly":
+            return raw == f"{day.month:02d}-{day.day:02d}"
+        try:
+            return int(raw) == day.day
+        except (TypeError, ValueError):
+            return False
+
+    def _slot_datetimes(
+        self, persona_id: str, day: Any
+    ) -> list[tuple[datetime, str, str]]:
+        slots: list[tuple[datetime, str, str]] = []
         for raw in self.config.browse_times:
             slot_time = _parse_hhmm(raw)
             if slot_time:
                 base = datetime.combine(day, slot_time)
-                slots.append((self._jittered_slot(persona_id, base, "browse"), "browse"))
+                slot = self._jittered_slot(persona_id, base, "browse")
+                slots.append((slot, "browse", f"browse-{slot.strftime('%H-%M')}"))
         diary_time = _parse_hhmm(self.config.diary_time)
         if diary_time:
             base = datetime.combine(day, diary_time)
-            slots.append((self._jittered_slot(persona_id, base, "diary"), "diary"))
+            slot = self._jittered_slot(persona_id, base, "diary")
+            slots.append((slot, "diary", f"diary-{slot.strftime('%H-%M')}"))
         for raw in self.config.peek_times:
             peek_time = _parse_hhmm(raw)
             if peek_time:
                 base = datetime.combine(day, peek_time)
-                slots.append((self._jittered_slot(persona_id, base, "peek"), "peek"))
+                slot = self._jittered_slot(persona_id, base, "peek")
+                slots.append((slot, "peek", f"peek-{slot.strftime('%H-%M')}"))
+        if self._review_due(day, "monthly"):
+            slots.append((datetime.combine(day, time(9, 0)), "review", "review-monthly"))
+        if self._review_due(day, "yearly"):
+            slots.append((datetime.combine(day, time(9, 30)), "review", "review-yearly"))
         return slots
 
     def _plan_datetime(self, row: dict) -> Optional[datetime]:
@@ -144,8 +165,8 @@ class LifeScheduler:
         for offset in (0, 1):
             day = now.date() + timedelta(days=offset)
             for persona_id in personas:
-                for slot, kind in self._slot_datetimes(persona_id, day):
-                    consider(slot, persona_id, kind, f"{kind}-{slot.strftime('%H-%M')}")
+                for slot, kind, task_id in self._slot_datetimes(persona_id, day):
+                    consider(slot, persona_id, kind, task_id)
         return best
 
     def _current_target(
@@ -161,10 +182,10 @@ class LifeScheduler:
         plan_date = day.strftime("%Y-%m-%d")
         count = 0
         for persona_id in personas:
-            for slot, kind in self._slot_datetimes(persona_id, day):
+            for slot, kind, task_id in self._slot_datetimes(persona_id, day):
                 self.db.ensure_plan(
-                    persona_id, plan_date, f"{kind}-{slot.strftime('%H-%M')}",
-                    kind, scheduled_at=slot.strftime("%Y-%m-%d %H:%M:%S"),
+                    persona_id, plan_date, task_id, kind,
+                    scheduled_at=slot.strftime("%Y-%m-%d %H:%M:%S"),
                     fixed=True,
                 )
                 count += 1
@@ -180,6 +201,13 @@ class LifeScheduler:
         return "skipped", reason or str(status)
 
     def _plan_status_diary(self, result: Any) -> tuple[str, str]:
+        if isinstance(result, dict) and result.get("error"):
+            return "failed", str(result["error"])
+        if isinstance(result, dict) and result.get("skipped"):
+            return "skipped", str(result["skipped"])
+        return "done", ""
+
+    def _plan_status_review(self, result: Any) -> tuple[str, str]:
         if isinstance(result, dict) and result.get("error"):
             return "failed", str(result["error"])
         if isinstance(result, dict) and result.get("skipped"):
@@ -255,6 +283,10 @@ class LifeScheduler:
                     elif kind == "peek":
                         result = await self.service.run_peek(persona_id)
                         status, reason = self._plan_status_browse(result)
+                    elif kind == "review":
+                        period = "yearly" if task_id == "review-yearly" else "monthly"
+                        result = await self.service.run_review(persona_id, period)
+                        status, reason = self._plan_status_review(result)
                     else:
                         result = await self.service.run_nightly_diary(persona_id)
                         status, reason = self._plan_status_diary(result)

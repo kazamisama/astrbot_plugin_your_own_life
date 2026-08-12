@@ -2,6 +2,17 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.3] - 2026-08-12
+
+### Added
+
+- L2-04 月度/年度回顾：新增 `review_schedule`（monthly = 每月几号，yearly = MM-DD），调度器按计划播种 `review` 固定任务；`reviews` 表存回顾（幂等 upsert）；`run_review` 聚合漫游次数/出门天数/短记/日记/分享/兴趣变化与分类统计，LLM 生成回顾并带来源引用；LLM 失败走重试语义后确定性聚合回退（status=fallback）；回顾写 `review` 事件（幂等键 `review/{period}/{period_start}`）并可镜像到统一记忆宿主。
+
+### Notes
+
+- 测试：199 passed（skipped=1；新增 reviews 表、区间统计、配置解析、调度槽位、回顾生成/回退/预算跳过用例）。
+- 调研：DuckDuckGo 检索（2026-08-12）AI agent periodic review / memory reflection 相关文章标题（如 "How to Build a Reflection and Meditation System for AI Agents"、"Memory Reflection in LLM Agents"、"Reflect — AI Agent Memory & Reflection Skill"）；采纳确定性聚合回退 + 回顾事件，与设计文档多尺度金字塔方向一致。
+
 ## [0.5.2] - 2026-08-12
 
 ### Added

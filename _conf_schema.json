@@ -344,6 +344,15 @@
     "hint": "每次夜间复盘乘一次；值越小冷记忆淡出越快，被召回时回温",
     "default": 0.99
   },
+  "review_schedule": {
+    "type": "object",
+    "description": "月度/年度回顾触发日",
+    "hint": "如 {\"monthly\": \"1\", \"yearly\": \"01-01\"}；monthly 为每月几号，yearly 为 MM-DD",
+    "default": {
+      "monthly": "1",
+      "yearly": "01-01"
+    }
+  },
   "life_tool_enabled": {
     "type": "bool",
     "description": "向 LLM 注册 query_life_memory 自查询工具",

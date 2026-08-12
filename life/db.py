@@ -267,6 +267,18 @@ CREATE TABLE IF NOT EXISTS daily_usage (
     energy_used REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (persona_id, date)
 );
+CREATE TABLE IF NOT EXISTS reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    persona_id TEXT NOT NULL DEFAULT 'default',
+    period TEXT NOT NULL,
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    generated_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'done',
+    content TEXT NOT NULL,
+    source_refs TEXT DEFAULT '[]',
+    UNIQUE(persona_id, period, period_start)
+);
 CREATE INDEX IF NOT EXISTS idx_notes_persona_fetched ON notes(persona_id, fetched_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_persona_started ON browse_sessions(persona_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_snapshots_persona_ts ON state_snapshots(persona_id, ts);
@@ -1087,6 +1099,75 @@ class LifeDB:
         return self._rows(
             "SELECT * FROM daily_usage WHERE persona_id = ? ORDER BY date DESC LIMIT ?",
             (persona_id, limit),
+        )
+
+    # ----- reviews / period stats -----
+
+    def upsert_review(
+        self,
+        persona_id: str,
+        period: str,
+        period_start: str,
+        period_end: str,
+        content: str,
+        status: str = "done",
+        source_refs: Optional[list] = None,
+    ) -> int:
+        cur = self._execute(
+            "INSERT INTO reviews "
+            "(persona_id, period, period_start, period_end, generated_at, status, content, source_refs) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(persona_id, period, period_start) DO UPDATE SET "
+            "generated_at = excluded.generated_at, status = excluded.status, "
+            "content = excluded.content, source_refs = excluded.source_refs",
+            (
+                persona_id,
+                period,
+                period_start,
+                period_end,
+                self._now(),
+                status,
+                content,
+                json.dumps(source_refs or [], ensure_ascii=False, default=str),
+            ),
+        )
+        row = self._one(
+            "SELECT * FROM reviews WHERE persona_id = ? AND period = ? AND period_start = ?",
+            (persona_id, period, period_start),
+        )
+        return int(row["id"]) if row else 0
+
+    def list_reviews(self, persona_id: str, limit: int = 12) -> list[dict]:
+        return self._rows(
+            "SELECT * FROM reviews WHERE persona_id = ? ORDER BY period_start DESC LIMIT ?",
+            (persona_id, limit),
+        )
+
+    def count_notes_between(self, persona_id: str, start: str, end: str) -> int:
+        row = self._one(
+            "SELECT COUNT(*) AS n FROM notes WHERE persona_id = ? AND deleted_at = '' "
+            "AND date(fetched_at) BETWEEN ? AND ?",
+            (persona_id, start, end),
+        )
+        return int(row["n"] or 0) if row else 0
+
+    def list_notes_between(
+        self, persona_id: str, start: str, end: str, limit: int = 50
+    ) -> list[dict]:
+        return self._rows(
+            "SELECT * FROM notes WHERE persona_id = ? AND deleted_at = '' "
+            "AND date(fetched_at) BETWEEN ? AND ? ORDER BY fetched_at DESC LIMIT ?",
+            (persona_id, start, end, limit),
+        )
+
+    def category_counts_between(
+        self, persona_id: str, start: str, end: str
+    ) -> list[dict]:
+        return self._rows(
+            "SELECT category, COUNT(*) AS n FROM notes WHERE persona_id = ? "
+            "AND deleted_at = '' AND date(fetched_at) BETWEEN ? AND ? "
+            "GROUP BY category ORDER BY n DESC",
+            (persona_id, start, end),
         )
 
     # ----- task leases -----
@@ -2018,6 +2099,7 @@ class LifeDB:
                 "injection_log",
                 "life_leases",
                 "wishlist",
+                "reviews",
                 "staging_notes",
                 "staging_diary",
                 "staging_snapshots",

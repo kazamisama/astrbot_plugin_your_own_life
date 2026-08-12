@@ -427,6 +427,7 @@ LLM 可自主更改生活数据/计划/记忆，按事件链自主排期，并�
 - 中期：夜间复盘把 notes/snapshots/thoughts 压缩进 diary + center state（记忆金字塔）。
 - 记忆温度（v0.5.2 已落地）：notes 带 0-1 热度，夜间按 `memory_temperature_decay` 乘性衰减（下限 0.05），召回按温度加权并在命中后回温到 1.0（rehydrate），冷记忆淡出但细节不丢失。
 - 长期：分层 cue + 多轮联想召回，带 recency/importance/图激活评分与来源回指。
+- 月度/年度回顾（v0.5.3 已落地）：按 `review_schedule` 触发，聚合漫游/日记/兴趣统计，LLM 生成回顾并带来源引用；失败回退确定性聚合；回顾本身写 `review` 事件。
 - 连续性：每次决策记录 `context_refs`（引用了哪些事件/记忆），下次决策能看到上次引用链；center state 作为人格锚。
 - 检查点：每日/每周生成结构化 life summary，事件链可重放重建，防长窗口漂移。
 
