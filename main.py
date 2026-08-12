@@ -387,7 +387,7 @@ class LifeStar(Star):
             sessions = self._cfg.share_sessions.get(persona, [])
             decision = {"should_share": True, "reason": "manual",
                         "target": sessions[0] if sessions else ""}
-        result = await self.share_gate.attempt_share(persona, note, decision)
+        result = await self.share_gate.attempt_share(persona, note, decision, force=True)
         text = {
             "sent": f"[{persona}] 已分享见闻 {note_id}。",
             "blocked": f"[{persona}] 分享被拦：{result.reason}",

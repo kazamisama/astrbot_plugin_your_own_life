@@ -287,6 +287,12 @@
     "hint": "冷却期内不向该会话重复发送",
     "default": 360
   },
+  "share_silence_rate": {
+    "type": "float",
+    "description": "每日“今天不想说”概率（0-1）",
+    "hint": "每天第一次分享按此概率沉默；沉默当天不再分享、不写分享日志，状态快照会进夜间日记素材",
+    "default": 0.15
+  },
   "share_include_link": {
     "type": "bool",
     "description": "分享消息末尾附带源链接",

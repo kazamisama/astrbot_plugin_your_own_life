@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Awaitable, Callable, Optional
@@ -19,7 +20,7 @@ from life.timeutil import local_now
 
 @dataclass
 class ShareResult:
-    status: str  # sent / blocked / not_triggered / error
+    status: str  # sent / blocked / not_triggered / silent / error
     reason: str = ""
 
 
@@ -34,6 +35,7 @@ class ShareGate:
         sender: Callable[[str, str], Awaitable[bool]],
         logger: Optional[logging.Logger] = None,
         now_fn: Optional[Callable[[], datetime]] = None,
+        rng: Optional[random.Random] = None,
     ):
         self.config = config
         self.db = db
@@ -43,9 +45,10 @@ class ShareGate:
         self.sender = sender
         self.log = logger or logging.getLogger("your_own_life.share")
         self.now_fn = now_fn or datetime.now
+        self.rng = rng or random.Random()
 
     async def attempt_share(
-        self, persona_id: str, note: dict, decision: Any
+        self, persona_id: str, note: dict, decision: Any, force: bool = False
     ) -> ShareResult:
         if not isinstance(decision, dict) or not decision.get("should_share"):
             return ShareResult("not_triggered", "")
@@ -94,6 +97,10 @@ class ShareGate:
             self.db.log_share_attempt(persona_id, note_id, "blocked", "duplicate", target)
             return ShareResult("blocked", "duplicate")
 
+        if not force and self._share_silent(persona_id, date):
+            self.db.update_note_share_status(note_id, "dropped")
+            return ShareResult("silent", "share_silence")
+
         message = await self._render_message(persona_id, note, target)
         if not message:
             self.db.log_share_attempt(persona_id, note_id, "error", "render_failed", target)
@@ -126,6 +133,23 @@ class ShareGate:
             if result.status == "sent":
                 sent += 1
         return sent
+
+    def _share_silent(self, persona_id: str, date: str) -> bool:
+        """Roll once per day: if silent, skip sharing and record a snapshot."""
+        if self.db.has_snapshot_activity(persona_id, date, "share_silent"):
+            return True
+        rate = max(0.0, min(1.0, float(self.config.share_silence_rate or 0)))
+        if rate <= 0:
+            return False
+        if self.rng.random() >= rate:
+            return False
+        self.db.add_state_snapshot(
+            persona_id, "share_silent", self.esm.get_energy(persona_id), "",
+            extra=json.dumps(
+                {"date": date, "reason": "share_silence_rate"}, ensure_ascii=False
+            ),
+        )
+        return True
 
     async def _render_message(self, persona_id: str, note: dict, target: str) -> str:
         safe_note = {

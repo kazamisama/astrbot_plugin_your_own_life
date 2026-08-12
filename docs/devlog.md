@@ -2,6 +2,16 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L2-06 分享沉默率落地（v0.5.5）
+
+- 目标：ShareGate 增加概率性“今天不想说”，避免每次都机械表达；沉默当天不写分享日志，日记能体现。
+- 已确认决策：新增 `share_silence_rate`（默认 0.15，clamp 0-1）；每天第一次分享按概率掷一次，命中后写 `share_silent` 状态快照（含 reason），当天后续分享全部跳过；沉默时 note 标记 `dropped`、不写 share_log、不发送；手动分享（`/life_share` 与 WebUI `share_note`）传 `force=True` 绕过沉默；`ShareGate` 支持注入 `rng` 便于测试。
+- 改动：`life/config.py`、`_conf_schema.json`、`life/db.py`（`has_snapshot_activity`）、`life/share.py`、`main.py`、`life/webui.py`、`tests/test_share.py`、`tests/test_config.py`；版本 v0.5.4 → v0.5.5；README / CHANGELOG / features.md L2-06 / design.md / roadmap.md 同步。
+- 外部调研（DuckDuckGo，2026-08-12，已验证检索可访问）：bot / human posting behavior 相关研究标题（如 "A global comparison of social media bot and human characteristics"）；采纳概率性沉默增加表达自然度，未细读原文，结论按推测性借鉴标注。
+- 验证：unittest 208 passed（skipped=1；新增沉默概率跳过、全天沉默、手动 force 绕过、配置 clamp）。
+- 遗留：沉默快照目前仅作为日记素材，WebUI 分享页未单独展示“今天沉默”状态；可后续补充。
+- 下一步：L2-07 季度自我评估（`quarterly_review_enabled` + 兴趣/情绪轨迹长期总结 + owner 查看 diff）。
+
 ## 2026-08-12 L2-05 时间胶囊落地（v0.5.4）
 
 - 目标：封存一条短记，到期自动解锁并让 LLM 以“当时的我 / 现在的我”回信，owner 可在 WebUI 提前打开。

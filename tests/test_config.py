@@ -112,6 +112,12 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(load_config({"capsule_days": "7"}).capsule_days, 7)
         self.assertEqual(load_config({"capsule_days": "0"}).capsule_days, 1)
 
+    def test_share_silence_rate_config(self):
+        self.assertEqual(load_config({}).share_silence_rate, 0.15)
+        self.assertEqual(load_config({"share_silence_rate": "0.3"}).share_silence_rate, 0.3)
+        self.assertEqual(load_config({"share_silence_rate": "2"}).share_silence_rate, 1.0)
+        self.assertEqual(load_config({"share_silence_rate": "-1"}).share_silence_rate, 0.0)
+
     def test_signature_enabled_default(self):
         self.assertTrue(load_config({}).signature_enabled)
         self.assertFalse(load_config({"signature_enabled": False}).signature_enabled)

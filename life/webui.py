@@ -346,7 +346,7 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
                         "target": sessions[0] if sessions else ""}
         if share_gate is None:
             return {"ok": False, "error": "share gate disabled"}
-        result = await share_gate.attempt_share(persona, note, decision)
+        result = await share_gate.attempt_share(persona, note, decision, force=True)
         return {"ok": result.status == "sent", "status": result.status, "reason": result.reason}
 
     return {

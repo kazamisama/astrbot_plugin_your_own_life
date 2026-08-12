@@ -2,7 +2,7 @@ name: astrbot_plugin_your_own_life
 display_name: Your Own Life 互联网生活档案
 desc: 观察者模式插件：Bot 定时漫游国际互联网，用 LLM 把所见沉淀为见闻、观点、情绪与兴趣演化，形成主人专属的生活档案（WebUI + 命令）。
 help: /life [persona] 查看今日概览；/life_now [persona] 立即漫游；/life_plan [persona] 让 LLM 自主排期；/life_archive <YYYY-MM-DD> [persona] 查看档案；/life_interest [persona] 查看兴趣；/life_personas 查看/刷新人格缓存；/life_share <note_id> 手动补发；/life_reset confirm [persona] 清空档案。
-version: v0.5.4
+version: v0.5.5
 author: shirley
 repo: https://github.com/kazamisama/astrbot_plugin_your_own_life
 support_platforms:

@@ -787,6 +787,16 @@ class LifeDB:
             (persona_id, limit),
         )
 
+    def has_snapshot_activity(
+        self, persona_id: str, date: str, activity: str
+    ) -> bool:
+        row = self._one(
+            "SELECT 1 AS n FROM state_snapshots WHERE persona_id = ? "
+            "AND activity = ? AND ts LIKE ? LIMIT 1",
+            (persona_id, activity, date + "%"),
+        )
+        return row is not None
+
     # ----- seen cache -----
 
     def is_seen(self, persona_id: str, url_hash: str) -> bool:

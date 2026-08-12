@@ -45,6 +45,7 @@ class ShareGateTest(unittest.IsolatedAsyncioTestCase):
             "share_daily_cap": 2,
             "share_cooldown_minutes": 360,
             "share_sessions": {"shelly": ["sid-1"]},
+            "share_silence_rate": 0.0,
         })
         self.esm = ESMAdapter(_NoStarContext(), scope_prefix="internet-life", energy_gate=0.3)
         self.llm = _FakeLLM(payload={"message": "今天看到个有趣的东西"})
@@ -75,6 +76,47 @@ class ShareGateTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.status, "sent")
         self.assertEqual(self._note(note_id)["share_status"], "shared")
         self.assertEqual(self.db.count_share_success("shelly"), 1)
+        self.assertEqual(len(self.sent), 1)
+
+    async def test_silence_rate_skips_without_share_log(self):
+        self.config.share_silence_rate = 1.0
+        note_id = self.db.add_note("shelly", None, "hn", "https://x", "T", "S",
+                                   share_decision={"should_share": True, "target": "sid-1"},
+                                   url_hash="h6")
+        result = await self.gate.attempt_share("shelly", self._note(note_id),
+                                               {"should_share": True, "target": "sid-1"})
+        self.assertEqual(result.status, "silent")
+        self.assertEqual(result.reason, "share_silence")
+        self.assertEqual(self.db.count_share_success("shelly"), 0)
+        self.assertEqual(len(self.sent), 0)
+        self.assertEqual(len(self.db.list_share_log("shelly")), 0)
+        self.assertEqual(self._note(note_id)["share_status"], "dropped")
+        today = datetime.now().strftime("%Y-%m-%d")
+        self.assertTrue(self.db.has_snapshot_activity("shelly", today, "share_silent"))
+
+    async def test_silence_applies_whole_day(self):
+        self.config.share_silence_rate = 0.0
+        today = datetime.now().strftime("%Y-%m-%d")
+        self.db.add_state_snapshot("shelly", "share_silent", 0.8, "")
+        note_id = self.db.add_note("shelly", None, "hn", "https://x", "T", "S",
+                                   share_decision={"should_share": True, "target": "sid-1"},
+                                   url_hash="h7")
+        result = await self.gate.attempt_share("shelly", self._note(note_id),
+                                               {"should_share": True, "target": "sid-1"})
+        self.assertEqual(result.status, "silent")
+        self.assertEqual(len(self.db.list_share_log("shelly")), 0)
+        self.assertEqual(len(self.sent), 0)
+        self.assertTrue(self.db.has_snapshot_activity("shelly", today, "share_silent"))
+
+    async def test_manual_force_bypasses_silence(self):
+        self.config.share_silence_rate = 1.0
+        note_id = self.db.add_note("shelly", None, "hn", "https://x", "T", "S",
+                                   share_decision={"should_share": True, "target": "sid-1"},
+                                   url_hash="h8")
+        result = await self.gate.attempt_share("shelly", self._note(note_id),
+                                               {"should_share": True, "target": "sid-1"},
+                                               force=True)
+        self.assertEqual(result.status, "sent")
         self.assertEqual(len(self.sent), 1)
 
     async def test_invalid_target_drops(self):

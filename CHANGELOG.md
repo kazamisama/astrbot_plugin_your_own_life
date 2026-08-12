@@ -2,6 +2,17 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.5] - 2026-08-12
+
+### Added
+
+- L2-06 分享沉默率：新增 `share_silence_rate`（默认 0.15），ShareGate 每天第一次分享按概率“今天不想说”，沉默当天不再分享、不写分享日志，仅写 `share_silent` 状态快照供夜间日记体现；手动分享（`/life_share` 与 WebUI）走 `force=True` 绕过沉默。
+
+### Notes
+
+- 测试：208 passed（skipped=1；新增沉默概率跳过、全天沉默、手动 force 绕过、配置 clamp 用例）。
+- 调研：DuckDuckGo 检索（2026-08-12）bot/human posting behavior 相关研究标题（如 "A global comparison of social media bot and human characteristics"）；采纳概率性沉默增加表达自然度，未引入新依赖，结论按推测性借鉴标注。
+
 ## [0.5.4] - 2026-08-12
 
 ### Added
