@@ -382,6 +382,34 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(self.db._rows("SELECT COUNT(*) AS n FROM staging_notes")[0]["n"], 0)
         self.assertEqual(self.db._rows("SELECT COUNT(*) AS n FROM staging_seen")[0]["n"], 0)
 
+    def test_staging_commit_null_session_returns_only_new_notes(self):
+        self.db.add_note("shelly", None, "hn", "https://pre", "Pre", "s", url_hash="pre-null")
+        self.db.stage_note("shelly", None, "hn", "https://new", "New", "s", url_hash="new-null")
+        notes = self.db.commit_staged("shelly", None, status="completed")
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(notes[0]["title"], "New")
+        self.assertEqual(len(self.db.list_notes_by_url_hash("shelly", "pre-null")), 1)
+
+    def test_memory_overview_excludes_deleted_notes(self):
+        self.db.add_note("shelly", None, "hn", "https://keep", "Keep", "s", url_hash="mo-keep")
+        gone_id = self.db.add_note("shelly", None, "hn", "https://gone", "Gone", "s", url_hash="mo-gone")
+        self.db.soft_delete_note("shelly", gone_id)
+        overview = self.db.memory_overview("shelly")
+        self.assertEqual(overview["total_notes"], 1)
+        self.assertEqual(overview["diary_count"], 0)
+        self.assertEqual([r["category"] for r in overview["categories"]], ["other"])
+
+    def test_apply_change_rejects_malformed_entity_id(self):
+        self.db.log_change(
+            "shelly", "note", "not-a-number",
+            json.dumps({"field": "summary", "value": "old"}),
+            json.dumps({"field": "summary", "value": "new"}),
+            actor="llm", status="pending_owner",
+        )
+        row = self.db.get_change_log_entry("shelly", 1)
+        self.assertEqual(row["status"], "pending_owner")
+        self.assertIsNone(self.db.apply_change("shelly", 1))
+
     def test_staging_discard_keeps_archive_clean(self):
         sid = self.db.start_browse_session("shelly", "scheduled")
         self.db.stage_note("shelly", sid, "hn", "https://a", "A", "s", url_hash="h1")

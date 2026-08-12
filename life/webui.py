@@ -241,29 +241,27 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         args = await _query_args()
         persona = str(args.get("persona") or _first_persona(config))
         rows = db.list_revisit_chains(persona, limit=500)
+        by_id: dict[int, dict] = {}
+        follow_ups_by_original: dict[int, list[dict]] = {}
+        for note in rows:
+            by_id[int(note["id"])] = note
+            original_id = int(note.get("revisit_of") or 0)
+            if original_id:
+                follow_ups_by_original.setdefault(original_id, []).append(note)
         chains: list[dict] = []
-        current: dict | None = None
-        current_follow_ups: list[dict] = []
         for note in rows:
             if note.get("revisit_of"):
-                current_follow_ups.append(note)
                 continue
-            if current is not None:
-                current["follow_ups"] = current_follow_ups
-                chains.append(current)
-            current = {
-                "id": note["id"],
+            note_id = int(note["id"])
+            chains.append({
+                "id": note_id,
                 "title": note.get("title") or "",
                 "summary": note.get("summary") or "",
                 "url": note.get("url") or "",
                 "source": note.get("source") or "",
                 "fetched_at": note.get("fetched_at") or "",
-                "follow_ups": [],
-            }
-            current_follow_ups = []
-        if current is not None:
-            current["follow_ups"] = current_follow_ups
-            chains.append(current)
+                "follow_ups": follow_ups_by_original.get(note_id, []),
+            })
         return {"chains": chains, "count": len(chains),
                 "revisit_interval_days": getattr(config, "revisit_interval_days", 30)}
 

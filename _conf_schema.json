@@ -253,9 +253,72 @@
   },
   "time_slots": {
     "type": "object",
+    "default": {
+      "morning": {
+        "topics": "",
+        "tone": ""
+      },
+      "afternoon": {
+        "topics": "",
+        "tone": ""
+      },
+      "evening": {
+        "topics": "",
+        "tone": ""
+      },
+      "night": {
+        "topics": "",
+        "tone": ""
+      }
+    },
+    "items": {
+      "morning": {
+        "type": "object",
+        "items": {
+          "topics": {
+            "type": "string"
+          },
+          "tone": {
+            "type": "string"
+          }
+        }
+      },
+      "afternoon": {
+        "type": "object",
+        "items": {
+          "topics": {
+            "type": "string"
+          },
+          "tone": {
+            "type": "string"
+          }
+        }
+      },
+      "evening": {
+        "type": "object",
+        "items": {
+          "topics": {
+            "type": "string"
+          },
+          "tone": {
+            "type": "string"
+          }
+        }
+      },
+      "night": {
+        "type": "object",
+        "items": {
+          "topics": {
+            "type": "string"
+          },
+          "tone": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "description": "时段模式：每个时段的偏好主题与语气",
-    "hint": "键为 morning/afternoon/evening/night，每项含 topics 与 tone；缺省项使用内置默认",
-    "default": {}
+    "hint": "键为 morning/afternoon/evening/night，每项含 topics 与 tone；缺省项使用内置默认"
   },
   "peek_times": {
     "type": "list",
@@ -382,6 +445,14 @@
   },
   "review_schedule": {
     "type": "object",
+    "items": {
+      "monthly": {
+        "type": "string"
+      },
+      "yearly": {
+        "type": "string"
+      }
+    },
     "description": "月度/年度回顾触发日",
     "hint": "如 {\"monthly\": \"1\", \"yearly\": \"01-01\"}；monthly 为每月几号，yearly 为 MM-DD",
     "default": {

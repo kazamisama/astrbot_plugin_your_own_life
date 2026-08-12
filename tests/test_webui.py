@@ -169,6 +169,25 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(chain["follow_ups"]), 1)
         self.assertEqual(chain["follow_ups"][0]["title"], "Later")
 
+    async def test_revisit_chains_handler_groups_interleaved_chains(self):
+        a_id = self.db.add_note("shelly", None, "hn", "https://a", "A", "s", url_hash="rv-a")
+        b_id = self.db.add_note("shelly", None, "hn", "https://b", "B", "s", url_hash="rv-b")
+        self.db._execute("UPDATE notes SET fetched_at = '2026-07-01 10:00:00' WHERE id = ?", (a_id,))
+        self.db._execute("UPDATE notes SET fetched_at = '2026-07-02 10:00:00' WHERE id = ?", (b_id,))
+        ra_id = self.db.add_note("shelly", None, "revisit/hn", "https://a", "RA", "s", url_hash="rv-a")
+        rb_id = self.db.add_note("shelly", None, "revisit/hn", "https://b", "RB", "s", url_hash="rv-b")
+        self.db._execute("UPDATE notes SET fetched_at = '2026-08-01 10:00:00' WHERE id = ?", (ra_id,))
+        self.db._execute("UPDATE notes SET fetched_at = '2026-08-01 10:00:01' WHERE id = ?", (rb_id,))
+        self.db.mark_note_revisit(ra_id, a_id)
+        self.db.mark_note_revisit(rb_id, b_id)
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=None, config=self.config)
+        data = await handlers["revisit_chains"]()
+        self.assertEqual(data["count"], 2)
+        by_id = {chain["id"]: chain for chain in data["chains"]}
+        self.assertEqual([f["id"] for f in by_id[a_id]["follow_ups"]], [ra_id])
+        self.assertEqual([f["id"] for f in by_id[b_id]["follow_ups"]], [rb_id])
+
     async def test_usage_handler(self):
         self.db.increment_llm_usage("shelly", "2026-08-12", calls=2, tokens=10)
         handlers = build_handlers(self.db, service=None, share_gate=None,

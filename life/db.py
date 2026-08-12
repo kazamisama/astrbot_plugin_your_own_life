@@ -1071,6 +1071,14 @@ class LifeDB:
         reason: str = "",
         error: str = "",
     ) -> list[dict]:
+        staging_ids = [
+            int(row["id"])
+            for row in self._rows(
+                "SELECT id FROM staging_notes WHERE persona_id = ? "
+                "AND (session_id = ? OR (session_id IS NULL AND ? IS NULL))",
+                (persona_id, session_id, session_id),
+            )
+        ]
         with self._transaction():
             self._conn.execute(
                 "INSERT INTO notes "
@@ -1082,6 +1090,19 @@ class LifeDB:
                 "(session_id = ? OR (session_id IS NULL AND ? IS NULL))",
                 (persona_id, session_id, session_id),
             )
+            if staging_ids:
+                inserted = self._conn.execute(
+                    "SELECT n.id FROM notes n JOIN staging_notes s "
+                    "ON s.persona_id = n.persona_id AND s.url_hash = n.url_hash "
+                    "AND s.fetched_at = n.fetched_at AND s.title = n.title "
+                    "WHERE s.id IN (%s) AND s.persona_id = ? "
+                    "AND (s.session_id = ? OR (s.session_id IS NULL AND ? IS NULL)) "
+                    "ORDER BY n.id" % ",".join("?" for _ in staging_ids),
+                    (*staging_ids, persona_id, session_id, session_id),
+                ).fetchall()
+                new_note_ids = [int(row["id"]) for row in inserted]
+            else:
+                new_note_ids = []
             self._conn.execute(
                 "INSERT INTO diary_entries "
                 "(persona_id, date, content, signature, mood, energy, interest_top, created_at) "
@@ -1136,10 +1157,12 @@ class LifeDB:
                 (self._now(), status, notes_count, reason, error, session_id),
             )
             self._delete_staging(persona_id, session_id)
+        if not new_note_ids:
+            return []
+        placeholders = ",".join("?" for _ in new_note_ids)
         return self._rows(
-            "SELECT * FROM notes WHERE persona_id = ? AND "
-            "(session_id = ? OR (session_id IS NULL AND ? IS NULL)) ORDER BY id",
-            (persona_id, session_id, session_id),
+            f"SELECT * FROM notes WHERE id IN ({placeholders}) ORDER BY id",
+            tuple(new_note_ids),
         )
 
     def discard_staged(self, persona_id: str, session_id: int, error: str = "") -> None:
@@ -1572,8 +1595,12 @@ class LifeDB:
     ) -> bool:
         if entity == "note":
             field = str(payload.get("field") or "")
+            try:
+                note_id = int(entity_id or 0)
+            except (TypeError, ValueError):
+                return False
             return self.update_note_field(
-                persona_id, int(entity_id or 0), field,
+                persona_id, note_id, field,
                 str(payload.get("value") or ""),
             ) is not None
         if entity == "interest":
@@ -2366,7 +2393,8 @@ class LifeDB:
 
     def memory_overview(self, persona_id: str) -> dict[str, Any]:
         rows = self._rows(
-            "SELECT category, COUNT(*) AS n FROM notes WHERE persona_id = ? GROUP BY category ORDER BY n DESC",
+            "SELECT category, COUNT(*) AS n FROM notes WHERE persona_id = ? "
+            "AND deleted_at = '' GROUP BY category ORDER BY n DESC",
             (persona_id,),
         )
         return {

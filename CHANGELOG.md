@@ -2,6 +2,21 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.11] - 2026-08-12
+
+### Fixed
+
+- 启动崩溃：`_conf_schema.json` 中 `time_slots` / `review_schedule` 为 `object` 类型但缺少 `items`，AstrBotConfig 加载配置时抛 `KeyError: 'items'`；已补齐子 schema，并给 `time_slots` 补完整默认值、清理重复 `default` 键。
+- `commit_staged` 在 `session_id=None` 时会误返回历史 null-session 短记；改为提交后按暂存 ID 关联捕获新短记，`run_revisit` 随之按 `zip(staged, committed)` 配对。
+- WebUI `/revisit_chains` 多链 follow-up 时间交错时挂错原短记；改为按 `revisit_of` 分组组装链。
+- `memory_overview` 统计未过滤软删除短记；已加 `deleted_at = ''`。
+- `_apply_change_payload` 对非法 note id 抛 ValueError；已改为返回 False。
+- 测试隔离：`_astrbot_stub` 会遮蔽真实 `AstrBotConfig`，config 回归测试改为显式加载真实实现，并新增 schema `items` 结构校验。
+
+### Notes
+
+- 测试：238 passed（skipped=1）。
+
 ## [0.5.10] - 2026-08-12
 
 ### Added

@@ -2,6 +2,20 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 全量 review 修复：启动配置崩溃与重访链漏洞（v0.5.11）
+
+- 目标：修掉用户报告的插件加载错误 `'items'`，并把全量 review 发现的 P2/P3 一起收口。
+- 已确认决策：
+  - AstrBotConfig 对 `type: "object"` 强制读取 `v["items"]`，`time_slots` / `review_schedule` 补子 schema；`time_slots` 补完整 default 并清理重复键。
+  - `commit_staged` 改为提交前记录 staging IDs、提交后按 `notes JOIN staging_notes` 捕获新短记，只返回本次提交内容。
+  - WebUI 重访链按 `revisit_of` 分组，避免多链 follow-up 交错挂错。
+  - `memory_overview` 排除软删除短记；`_apply_change_payload` 非法 note id 返回 False。
+  - config 回归测试显式加载真实 AstrBotConfig（绕过 `_astrbot_stub` 遮蔽），并新增 schema 结构校验。
+- 改动：`_conf_schema.json`、`life/db.py`、`life/browser.py`、`life/webui.py`、`tests/test_config.py`、`tests/test_db.py`、`tests/test_webui.py`；版本 v0.5.10 → v0.5.11；CHANGELOG 同步。
+- 验证：unittest 238 passed（skipped=1，网络冒烟按配置跳过）；真实 AstrBotConfig 加载 schema 无 `'items'` 异常且保留用户值；JSON / UTF-8 校验通过。
+- 遗留：`commit_staged` 捕获查询仍用 `%` 拼接占位符（参数已核对，整数 id 无注入面），后续可改纯参数化。
+- 下一步：提交 `chore(release): v0.5.11 全量 review 修复启动配置与重访链漏洞`，测试通过后推送。
+
 ## 2026-08-12 L2-11 故地重游落地 + L2 全部完成（v0.5.10）
 
 - 目标：定期重访旧短记链接，写“后来呢”，并完成 L2 最后一个阶段。

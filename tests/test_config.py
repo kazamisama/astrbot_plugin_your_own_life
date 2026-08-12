@@ -1,14 +1,97 @@
+import json
 import os
 import sys
+import tempfile
 import unittest
 from datetime import datetime, time
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from life.config import DEFAULT_TIME_SLOTS, SleepWindow, current_time_slot, load_config, parse_interest_line
 
+_ASTRBOT_APP = r"C:\application\AstrBot\backend\app"
+_ASTRBOT_STUB_MODULES = (
+    "astrbot",
+    "astrbot.api",
+    "astrbot.core",
+    "astrbot.core.config",
+    "astrbot.core.config.astrbot_config",
+    "astrbot.core.message",
+    "astrbot.core.message.components",
+    "astrbot.core.message.message_event_result",
+    "astrbot.api.event",
+    "astrbot.api.star",
+)
+
+
+def _load_real_astrbot_config() -> type:
+    """Load AstrBot's real AstrBotConfig, bypassing offline test stubs."""
+    import importlib
+
+    saved = {
+        name: sys.modules.pop(name)
+        for name in _ASTRBOT_STUB_MODULES
+        if name in sys.modules
+    }
+    try:
+        sys.path.insert(0, _ASTRBOT_APP)
+        module = importlib.import_module("astrbot.core.config.astrbot_config")
+        return module.AstrBotConfig
+    finally:
+        if _ASTRBOT_APP in sys.path:
+            sys.path.remove(_ASTRBOT_APP)
+        sys.modules.update(saved)
+
 
 class ConfigTest(unittest.TestCase):
+    def test_conf_schema_object_nodes_define_items(self):
+        schema_path = Path(__file__).resolve().parent.parent / "_conf_schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+        def walk(node: dict, path: str) -> None:
+            for key, value in node.items():
+                if not isinstance(value, dict):
+                    continue
+                child_path = f"{path}.{key}"
+                if "type" in value:
+                    if value["type"] == "object":
+                        self.assertIsInstance(
+                            value.get("items"),
+                            dict,
+                            f"{child_path} object schema must define items",
+                        )
+                        walk(value["items"], f"{child_path}.items")
+                else:
+                    walk(value, child_path)
+
+        walk(schema, "schema")
+
+    def test_conf_schema_loads_with_astrbot_config(self):
+        if not Path(_ASTRBOT_APP).is_dir():
+            self.skipTest("AstrBot not available in this environment")
+        AstrBotConfig = _load_real_astrbot_config()
+        schema_path = Path(__file__).resolve().parent.parent / "_conf_schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir) / "plugin_config.json"
+            tmp.write_text(
+                json.dumps(
+                    {
+                        "enabled": True,
+                        "time_slots": {"morning": {"topics": "新闻", "tone": "清爽"}},
+                        "review_schedule": {"monthly": "1", "yearly": "01-01"},
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            cfg = AstrBotConfig(config_path=str(tmp), schema=schema)
+        self.assertEqual(cfg.get("time_slots", {}).get("morning", {}).get("topics"), "新闻")
+        self.assertEqual(cfg.get("review_schedule", {}).get("monthly"), "1")
+        for key in ("browse_times", "revisit_interval_days", "watchlist", "share_sessions"):
+            self.assertIn(key, cfg)
+
     def test_sleep_window_day_and_overnight(self):
         day = SleepWindow(time(0, 0), time(7, 0))
         self.assertTrue(day.contains(datetime(2026, 8, 10, 3, 0)))

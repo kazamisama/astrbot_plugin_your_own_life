@@ -1410,8 +1410,7 @@ class LifeService:
             )
             self.db.stage_seen(persona_id, None, str(original.get("url_hash") or ""))
         committed = self.db.commit_staged(persona_id, None, status="completed")
-        new_notes = committed[-len(staged):] if staged else []
-        for (original, payload), note in zip(staged, new_notes):
+        for (original, payload), note in zip(staged, committed):
             self.db.mark_note_revisit(int(note["id"]), int(original["id"]))
             self.db.append_event(
                 persona_id, "revisit",
@@ -1452,7 +1451,7 @@ class LifeService:
                 self.log.warning(
                     "revisit event mirror failed for %s: %s", persona_id, exc
                 )
-        revisited = len(new_notes)
+        revisited = len(committed)
         return {"persona_id": persona_id, "ok": True,
                 "candidates": len(candidates), "revisited": revisited,
                 "failed": failed}
