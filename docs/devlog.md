@@ -2,6 +2,16 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L2-10 关注对象落地（v0.5.9）
+
+- 目标：主人配置持续关注名单（博客、GitHub 用户/项目、RSS），形成追更感。
+- 已确认决策：新增 `watchlist` 配置（dict 或 `type:id:url` 字符串，支持 blog/github_repo/github_user/rss）；`fetch_watchlist` 抓取并把来源统一标记为 `watchlist/*`，`fetch_all` 并入选题候选；漫游写入统一记忆库时带 `watched`，实体图 URL 节点标记 `watched`；DB 新增 `list_watched_notes`；WebUI 新增“关注”tab（`GET /watchlist`）展示关注项与近期更新；状态卡/时间轴复用 notes 天然可见。
+- 改动：`life/config.py`、`_conf_schema.json`、`life/fetchers.py`、`life/browser.py`、`life/db.py`、`life/webui.py`、`pages/life/index.html`、`tests/test_config.py`、`tests/test_fetchers.py`、`tests/test_db.py`、`tests/test_browser.py`、`tests/test_webui.py`；版本 v0.5.8 → v0.5.9；README / CHANGELOG / features.md L2-10 / design.md / roadmap.md 同步。
+- 外部调研（DuckDuckGo，2026-08-12，已验证检索可访问）：personal watchlist / feed curation 相关文章标题（如 "Your Watchlist, Curated: How a Personalized Feed Replaces the Morning..."）；采纳持续关注源进入选题候选，未细读原文，结论按推测性借鉴标注。
+- 验证：unittest 225 passed（skipped=1；watchlist 解析、关注短记查询、HTML 解析、实体 watched、WebUI 接口/路由）；JS 语法检查通过；Playwright 关注 tab 桌面/移动无溢出通过。
+- 遗留：watchlist 抓取失败只 debug 日志，不写审计；博客类型仅抓首页 title/description，不做全文解析。
+- 下一步：L2-11 故地重游（`revisit_interval_days`，链接级 revisit，新短记带 `revisit` 标记并引用原链接）。
+
 ## 2026-08-12 L2-09 多实例租约接入 scheduler（v0.5.8）
 
 - 目标：配置统一记忆宿主后，同人格多实例任务经宿主租约串行化，保证事件链单写者。

@@ -64,6 +64,34 @@ def _as_int_list(value: Any, default: Sequence[int]) -> list[int]:
     return out or list(default)
 
 
+def _parse_watchlist(value: Any) -> list[dict[str, str]]:
+    """Parse watchlist entries: dicts or 'type:id:url' strings."""
+    out: list[dict[str, str]] = []
+    if not isinstance(value, list):
+        return out
+    for raw in value:
+        if isinstance(raw, dict):
+            item = {
+                "type": str(raw.get("type") or "").strip().lower(),
+                "id": str(raw.get("id") or "").strip(),
+                "url": str(raw.get("url") or "").strip(),
+            }
+        elif isinstance(raw, str):
+            parts = [part.strip() for part in raw.split(":", 2)]
+            if len(parts) < 2:
+                continue
+            item = {
+                "type": parts[0].lower(),
+                "id": parts[1],
+                "url": parts[2] if len(parts) > 2 else "",
+            }
+        else:
+            continue
+        if item["type"] and (item["id"] or item["url"]):
+            out.append(item)
+    return out
+
+
 def _parse_review_schedule(value: Any) -> dict[str, str]:
     """Parse review_schedule: monthly = day of month, yearly = MM-DD."""
     default = {"monthly": "1", "yearly": "01-01"}
@@ -239,6 +267,7 @@ class LifeConfig:
         default_factory=lambda: ["programming", "artificial", "MachineLearning", "technology"]
     )
     rss_feeds: list[str] = field(default_factory=list)
+    watchlist: list[dict[str, str]] = field(default_factory=list)
     tavily_api_key: str = ""
     db_path: str = ""
     source_timeout: float = 10.0
@@ -321,6 +350,7 @@ def load_config(cfg: Any) -> LifeConfig:
             ["programming", "artificial", "MachineLearning", "technology"],
         ),
         rss_feeds=_as_list(_get(cfg, "rss_feeds"), []),
+        watchlist=_parse_watchlist(_get(cfg, "watchlist")),
         tavily_api_key=_as_str(_get(cfg, "tavily_api_key"), ""),
         db_path=_as_str(_get(cfg, "db_path"), ""),
         esm_scope_prefix=_as_str(_get(cfg, "esm_scope_prefix"), "internet-life"),

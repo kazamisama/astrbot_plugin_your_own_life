@@ -129,6 +129,19 @@ class ConfigTest(unittest.TestCase):
         cfg = load_config({"life_edit_allowed": ["note.title", "diary.content"]})
         self.assertEqual(cfg.life_edit_allowed, ["note.title", "diary.content"])
 
+    def test_watchlist_config(self):
+        self.assertEqual(load_config({}).watchlist, [])
+        cfg = load_config({
+            "watchlist": [
+                {"type": "github_repo", "id": "tokio-rs/tokio", "url": ""},
+                "rss:my-blog:https://example.com/feed.xml",
+            ],
+        })
+        self.assertEqual(cfg.watchlist[0]["type"], "github_repo")
+        self.assertEqual(cfg.watchlist[0]["id"], "tokio-rs/tokio")
+        self.assertEqual(cfg.watchlist[1]["type"], "rss")
+        self.assertEqual(cfg.watchlist[1]["url"], "https://example.com/feed.xml")
+
     def test_signature_enabled_default(self):
         self.assertTrue(load_config({}).signature_enabled)
         self.assertFalse(load_config({"signature_enabled": False}).signature_enabled)

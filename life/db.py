@@ -571,6 +571,13 @@ class LifeDB:
             (persona_id, limit),
         )
 
+    def list_watched_notes(self, persona_id: str, limit: int = 50) -> list[dict]:
+        return self._rows(
+            "SELECT * FROM notes WHERE persona_id = ? AND deleted_at = '' "
+            "AND source LIKE 'watchlist/%' ORDER BY fetched_at DESC LIMIT ?",
+            (persona_id, limit),
+        )
+
     def pending_share_notes(self, persona_id: str, limit: int = 50) -> list[dict]:
         return self._rows(
             "SELECT * FROM notes WHERE persona_id = ? AND share_status = '' "

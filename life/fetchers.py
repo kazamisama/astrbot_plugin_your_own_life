@@ -231,6 +231,88 @@ async def fetch_rss(client: httpx.AsyncClient, url: str) -> list[FetchedItem]:
     return parse_rss_text(resp.text, url)
 
 
+def _html_title(text: str) -> str:
+    match = re.search(r"<title[^>]*>(.*?)</title>", text, re.IGNORECASE | re.DOTALL)
+    return clean_text(match.group(1), 200) if match else ""
+
+
+def _html_description(text: str) -> str:
+    match = re.search(
+        r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)["\']',
+        text,
+        re.IGNORECASE,
+    )
+    return clean_text(match.group(1), 300) if match else ""
+
+
+async def fetch_watchlist(
+    client: httpx.AsyncClient, watchlist: Sequence[dict]
+) -> list[FetchedItem]:
+    """Fetch configured watched blogs / GitHub repos / users / RSS feeds."""
+    out: list[FetchedItem] = []
+    github_headers = {"Accept": "application/vnd.github+json"}
+    for raw in watchlist:
+        if not isinstance(raw, dict):
+            continue
+        wtype = str(raw.get("type") or "").strip().lower()
+        wid = str(raw.get("id") or "").strip()
+        url = str(raw.get("url") or "").strip()
+        try:
+            if wtype == "github_repo" and wid:
+                data = await _get_json(
+                    client,
+                    f"https://api.github.com/repos/{quote(wid)}",
+                    headers=github_headers,
+                )
+                out.append(FetchedItem(
+                    source="watchlist/github-repo",
+                    url=data.get("html_url") or f"https://github.com/{wid}",
+                    title=data.get("full_name") or wid,
+                    summary=clean_text(data.get("description"), 300),
+                    published_at=data.get("pushed_at") or "",
+                    extra={"watched": True, "watch_id": wid},
+                ))
+            elif wtype == "github_user" and wid:
+                data = await _get_json(
+                    client,
+                    f"https://api.github.com/users/{quote(wid)}/repos",
+                    params={"sort": "pushed", "per_page": 5},
+                    headers=github_headers,
+                )
+                for repo in data:
+                    out.append(FetchedItem(
+                        source="watchlist/github-user",
+                        url=repo.get("html_url") or "",
+                        title=repo.get("full_name") or wid,
+                        summary=clean_text(repo.get("description"), 300),
+                        published_at=repo.get("pushed_at") or "",
+                        extra={"watched": True, "watch_id": wid},
+                    ))
+            elif wtype == "rss" and url:
+                for item in await fetch_rss(client, url):
+                    out.append(FetchedItem(
+                        source="watchlist/rss",
+                        url=item.url,
+                        title=item.title,
+                        summary=item.summary,
+                        published_at=item.published_at,
+                        extra={"watched": True, "watch_id": wid or url},
+                    ))
+            elif wtype == "blog" and url:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                out.append(FetchedItem(
+                    source="watchlist/blog",
+                    url=url,
+                    title=_html_title(resp.text) or url,
+                    summary=_html_description(resp.text),
+                    extra={"watched": True, "watch_id": wid or url},
+                ))
+        except Exception as exc:
+            logger.debug("watchlist %s %s failed: %s", wtype, wid or url, exc)
+    return out
+
+
 async def fetch_tavily(client: httpx.AsyncClient, api_key: str, query: str,
                        limit: int = 10) -> list[FetchedItem]:
     resp = await client.post(
@@ -266,6 +348,8 @@ async def fetch_all(config: Any, client: httpx.AsyncClient,
         tasks.append(asyncio.create_task(_safe(fetch_reddit(client, config.reddit_subreddits))))
     for feed in config.rss_feeds:
         tasks.append(asyncio.create_task(_safe(fetch_rss(client, feed))))
+    if config.watchlist:
+        tasks.append(asyncio.create_task(_safe(fetch_watchlist(client, config.watchlist))))
     if config.tavily_api_key and first_query:
         tasks.append(asyncio.create_task(_safe(fetch_tavily(client, config.tavily_api_key, first_query))))
 

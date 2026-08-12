@@ -237,6 +237,23 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         return {"ok": row is not None, "log_id": log_id,
                 "status": "rolled_back" if row else "unchanged"}
 
+    async def watchlist():
+        args = await _query_args()
+        persona = str(args.get("persona") or _first_persona(config))
+        rows = db.list_watched_notes(persona, limit=50)
+        notes = [{
+            "id": note["id"],
+            "title": note.get("title") or "",
+            "summary": note.get("summary") or "",
+            "url": note.get("url") or "",
+            "source": note.get("source") or "",
+            "fetched_at": note.get("fetched_at") or "",
+        } for note in rows]
+        return {
+            "watchlist": getattr(config, "watchlist", []) or [],
+            "notes": notes,
+        }
+
     async def entities():
         persona = await _persona_arg()
         if memory_adapter is None or not getattr(config, "memory_host", ""):
@@ -455,6 +472,7 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         "life_edits_approve": life_edits_approve,
         "life_edits_reject": life_edits_reject,
         "life_edits_rollback": life_edits_rollback,
+        "watchlist": watchlist,
         "entities": entities,
         "entity_appears_on": entity_appears_on,
     }
@@ -487,6 +505,7 @@ def register_api(context: Any, db: Any, service: Any, share_gate: Any,
         (f"{API_PREFIX}/life_edits_approve", "life_edits_approve", ["POST"], "Approve pending LLM edit"),
         (f"{API_PREFIX}/life_edits_reject", "life_edits_reject", ["POST"], "Reject pending LLM edit"),
         (f"{API_PREFIX}/life_edits_rollback", "life_edits_rollback", ["POST"], "Roll back an applied edit"),
+        (f"{API_PREFIX}/watchlist", "watchlist", ["GET"], "Watched sources and updates"),
         (f"{API_PREFIX}/entities", "entities", ["GET"], "Life entity graph"),
         (f"{API_PREFIX}/entity_appears_on", "entity_appears_on", ["GET"], "Where an entity appears"),
         (f"{API_PREFIX}/usage", "usage", ["GET"], "Daily LLM usage"),

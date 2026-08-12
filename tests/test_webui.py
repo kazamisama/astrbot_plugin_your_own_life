@@ -138,6 +138,19 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         bad = await handlers["life_edits_approve"]()
         self.assertFalse(bad["ok"])
 
+    async def test_watchlist_handler(self):
+        self.db.add_note(
+            "shelly", None, "watchlist/rss", "https://w", "Watched", "s",
+            url_hash="wl-api",
+        )
+        self.config.watchlist = [{"type": "rss", "id": "blog", "url": "https://feed"}]
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=None, config=self.config)
+        data = await handlers["watchlist"]()
+        self.assertEqual(len(data["watchlist"]), 1)
+        self.assertEqual(len(data["notes"]), 1)
+        self.assertEqual(data["notes"][0]["title"], "Watched")
+
     async def test_usage_handler(self):
         self.db.increment_llm_usage("shelly", "2026-08-12", calls=2, tokens=10)
         handlers = build_handlers(self.db, service=None, share_gate=None,
@@ -248,7 +261,8 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/astrbot_plugin_your_own_life/api/life_edits_approve", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/life_edits_reject", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/life_edits_rollback", routes)
-        self.assertEqual(len(routes), 32)
+        self.assertIn("/astrbot_plugin_your_own_life/api/watchlist", routes)
+        self.assertEqual(len(routes), 33)
 
 
 if __name__ == "__main__":

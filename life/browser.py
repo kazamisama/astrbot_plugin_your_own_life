@@ -376,6 +376,7 @@ class LifeService:
                                 "category": self._valid_category(meta.get("category")),
                                 "tags": self._valid_tags(meta.get("tags")),
                                 "importance": _clamp(meta.get("interest_level", 0.5)),
+                                "watched": bool(item.source.startswith("watchlist/")),
                             },
                         )
                 except MemoryHostError as exc:
@@ -447,12 +448,16 @@ class LifeService:
                                  "name": src, "canonical_url": ""},
                             )
                         if url:
+                            url_entity = {
+                                "dimension": "url",
+                                "entity_id": str(note.get("url_hash") or url),
+                                "name": str(note.get("title") or "")[:120] or url,
+                                "canonical_url": url,
+                            }
+                            if str(note.get("source") or "").startswith("watchlist/"):
+                                url_entity["watched"] = True
                             url_ent = self.memory.upsert_entity(
-                                persona_id,
-                                {"dimension": "url",
-                                 "entity_id": str(note.get("url_hash") or url),
-                                 "name": str(note.get("title") or "")[:120] or url,
-                                 "canonical_url": url},
+                                persona_id, url_entity
                             )
                             if src and url_ent and platform_ids.get(src):
                                 self.memory.link_entities(

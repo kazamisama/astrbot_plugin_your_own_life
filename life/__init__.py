@@ -1,2 +1,2 @@
 """Your Own Life - a quiet observer living on the internet."""
-__version__ = "0.5.8"
+__version__ = "0.5.9"

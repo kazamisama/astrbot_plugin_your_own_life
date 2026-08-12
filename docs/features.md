@@ -333,11 +333,12 @@
 
 ### L2-10 关注对象
 
+- 状态：已实现（v0.5.9）。
 - 目标：主人配置持续关注名单（博客、GitHub 用户/项目、RSS），形成追更感。
 - 依赖：统一记忆库（L2-01）、信息源（L0）。
-- 模块：`life/config.py`（`watchlist`）、`life/fetchers.py`、`life/browser.py`、`life/webui.py`。
-- 配置：`watchlist`（每项：类型/标识/URL）。
-- 验收：关注对象进入选题候选；实体图可标记“正在关注”；状态卡/时间轴可见更新。
+- 模块：`life/config.py`（`watchlist`）、`life/fetchers.py`（`fetch_watchlist`）、`life/browser.py`（选题/实体 watched）、`life/db.py`（`list_watched_notes`）、`life/webui.py` + `pages/life/index.html`（关注 tab）。
+- 配置：`watchlist`（每项：`type` = blog/github_repo/github_user/rss，`id`/`url`）。
+- 验收：关注对象进入选题候选（已满足，`fetch_all` 合并 watchlist 抓取结果）；实体图可标记“正在关注”（已满足，URL 节点带 `watched`）；状态卡/时间轴可见更新（已满足，关注短记落入 notes，WebUI 关注 tab 单独展示）。
 
 ### L2-11 故地重游
 

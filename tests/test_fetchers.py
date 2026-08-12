@@ -5,6 +5,8 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from life.fetchers import (
+    _html_description,
+    _html_title,
     clean_text,
     parse_github_payload,
     parse_hn_payload,
@@ -17,6 +19,14 @@ class FetchersTest(unittest.TestCase):
     def test_clean_text(self):
         self.assertEqual(clean_text("<p>Hello <b>world</b></p>", 100), "Hello world")
         self.assertEqual(clean_text("a" * 500, 300), "a" * 300)
+
+    def test_html_title_and_description(self):
+        html = (
+            '<html><head><title>My Blog</title>'
+            '<meta name="description" content="About things"></head></html>'
+        )
+        self.assertEqual(_html_title(html), "My Blog")
+        self.assertEqual(_html_description(html), "About things")
 
     def test_parse_hn(self):
         items = parse_hn_payload({

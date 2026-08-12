@@ -122,6 +122,15 @@
       "type": "string"
     }
   },
+  "watchlist": {
+    "type": "list",
+    "description": "持续关注名单（blog / github_repo / github_user / rss）",
+    "hint": "每项为 {\"type\": \"github_repo\", \"id\": \"tokio-rs/tokio\", \"url\": \"\"} 或 type:id:url 字符串；关注对象进入漫游选题，实体图标记 watched，WebUI 关注 tab 可查看更新",
+    "default": [],
+    "items": {
+      "type": "object"
+    }
+  },
   "tavily_api_key": {
     "type": "string",
     "description": "可选：Tavily 搜索 API Key",

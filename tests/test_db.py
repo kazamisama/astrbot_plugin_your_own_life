@@ -129,6 +129,14 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(len(self.db.list_notes("shelly", "2026-08-05", limit=10)), 1)
         self.assertEqual(len(self.db.list_notes("shelly", "2026-08-06", limit=10)), 0)
 
+    def test_list_watched_notes_filters_watchlist_source(self):
+        self.db.add_note("shelly", None, "watchlist/github-repo", "https://w", "W", "s", url_hash="wl1")
+        self.db.add_note("shelly", None, "hacker-news", "https://x", "X", "s", url_hash="wl2")
+        rows = self.db.list_watched_notes("shelly")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["title"], "W")
+        self.assertEqual(self.db.list_watched_notes("alice"), [])
+
     def test_note_temperature_decay_and_rehydrate(self):
         cold = self.db.add_note("shelly", None, "hn", "https://cold", "Cold", "s", url_hash="cold-t")
         hot = self.db.add_note("shelly", None, "hn", "https://hot", "Hot", "s", url_hash="hot-t")

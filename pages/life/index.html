@@ -231,6 +231,7 @@ select, input[type="date"], input[type="text"] {
     <button class="tab" data-tab="capsules">时间胶囊</button>
     <button class="tab" data-tab="reviews">回顾</button>
     <button class="tab" data-tab="edits">改动</button>
+    <button class="tab" data-tab="watch">关注</button>
   </nav>
 
   <section id="tab-life">
@@ -409,6 +410,17 @@ select, input[type="date"], input[type="text"] {
       <div id="editEmpty" class="empty" hidden>还没有 LLM / owner 改动记录。</div>
     </div>
   </section>
+
+  <section id="tab-watch" hidden>
+    <div class="stats">
+      <div class="stat"><span class="label">关注项</span><span class="value" id="watchCount">-</span></div>
+      <div class="stat"><span class="label">近期更新</span><span class="value" id="watchNotes">-</span></div>
+    </div>
+    <div class="panel">
+      <ul class="note-list" id="watchList"></ul>
+      <div id="watchEmpty" class="empty" hidden>还没有配置关注对象。</div>
+    </div>
+  </section>
 </div>
 
 <script>
@@ -522,6 +534,7 @@ function switchTab(name) {
   document.getElementById("tab-capsules").hidden = name !== "capsules";
   document.getElementById("tab-reviews").hidden = name !== "reviews";
   document.getElementById("tab-edits").hidden = name !== "edits";
+  document.getElementById("tab-watch").hidden = name !== "watch";
   if (name === "memory") { loadMemory(); loadWishlist(); }
   if (name === "share") loadShare();
   if (name === "timeline") { renderTimelineFilters(); loadTimeline(true); }
@@ -531,6 +544,7 @@ function switchTab(name) {
   if (name === "capsules") loadCapsules();
   if (name === "reviews") loadReviews();
   if (name === "edits") loadLifeEdits();
+  if (name === "watch") loadWatchlist();
 }
 
 function loadPersonas() {
@@ -1183,6 +1197,7 @@ function load() {
     if (state.tab === "capsules") loadCapsules();
     if (state.tab === "reviews") loadReviews();
     if (state.tab === "edits") loadLifeEdits();
+    if (state.tab === "watch") loadWatchlist();
   });
 }
 
@@ -1386,6 +1401,60 @@ function lifeEditAction(action, logId) {
   }).then(function (r) { return r.json(); })
     .then(function () { loadLifeEdits(); })
     .catch(function () { showError("改动操作失败。"); });
+}
+
+function loadWatchlist() {
+  var list = document.getElementById("watchList");
+  fetch(API + "/watchlist?" + qs({ persona: state.persona }),
+        { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var watched = data.watchlist || [];
+      var notes = data.notes || [];
+      document.getElementById("watchCount").textContent = watched.length;
+      document.getElementById("watchNotes").textContent = notes.length;
+      document.getElementById("watchEmpty").hidden =
+        watched.length > 0 || notes.length > 0;
+      list.textContent = "";
+      watched.forEach(function (w) {
+        var li = document.createElement("li");
+        var line = document.createElement("div");
+        var title = document.createElement("strong");
+        title.textContent = (w.type || "?") + " · " + (w.id || w.url || "-");
+        line.appendChild(title);
+        li.appendChild(line);
+        if (w.url) {
+          var meta = document.createElement("div");
+          meta.className = "empty";
+          meta.textContent = w.url;
+          li.appendChild(meta);
+        }
+        list.appendChild(li);
+      });
+      notes.forEach(function (n) {
+        var li = document.createElement("li");
+        var line = document.createElement("div");
+        var title = document.createElement("strong");
+        title.textContent = n.title || n.url;
+        line.appendChild(title);
+        var chip = document.createElement("span");
+        chip.className = "chip";
+        chip.textContent = "更新";
+        line.appendChild(chip);
+        li.appendChild(line);
+        if (n.summary) {
+          var summary = document.createElement("div");
+          summary.textContent = n.summary;
+          li.appendChild(summary);
+        }
+        var meta = document.createElement("div");
+        meta.className = "empty";
+        meta.textContent = n.source + " · " + (n.fetched_at || "");
+        li.appendChild(meta);
+        list.appendChild(li);
+      });
+    })
+    .catch(function () { showError("关注对象加载失败。"); });
 }
 
 function loadEntities() {

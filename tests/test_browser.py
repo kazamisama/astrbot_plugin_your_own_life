@@ -518,6 +518,39 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         usage = self.db.get_daily_usage("shelly", today)
         self.assertAlmostEqual(usage["energy_used"], 0.2)
 
+    async def test_watchlist_notes_mark_entity_watched(self):
+        async def watch_fetcher(config, client, queries):
+            return [FetchedItem(
+                source="watchlist/github-repo",
+                url="https://github.com/tokio-rs/tokio",
+                title="tokio-rs/tokio",
+                summary="watch summary",
+            )]
+
+        self.service.fetcher_fn = watch_fetcher
+        self.service.memory = _FakeMemory()
+        self.service.config.memory_host = "astrbot_plugin_engram_core"
+        self.service.llm = _FakeLLM(payload={
+            "selected": [{
+                "index": 0, "summary": "watch summary", "opinion": "o",
+                "mood": "curious", "interest_level": 0.7,
+                "interest_key": "ai", "interest_name": "AI",
+                "category": "opinion", "tags": ["ai"],
+                "share": {"should_share": False, "reason": "", "target": ""},
+            }],
+            "session_mood": "curious",
+            "energy_change": -0.05,
+        })
+        result = await self.service.run_browse_session("shelly", "scheduled")
+        self.assertEqual(result.status, "completed")
+        url_entity = next(
+            entity for entity in self.service.memory.entities
+            if entity["dimension"] == "url"
+        )
+        self.assertTrue(url_entity.get("watched"))
+        notes = self.db.list_watched_notes("shelly")
+        self.assertEqual(len(notes), 1)
+
     async def test_browse_mirrors_notes_and_events_to_memory(self):
         memory = _FakeMemory()
         self.service.memory = memory

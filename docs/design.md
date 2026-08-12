@@ -433,6 +433,7 @@ LLM 可自主更改生活数据/计划/记忆，按事件链自主排期，并�
 - 季度自我评估（v0.5.6 已落地）：季度首日基于上季度兴趣/情绪轨迹生成带 confidence 的长期总结，失败回退确定性聚合；WebUI 回顾 tab 可对比上一期 diff。
 - LLM 自主更改与回滚（v0.5.7 已落地）：`life_edit_allowed` 白名单内 LLM 可直接改 note/interest，越界落 `pending_owner`；`change_log` 记录 old/new，owner 在 WebUI 批准/拒绝/回滚，回滚追加审计条目并写事件链。
 - 多实例租约（v0.5.8 已落地）：配置 `memory_host` 后调度器经宿主 `claim_task / release_task` 串行化同人格任务（TTL `memory_lease_ttl_seconds`），拿不到租约跳过；未配置时回退本地 SQLite 租约。
+- 关注对象（v0.5.9 已落地）：`watchlist` 配置 blog / GitHub repo / user / RSS，抓取结果带 `watchlist/` 来源进入漫游选题；实体图 URL 节点标记 watched，WebUI 关注 tab 展示关注项与近期更新。
 - 连续性：每次决策记录 `context_refs`（引用了哪些事件/记忆），下次决策能看到上次引用链；center state 作为人格锚。
 - 检查点：每日/每周生成结构化 life summary，事件链可重放重建，防长窗口漂移。
 

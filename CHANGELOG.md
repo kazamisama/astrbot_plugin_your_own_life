@@ -2,6 +2,17 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.9] - 2026-08-12
+
+### Added
+
+- L2-10 关注对象：新增 `watchlist` 配置（blog / github_repo / github_user / rss，支持 dict 或 `type:id:url` 字符串）与 `fetch_watchlist` 抓取（来源标记 `watchlist/`），关注对象自动进入漫游选题；实体图 URL 节点标记 `watched`；WebUI 新增“关注”tab（`GET /watchlist`）展示关注项与近期更新，状态卡/时间轴随关注短记自然可见。
+
+### Notes
+
+- 测试：225 passed（skipped=1；新增 watchlist 解析、关注短记查询、HTML 标题/描述解析、实体 watched 标记、WebUI 接口与路由）；JS 语法检查与 Playwright 关注 tab 桌面/移动无溢出通过。
+- 调研：DuckDuckGo 检索（2026-08-12）personal watchlist / feed curation 相关文章标题（如 "Your Watchlist, Curated: How a Personalized Feed Replaces the Morning..."）；采纳持续关注源进入选题候选，未细读原文，结论按推测性借鉴标注。
+
 ## [0.5.8] - 2026-08-12
 
 ### Added
