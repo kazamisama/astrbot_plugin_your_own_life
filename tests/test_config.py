@@ -150,10 +150,13 @@ class ConfigTest(unittest.TestCase):
         cfg = load_config({})
         self.assertEqual(cfg.revisit_days, [7, 30])
         self.assertEqual(cfg.revisit_probability, 0.5)
+        self.assertEqual(cfg.revisit_interval_days, 30)
         cfg = load_config({"revisit_days": ["14", "30", "0"], "revisit_probability": "0.8"})
         self.assertEqual(cfg.revisit_days, [14, 30])
         self.assertEqual(cfg.revisit_probability, 0.8)
         self.assertEqual(load_config({"revisit_probability": "9"}).revisit_probability, 1.0)
+        self.assertEqual(load_config({"revisit_interval_days": "0"}).revisit_interval_days, 1)
+        self.assertEqual(load_config({"revisit_interval_days": "45"}).revisit_interval_days, 45)
 
     def test_rest_probability_config(self):
         self.assertEqual(load_config({}).rest_probability, 0.1)

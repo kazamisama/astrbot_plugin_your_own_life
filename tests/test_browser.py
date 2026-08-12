@@ -21,8 +21,9 @@ from life.persona import PersonaPrompt, PersonaUnavailable
 
 
 class _FakeLLM:
-    def __init__(self, payload=None, error=None):
+    def __init__(self, payload=None, error=None, payloads=None):
         self.payload = payload
+        self.payloads = list(payloads or [])
         self.error = error
         self.calls = 0
         self.prompts: list[str] = []
@@ -36,6 +37,8 @@ class _FakeLLM:
             raise self.error
         if on_usage is not None:
             on_usage(None)
+        if self.payloads:
+            return self.payloads[min(self.calls - 1, len(self.payloads) - 1)]
         return self.payload
 
     async def chat_json(self, prompt, retries=2):
@@ -396,6 +399,111 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["revisit_notes"], 0)
         diary = self.db.get_diary("shelly", datetime.now().strftime("%Y-%m-%d"))
         self.assertEqual(diary["content"], "今天没出门。没有特别的见闻，只是安静地待着。")
+
+    async def test_run_revisit_writes_later_note_and_event(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 23, 0)
+        old_id = self.db.add_note(
+            "shelly", None, "hn", "https://old", "Old title", "Old summary",
+            opinion="Old opinion", interest_key="ai", interest_name="AI",
+            category="opinion", url_hash="rv-b1",
+        )
+        self.db._execute("UPDATE notes SET fetched_at = ? WHERE id = ?", ("2026-07-13 10:00:00", old_id))
+        self.service.config.revisit_interval_days = 30
+        self.service.llm = _FakeLLM(payload={
+            "title": "Later title",
+            "summary": "Later summary about the same link",
+            "opinion": "Changed my mind a little",
+            "mood": "calm",
+            "interest_level": 0.6,
+            "tags": ["later"],
+        })
+        result = await self.service.run_revisit("shelly")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["candidates"], 1)
+        self.assertEqual(result["revisited"], 1)
+        notes = self.db.list_notes_by_url_hash("shelly", "rv-b1")
+        self.assertEqual(len(notes), 2)
+        later = self.db.get_note(notes[0]["id"])
+        self.assertEqual(later["revisit_of"], old_id)
+        self.assertEqual(later["title"], "Later title")
+        self.assertTrue(later["source"].startswith("revisit/"))
+        events = [e for e in self.db.list_events("shelly") if e["kind"] == "revisit"]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(json.loads(events[0]["payload"])["original_id"], old_id)
+        self.assertEqual(events[0]["idempotency_key"], f"revisit/{old_id}")
+        prompt = self.service.llm.prompts[-1]
+        self.assertIn("原短记", prompt)
+        self.assertIn("Old title", prompt)
+
+    async def test_run_revisit_skips_already_revisited_note(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 23, 0)
+        old_id = self.db.add_note(
+            "shelly", None, "hn", "https://old", "Old", "s", url_hash="rv-b2"
+        )
+        self.db._execute("UPDATE notes SET fetched_at = ? WHERE id = ?", ("2026-07-01 10:00:00", old_id))
+        later_id = self.db.add_note(
+            "shelly", None, "revisit/hn", "https://old", "Later", "s", url_hash="rv-b2"
+        )
+        self.db.mark_note_revisit(later_id, old_id)
+        self.service.config.revisit_interval_days = 30
+        result = await self.service.run_revisit("shelly")
+        self.assertEqual(result["candidates"], 0)
+        self.assertEqual(result["revisited"], 0)
+
+    async def test_run_revisit_budget_exhausted_skips(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 23, 0)
+        self.db.add_note(
+            "shelly", None, "hn", "https://old", "Old", "s", url_hash="rv-b3"
+        )
+        self.db._execute(
+            "UPDATE notes SET fetched_at = ? WHERE url_hash = ?",
+            ("2026-07-13 10:00:00", "rv-b3"),
+        )
+        self.service.config.revisit_interval_days = 30
+        self.service.config.daily_llm_call_limit = 1
+        self.db.increment_llm_usage("shelly", "2026-08-12", calls=1)
+        result = await self.service.run_revisit("shelly")
+        self.assertEqual(result["candidates"], 1)
+        self.assertEqual(result["revisited"], 0)
+        notes = self.db.list_notes_by_url_hash("shelly", "rv-b3")
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(notes[0]["revisit_of"], 0)
+        snapshots = self.db.list_state_snapshots("shelly")
+        self.assertEqual(snapshots[0]["activity"], "revisit_skipped")
+
+    async def test_nightly_diary_runs_revisit(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 23, 0)
+        self.db.add_note(
+            "shelly", None, "hn", "https://today", "Today", "s", url_hash="rv-today"
+        )
+        old_id = self.db.add_note(
+            "shelly", None, "hn", "https://old", "Old", "s", url_hash="rv-b4"
+        )
+        self.db._execute("UPDATE notes SET fetched_at = ? WHERE id = ?", ("2026-07-13 10:00:00", old_id))
+        self.service.config.revisit_interval_days = 30
+        self.service.rng = random.Random(1)
+        self.service.config.revisit_probability = 0
+        self.service.llm = _FakeLLM(payloads=[
+            {
+                "diary_text": "今天安静地待着。",
+                "signature": "",
+                "mood": "calm",
+                "interest_updates": {},
+            },
+            {
+                "title": "Later title",
+                "summary": "Later summary",
+                "opinion": "Still thinking",
+                "mood": "curious",
+                "interest_level": 0.5,
+            },
+        ])
+        result = await self.service.run_nightly_diary("shelly")
+        self.assertFalse(result.get("error"))
+        self.assertEqual(result["revisit_candidates"], 1)
+        self.assertEqual(result["revisited"], 1)
+        later = self.db.list_notes_by_url_hash("shelly", "rv-b4")[0]
+        self.assertEqual(later["revisit_of"], old_id)
 
     async def test_diary_llm_failure_does_not_write_diary(self):
         self.db.add_note("shelly", None, "hn", "https://x", "X", "s", url_hash="dx")

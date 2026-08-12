@@ -102,12 +102,14 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(len(self.db.list_notes("shelly")), 1)
         self.assertEqual(len(self.db.list_notes("alice")), 1)
 
-    def test_note_dedupe_per_persona(self):
-        self.db.add_note("shelly", None, "hacker-news", "https://example.com/a", "A", "s", url_hash="hash-a")
-        second = self.db.add_note("shelly", None, "hacker-news", "https://example.com/a", "A", "s", url_hash="hash-a")
+    def test_note_duplicate_url_hash_allowed_for_revisit(self):
+        first = self.db.add_note("shelly", None, "hacker-news", "https://example.com/a", "A", "s", url_hash="hash-a")
+        second = self.db.add_note("shelly", None, "revisit/hacker-news", "https://example.com/a", "A2", "s", url_hash="hash-a")
         other = self.db.add_note("alice", None, "hacker-news", "https://example.com/a", "A", "s", url_hash="hash-a")
-        self.assertIsNone(second)
+        self.assertIsNotNone(first)
+        self.assertIsNotNone(second)
         self.assertIsNotNone(other)
+        self.assertEqual(len(self.db.list_notes_by_url_hash("shelly", "hash-a")), 2)
 
     def test_note_category_and_share_decision(self):
         note_id = self.db.add_note(
@@ -136,6 +138,68 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["title"], "W")
         self.assertEqual(self.db.list_watched_notes("alice"), [])
+
+    def test_revisit_candidates_and_chains(self):
+        old_id = self.db.add_note("shelly", None, "hn", "https://old", "Old", "s", url_hash="rv-old")
+        fresh_id = self.db.add_note("shelly", None, "hn", "https://new", "New", "s", url_hash="rv-new")
+        self.db._execute("UPDATE notes SET fetched_at = ? WHERE id = ?", ("2026-07-13 10:00:00", old_id))
+        self.db._execute("UPDATE notes SET fetched_at = ? WHERE id = ?", ("2026-08-13 10:00:00", fresh_id))
+        candidates = self.db.list_revisit_candidates("shelly", "2026-08-12", limit=10)
+        self.assertEqual([row["id"] for row in candidates], [old_id])
+        revisit_id = self.db.add_note("shelly", None, "revisit/hn", "https://old", "Later", "s", url_hash="rv-old")
+        self.assertTrue(self.db.mark_note_revisit(revisit_id, old_id))
+        self.assertEqual(self.db.list_revisit_candidates("shelly", "2026-08-12", limit=10), [])
+        follow_ups = self.db.list_notes_by_url_hash("shelly", "rv-old", exclude_id=old_id)
+        self.assertEqual([row["id"] for row in follow_ups], [revisit_id])
+        chains = self.db.list_revisit_chains("shelly")
+        self.assertEqual([row["id"] for row in chains], [old_id, revisit_id])
+        self.assertEqual(self.db.list_revisit_chains("alice"), [])
+
+    def test_notes_unique_index_migration_allows_revisit_rows(self):
+        db_path = Path(self.tmp.name) / "old_unique.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("""
+            CREATE TABLE notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                persona_id TEXT NOT NULL DEFAULT 'default',
+                session_id INTEGER,
+                fetched_at TEXT NOT NULL,
+                source TEXT NOT NULL,
+                url TEXT NOT NULL,
+                title TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                opinion TEXT DEFAULT '',
+                mood TEXT DEFAULT '',
+                interest_level REAL DEFAULT 0.5,
+                interest_key TEXT DEFAULT '',
+                interest_name TEXT DEFAULT '',
+                category TEXT DEFAULT 'other',
+                tags TEXT DEFAULT '[]',
+                share_decision TEXT DEFAULT '',
+                share_status TEXT DEFAULT '',
+                url_hash TEXT NOT NULL,
+                deleted_at TEXT DEFAULT '',
+                temperature REAL NOT NULL DEFAULT 1.0,
+                last_touched_at TEXT DEFAULT '',
+                UNIQUE(persona_id, url_hash)
+            )
+        """)
+        conn.execute(
+            "INSERT INTO notes (persona_id, fetched_at, source, url, title, summary, url_hash) "
+            "VALUES ('default', '2026-07-13 10:00:00', 'hn', 'https://x', 'X', 's', 'h1')"
+        )
+        conn.commit()
+        conn.close()
+        migrated = LifeDB(db_path)
+        try:
+            second = migrated.add_note(
+                "default", None, "revisit/hn", "https://x", "X2", "s", url_hash="h1"
+            )
+            self.assertIsNotNone(second)
+            rows = migrated.list_notes_by_url_hash("default", "h1")
+            self.assertEqual(len(rows), 2)
+        finally:
+            migrated.close()
 
     def test_note_temperature_decay_and_rehydrate(self):
         cold = self.db.add_note("shelly", None, "hn", "https://cold", "Cold", "s", url_hash="cold-t")

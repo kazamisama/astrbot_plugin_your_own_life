@@ -285,6 +285,7 @@ class LifeConfig:
     signature_enabled: bool = True
     revisit_days: list[int] = field(default_factory=lambda: [7, 30])
     revisit_probability: float = 0.5
+    revisit_interval_days: int = 30
     rest_probability: float = 0.1
     time_slots: dict[str, dict[str, Any]] = field(default_factory=dict)
     peek_times: list[str] = field(default_factory=lambda: ["09:00", "13:00", "17:00", "21:00"])
@@ -374,6 +375,7 @@ def load_config(cfg: Any) -> LifeConfig:
         signature_enabled=_as_bool(_get(cfg, "signature_enabled"), True),
         revisit_days=_as_int_list(_get(cfg, "revisit_days"), [7, 30]),
         revisit_probability=max(0.0, min(1.0, _as_float(_get(cfg, "revisit_probability"), 0.5))),
+        revisit_interval_days=max(1, _as_int(_get(cfg, "revisit_interval_days"), 30)),
         rest_probability=max(0.0, min(1.0, _as_float(_get(cfg, "rest_probability"), 0.1))),
         time_slots=_parse_time_slots(_get(cfg, "time_slots")),
         peek_times=_as_list(_get(cfg, "peek_times"), ["09:00", "13:00", "17:00", "21:00"]),

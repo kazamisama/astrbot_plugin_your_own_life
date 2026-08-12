@@ -2,6 +2,15 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L2-11 故地重游落地 + L2 全部完成（v0.5.10）
+
+- 目标：定期重访旧短记链接，写“后来呢”，并完成 L2 最后一个阶段。
+- 已确认决策：新增 `revisit_interval_days`（默认 30，最小 1）；夜间复盘在胶囊处理后调用 `run_revisit`：按阈值选未重访旧短记（`list_revisit_candidates`，排除已有重访的），LLM 以“后来呢”视角生成 `title/summary/opinion/mood`，新短记 `source=revisit/*` 复用原 URL hash 并 `mark_note_revisit` 指向原短记；`notes` 去掉 `UNIQUE(persona_id, url_hash)` 并新增 `idx_notes_persona_url`，旧库启动自动重建迁移；`revisit` 事件幂等键 `revisit/{original_id}`（失败用 `.../failed`），预算耗尽停止并写 `revisit_skipped` 快照；WebUI 新增 `GET /revisit_chains` 与“故地重游”tab 串联原短记/后续短记。
+- 改动：`life/db.py`（`revisit_of` 列 + `_migrate_notes_unique` 表重建 + `list_revisit_candidates / list_notes_by_url_hash / mark_note_revisit / list_revisit_chains` + `commit_staged(None)` 返回查询修复）、`life/config.py`、`_conf_schema.json`、`life/prompts.py`（`build_revisit_prompt`）、`life/browser.py`（`run_revisit` + 夜间接入）、`life/webui.py`（`/revisit_chains`）、`pages/life/index.html`（tab + 列表）、`tests/test_db.py`、`tests/test_config.py`、`tests/test_browser.py`、`tests/test_webui.py`；版本 v0.5.9 → v0.5.10；README / CHANGELOG / features.md L2-11 与 L2 小结 / design.md / roadmap.md / requirements.md 兼容矩阵同步。
+- 验证：unittest 232 passed（skipped=1；重访候选/同链接查询/标记/链查询、旧库唯一约束迁移、`revisit_interval_days` 默认与 clamp、`run_revisit` 生成/幂等跳过/预算跳过、夜间复盘接入、WebUI 接口与路由）；HTML 内联 JS `node --check` 通过；Playwright 故地重游 tab 桌面 1280x900 / 移动 390x844 渲染、链内容与无横向溢出通过。
+- 遗留：重访短记不更新兴趣权重（轻动作，刻意不做）；统一记忆宿主侧的 `revisit_of` 仅作为 note 字段透传，宿主无专门重访链查询。
+- 下一步：提交 `chore(release): v0.5.10 落地 L2-11 故地重游`；L1/L1.5/L2 全部完成后，推送需用户确认（当前 own_life 领先 origin/main 33 个提交，ESM 1 个，engram_core 2 个，均未推送）。
+
 ## 2026-08-12 L2-10 关注对象落地（v0.5.9）
 
 - 目标：主人配置持续关注名单（博客、GitHub 用户/项目、RSS），形成追更感。

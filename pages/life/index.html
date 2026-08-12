@@ -122,6 +122,13 @@ select, input[type="date"], input[type="text"] {
   border-bottom: 1px solid var(--line);
   overflow-wrap: anywhere;
 }
+.revisit-follow {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.revisit-follow strong { font-weight: 600; margin-right: 6px; }
 .note-list li:last-child, .interest-list li:last-child, .log-list li:last-child { border-bottom: 0; }
 .note-title { font-weight: 600; }
 .note-src { color: var(--muted); font-size: 12px; }
@@ -232,6 +239,7 @@ select, input[type="date"], input[type="text"] {
     <button class="tab" data-tab="reviews">回顾</button>
     <button class="tab" data-tab="edits">改动</button>
     <button class="tab" data-tab="watch">关注</button>
+    <button class="tab" data-tab="revisit">故地重游</button>
   </nav>
 
   <section id="tab-life">
@@ -421,6 +429,18 @@ select, input[type="date"], input[type="text"] {
       <div id="watchEmpty" class="empty" hidden>还没有配置关注对象。</div>
     </div>
   </section>
+
+  <section id="tab-revisit" hidden>
+    <div class="stats">
+      <div class="stat"><span class="label">重访链</span><span class="value" id="revisitCount">-</span></div>
+      <div class="stat"><span class="label">后续短记</span><span class="value" id="revisitNotes">-</span></div>
+      <div class="stat"><span class="label">间隔天数</span><span class="value" id="revisitInterval">-</span></div>
+    </div>
+    <div class="panel">
+      <ul class="note-list" id="revisitList"></ul>
+      <div id="revisitEmpty" class="empty" hidden>还没有故地重游记录。旧短记超过 revisit_interval_days 后会在夜间自动重访。</div>
+    </div>
+  </section>
 </div>
 
 <script>
@@ -535,6 +555,7 @@ function switchTab(name) {
   document.getElementById("tab-reviews").hidden = name !== "reviews";
   document.getElementById("tab-edits").hidden = name !== "edits";
   document.getElementById("tab-watch").hidden = name !== "watch";
+  document.getElementById("tab-revisit").hidden = name !== "revisit";
   if (name === "memory") { loadMemory(); loadWishlist(); }
   if (name === "share") loadShare();
   if (name === "timeline") { renderTimelineFilters(); loadTimeline(true); }
@@ -545,6 +566,7 @@ function switchTab(name) {
   if (name === "reviews") loadReviews();
   if (name === "edits") loadLifeEdits();
   if (name === "watch") loadWatchlist();
+  if (name === "revisit") loadRevisits();
 }
 
 function loadPersonas() {
@@ -1198,6 +1220,7 @@ function load() {
     if (state.tab === "reviews") loadReviews();
     if (state.tab === "edits") loadLifeEdits();
     if (state.tab === "watch") loadWatchlist();
+    if (state.tab === "revisit") loadRevisits();
   });
 }
 
@@ -1455,6 +1478,74 @@ function loadWatchlist() {
       });
     })
     .catch(function () { showError("关注对象加载失败。"); });
+}
+
+function loadRevisits() {
+  var list = document.getElementById("revisitList");
+  fetch(API + "/revisit_chains?" + qs({ persona: state.persona }),
+        { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var chains = data.chains || [];
+      var followUps = 0;
+      chains.forEach(function (c) { followUps += (c.follow_ups || []).length; });
+      document.getElementById("revisitCount").textContent = chains.length;
+      document.getElementById("revisitNotes").textContent = followUps;
+      document.getElementById("revisitInterval").textContent =
+        data.revisit_interval_days || "-";
+      document.getElementById("revisitEmpty").hidden = chains.length > 0;
+      list.textContent = "";
+      chains.forEach(function (chain) {
+        var li = document.createElement("li");
+        var line = document.createElement("div");
+        var title = document.createElement("strong");
+        title.textContent = chain.title || chain.url || "-";
+        line.appendChild(title);
+        var chip = document.createElement("span");
+        chip.className = "chip";
+        chip.textContent = "原";
+        line.appendChild(chip);
+        li.appendChild(line);
+        if (chain.summary) {
+          var summary = document.createElement("div");
+          summary.textContent = chain.summary;
+          li.appendChild(summary);
+        }
+        var meta = document.createElement("div");
+        meta.className = "empty";
+        meta.textContent = chain.source + " · " + (chain.fetched_at || "");
+        li.appendChild(meta);
+        (chain.follow_ups || []).forEach(function (note) {
+          var follow = document.createElement("div");
+          follow.className = "revisit-follow";
+          var followTitle = document.createElement("strong");
+          followTitle.textContent = note.title || note.url || "-";
+          follow.appendChild(followTitle);
+          var chip2 = document.createElement("span");
+          chip2.className = "chip";
+          chip2.textContent = "后来呢";
+          follow.appendChild(chip2);
+          if (note.summary) {
+            var text = document.createElement("div");
+            text.textContent = note.summary;
+            follow.appendChild(text);
+          }
+          var followMeta = document.createElement("div");
+          followMeta.className = "empty";
+          followMeta.textContent = note.source + " · " + (note.fetched_at || "");
+          follow.appendChild(followMeta);
+          li.appendChild(follow);
+        });
+        if (chain.url) {
+          var url = document.createElement("div");
+          url.className = "empty";
+          url.textContent = chain.url;
+          li.appendChild(url);
+        }
+        list.appendChild(li);
+      });
+    })
+    .catch(function () { showError("故地重游加载失败。"); });
 }
 
 function loadEntities() {

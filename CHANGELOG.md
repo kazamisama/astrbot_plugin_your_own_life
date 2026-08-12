@@ -2,6 +2,21 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.10] - 2026-08-12
+
+### Added
+
+- L2-11 故地重游：新增 `revisit_interval_days`（默认 30）；夜间复盘自动重访超期且未被重访过的旧短记，LLM 以“后来呢”视角生成新短记并标记 `revisit_of`；`notes` 去掉 `UNIQUE(persona_id, url_hash)`（含旧库自动迁移）以支持同链接多次记录；WebUI 新增“故地重游”tab 与 `GET /revisit_chains`，原短记与后续短记可串联查看。
+
+### Changed
+
+- `notes` 表唯一约束迁移：旧库在启动时自动重建表并去掉 url_hash 唯一约束，历史数据原样保留。
+
+### Notes
+
+- 测试：232 passed（skipped=1；新增重访候选/同链接查询/标记、旧库唯一约束迁移、`revisit_interval_days` 配置、`run_revisit` 生成/幂等/预算跳过、夜间复盘接入、WebUI 重访链接口与路由）；JS 语法检查通过；Playwright 故地重游 tab 桌面 1280x900 / 移动 390x844 渲染、链内容与无横向溢出通过。
+- 调研：复用此前 L2 系列的个人记忆/回顾类检索结论；revisit 语义与 L1-02 旧事新感区分（日记回看 vs 链接级重访）。
+
 ## [0.5.9] - 2026-08-12
 
 ### Added

@@ -237,6 +237,36 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         return {"ok": row is not None, "log_id": log_id,
                 "status": "rolled_back" if row else "unchanged"}
 
+    async def revisit_chains():
+        args = await _query_args()
+        persona = str(args.get("persona") or _first_persona(config))
+        rows = db.list_revisit_chains(persona, limit=500)
+        chains: list[dict] = []
+        current: dict | None = None
+        current_follow_ups: list[dict] = []
+        for note in rows:
+            if note.get("revisit_of"):
+                current_follow_ups.append(note)
+                continue
+            if current is not None:
+                current["follow_ups"] = current_follow_ups
+                chains.append(current)
+            current = {
+                "id": note["id"],
+                "title": note.get("title") or "",
+                "summary": note.get("summary") or "",
+                "url": note.get("url") or "",
+                "source": note.get("source") or "",
+                "fetched_at": note.get("fetched_at") or "",
+                "follow_ups": [],
+            }
+            current_follow_ups = []
+        if current is not None:
+            current["follow_ups"] = current_follow_ups
+            chains.append(current)
+        return {"chains": chains, "count": len(chains),
+                "revisit_interval_days": getattr(config, "revisit_interval_days", 30)}
+
     async def watchlist():
         args = await _query_args()
         persona = str(args.get("persona") or _first_persona(config))
@@ -472,6 +502,7 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         "life_edits_approve": life_edits_approve,
         "life_edits_reject": life_edits_reject,
         "life_edits_rollback": life_edits_rollback,
+        "revisit_chains": revisit_chains,
         "watchlist": watchlist,
         "entities": entities,
         "entity_appears_on": entity_appears_on,
@@ -505,6 +536,7 @@ def register_api(context: Any, db: Any, service: Any, share_gate: Any,
         (f"{API_PREFIX}/life_edits_approve", "life_edits_approve", ["POST"], "Approve pending LLM edit"),
         (f"{API_PREFIX}/life_edits_reject", "life_edits_reject", ["POST"], "Reject pending LLM edit"),
         (f"{API_PREFIX}/life_edits_rollback", "life_edits_rollback", ["POST"], "Roll back an applied edit"),
+        (f"{API_PREFIX}/revisit_chains", "revisit_chains", ["GET"], "Revisit chains"),
         (f"{API_PREFIX}/watchlist", "watchlist", ["GET"], "Watched sources and updates"),
         (f"{API_PREFIX}/entities", "entities", ["GET"], "Life entity graph"),
         (f"{API_PREFIX}/entity_appears_on", "entity_appears_on", ["GET"], "Where an entity appears"),

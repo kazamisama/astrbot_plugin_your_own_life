@@ -151,6 +151,24 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(data["notes"]), 1)
         self.assertEqual(data["notes"][0]["title"], "Watched")
 
+    async def test_revisit_chains_handler(self):
+        old_id = self.db.add_note(
+            "shelly", None, "hn", "https://old", "Old", "s", url_hash="rv-api"
+        )
+        later_id = self.db.add_note(
+            "shelly", None, "revisit/hn", "https://old", "Later", "s", url_hash="rv-api"
+        )
+        self.db.mark_note_revisit(later_id, old_id)
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=None, config=self.config)
+        data = await handlers["revisit_chains"]()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["revisit_interval_days"], 30)
+        chain = data["chains"][0]
+        self.assertEqual(chain["id"], old_id)
+        self.assertEqual(len(chain["follow_ups"]), 1)
+        self.assertEqual(chain["follow_ups"][0]["title"], "Later")
+
     async def test_usage_handler(self):
         self.db.increment_llm_usage("shelly", "2026-08-12", calls=2, tokens=10)
         handlers = build_handlers(self.db, service=None, share_gate=None,
@@ -262,7 +280,8 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/astrbot_plugin_your_own_life/api/life_edits_reject", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/life_edits_rollback", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/watchlist", routes)
-        self.assertEqual(len(routes), 33)
+        self.assertIn("/astrbot_plugin_your_own_life/api/revisit_chains", routes)
+        self.assertEqual(len(routes), 34)
 
 
 if __name__ == "__main__":

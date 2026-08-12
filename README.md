@@ -34,6 +34,7 @@
 - LLM 自主更改与回滚（v0.5.7）：`edit_life_memory` 按 `life_edit_allowed` 白名单改短记/兴趣，越界需 owner 确认；WebUI“改动”tab 可批准、拒绝、回滚并审计。
 - 多实例租约（v0.5.8）：配置 `memory_host` 后调度器经统一宿主 claim/release 租约串行化同人格任务，拿不到租约跳过；未配置时回退本地 SQLite 租约。
 - 关注对象（v0.5.9）：`watchlist` 配置博客/GitHub 项目/用户/RSS，进入漫游选题；实体图标记 watched，WebUI“关注”tab 查看近期更新。
+- 故地重游（v0.5.10）：旧短记超过 `revisit_interval_days` 后夜间自动重访链接，LLM 写“后来呢”短记并引用原短记；WebUI“故地重游”tab 可串联查看原短记与后续状态。
 - 摘要优先：只持久化摘要、观点与链接，不保存网页原文。
 - 生态联动（现状 v0.3.0）：可选接入 ESM 读取精力/情绪、施加信号；缺失时静默降级；v0.4.4 起精力消费缺失时显式记录本地估算，不再默认降级。
 
@@ -71,6 +72,7 @@
 - `lease_ttl_seconds`：同人格任务租约 TTL（默认 300 秒），多实例共享 SQLite 时保证单写者。
 - `signature_enabled`：夜间复盘生成今日签名（默认开）。
 - `revisit_days` / `revisit_probability`：旧事新感回看天数（默认 `[7, 30]`）与触发概率（默认 0.5）。
+- `revisit_interval_days`：故地重游间隔天数（默认 30）；旧短记到期后夜间自动生成“后来呢”短记。
 - `rest_probability`：定时漫游随机跳过概率（默认 0.1），写 `skipped_rest` 快照；手动 `/life_now` 不受影响。
 - `time_slots`：时段模式（morning/afternoon/evening/night 各项含 topics/tone）；缺省时使用内置默认语气。
 - `peek_times` / `peek_daily_cap`：轻接触时间（默认 09:00/13:00/17:00/21:00）与每日上限（0 = 不限制）；peek 不调用 LLM、不写短记。

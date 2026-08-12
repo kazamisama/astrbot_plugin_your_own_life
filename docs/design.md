@@ -434,6 +434,7 @@ LLM 可自主更改生活数据/计划/记忆，按事件链自主排期，并�
 - LLM 自主更改与回滚（v0.5.7 已落地）：`life_edit_allowed` 白名单内 LLM 可直接改 note/interest，越界落 `pending_owner`；`change_log` 记录 old/new，owner 在 WebUI 批准/拒绝/回滚，回滚追加审计条目并写事件链。
 - 多实例租约（v0.5.8 已落地）：配置 `memory_host` 后调度器经宿主 `claim_task / release_task` 串行化同人格任务（TTL `memory_lease_ttl_seconds`），拿不到租约跳过；未配置时回退本地 SQLite 租约。
 - 关注对象（v0.5.9 已落地）：`watchlist` 配置 blog / GitHub repo / user / RSS，抓取结果带 `watchlist/` 来源进入漫游选题；实体图 URL 节点标记 watched，WebUI 关注 tab 展示关注项与近期更新。
+- 故地重游（v0.5.10 已落地）：`notes` 新增 `revisit_of`（默认 0）并去掉 `UNIQUE(persona_id, url_hash)`（旧库启动自动重建迁移）；夜间复盘按 `revisit_interval_days`（默认 30）选未重访的旧短记，LLM 以“后来呢”视角写新短记（`source=revisit/*`）并标记指向原短记；`revisit` 事件幂等键 `revisit/{original_id}`；WebUI 新增故地重游 tab 与 `GET /revisit_chains` 串联查看。
 - 连续性：每次决策记录 `context_refs`（引用了哪些事件/记忆），下次决策能看到上次引用链；center state 作为人格锚。
 - 检查点：每日/每周生成结构化 life summary，事件链可重放重建，防长窗口漂移。
 
@@ -452,7 +453,7 @@ LLM 可自主更改生活数据/计划/记忆，按事件链自主排期，并�
 
 ## WebUI 与 API
 
-页面由 AstrBot Dashboard 自动发现（`pages/life/index.html`），数据接口统一挂在 `/api/plug/astrbot_plugin_your_own_life/api/...`：overview、status、timeline/heatmap、archive、interests、run、memory、memory_search、usage、trash、trash_restore、change_log、injection_log、personas、persona_refresh、share、share_note，访问需要 Dashboard 登录态。
+页面由 AstrBot Dashboard 自动发现（`pages/life/index.html`），数据接口统一挂在 `/api/plug/astrbot_plugin_your_own_life/api/...`：overview、status、timeline/heatmap、archive、interests、run、memory、memory_search、usage、trash、trash_restore、change_log、injection_log、personas、persona_refresh、share、share_note、revisit_chains，访问需要 Dashboard 登录态。
 
 页面视觉层（v0.3.1）：状态卡行、月历热力图、全局错误横幅、空态提示与加载态已落地；桌面/移动视口均无元素重叠，保持 vanilla HTML/CSS/JS，不引入外部前端依赖。
 

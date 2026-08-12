@@ -239,6 +239,12 @@
     "hint": "触发后随机选 revisit_days 中的一天，把当天短记作为回看素材",
     "default": 0.5
   },
+  "revisit_interval_days": {
+    "type": "int",
+    "description": "故地重游间隔天数",
+    "hint": "超过该天数且未被重访过的旧短记，会在夜间复盘时生成“后来呢”新短记并串联原链接",
+    "default": 30
+  },
   "rest_probability": {
     "type": "float",
     "description": "随机不出门概率（0-1）",

@@ -27,6 +27,7 @@ from life.prompts import (
     build_plan_prompt,
     build_quarterly_prompt,
     build_review_prompt,
+    build_revisit_prompt,
     build_select_prompt,
     build_wishlist_eval_prompt,
 )
@@ -851,12 +852,16 @@ class LifeService:
             self.interests.daily_decay(persona_id)
             wishlist_eval = await self._evaluate_wishlist(persona_id, persona.system_prompt)
             capsule_result = await self.run_capsules(persona_id)
+            revisit_result = await self.run_revisit(persona_id)
             return {"date": date, "notes": len(notes), "fallback": False,
                     "revisit_day": revisit_day, "revisit_notes": len(raw_revisit_notes),
                     "wishlist_promoted": wishlist_eval["promoted"],
                     "wishlist_discarded": wishlist_eval["discarded"],
                     "capsules_opened": capsule_result["opened"],
-                    "capsules_replied": capsule_result["replied"]}
+                    "capsules_replied": capsule_result["replied"],
+                    "revisit_candidates": revisit_result.get("candidates", 0),
+                    "revisited": revisit_result.get("revisited", 0),
+                    "revisit_failed": revisit_result.get("failed", 0)}
         except Exception as exc:
             self.log.exception("nightly diary failed for %s", persona_id)
             self.db.discard_staged(persona_id, None, repr(exc))
@@ -1298,6 +1303,159 @@ class LifeService:
             "persona_id": persona_id, "ok": True,
             "opened": opened, "replied": replied, "failed": failed,
         }
+
+    async def run_revisit(self, persona_id: str) -> dict[str, Any]:
+        """Nightly light action: revisit old links and write a "what happened next" note."""
+        try:
+            persona = await self._resolve_persona(persona_id)
+        except PersonaUnavailable:
+            return {"persona_id": persona_id, "ok": False,
+                    "error": "persona_unavailable"}
+        now = local_now(self.config.timezone, self.now_fn())
+        today = now.strftime("%Y-%m-%d")
+        threshold = (
+            now - timedelta(days=max(1, int(self.config.revisit_interval_days)))
+        ).strftime("%Y-%m-%d")
+        candidates = self.db.list_revisit_candidates(
+            persona_id, threshold, limit=5
+        )
+        if not candidates:
+            return {"persona_id": persona_id, "ok": True,
+                    "candidates": 0, "revisited": 0, "failed": 0}
+        staged: list[tuple[dict, dict]] = []
+        revisited = 0
+        failed = 0
+        for original in candidates:
+            follow_ups = self.db.list_notes_by_url_hash(
+                persona_id,
+                str(original.get("url_hash") or ""),
+                exclude_id=int(original["id"]),
+                limit=10,
+            )
+            prompt = build_revisit_prompt(
+                persona.system_prompt, persona_id,
+                {
+                    "title": sanitize_text(original.get("title"), 300),
+                    "summary": sanitize_text(original.get("summary"), 600),
+                    "opinion": sanitize_text(original.get("opinion"), 600),
+                    "url": original.get("url") or "",
+                    "fetched_at": original.get("fetched_at") or "",
+                },
+                [
+                    {
+                        "title": sanitize_text(note.get("title"), 300),
+                        "summary": sanitize_text(note.get("summary"), 600),
+                        "opinion": sanitize_text(note.get("opinion"), 600),
+                        "url": note.get("url") or "",
+                        "fetched_at": note.get("fetched_at") or "",
+                    }
+                    for note in follow_ups
+                ],
+            )
+            try:
+                payload = await self._llm_call(persona_id, prompt)
+                summary = str(payload.get("summary") or "").strip()
+                title = str(payload.get("title") or "").strip()
+                if not summary or not title:
+                    raise LLMError("revisit LLM 未返回标题或正文")
+                staged.append((original, payload))
+            except BudgetExhausted as exc:
+                failed += 1
+                self.db.add_state_snapshot(
+                    persona_id, "revisit_skipped", self.esm.get_energy(persona_id), "",
+                    extra=json.dumps(
+                        {"reason": "budget_exhausted",
+                         "original_id": int(original["id"])},
+                        ensure_ascii=False,
+                    ),
+                )
+                break
+            except LLMError as exc:
+                failed += 1
+                self.log.warning("revisit failed for %s: %s", persona_id, exc)
+                self.db.append_event(
+                    persona_id, "revisit",
+                    {"original_id": int(original["id"]),
+                     "status": "failed", "reason": str(exc)},
+                    [{"note_id": int(original["id"]),
+                      "url": original.get("url") or ""}],
+                    f"revisit/{int(original['id'])}/failed",
+                )
+        if not staged:
+            return {"persona_id": persona_id, "ok": True,
+                    "candidates": len(candidates), "revisited": 0,
+                    "failed": failed}
+        self.db.stage_snapshot(
+            persona_id, None, "revisit", self.esm.get_energy(persona_id),
+            extra=json.dumps({"count": len(staged)}, ensure_ascii=False),
+        )
+        for original, payload in staged:
+            key = str(original.get("interest_key") or "uncategorized")
+            name = str(original.get("interest_name") or key)
+            self.db.stage_note(
+                persona_id,
+                None,
+                source="revisit/" + str(original.get("source") or "archive"),
+                url=str(original.get("url") or ""),
+                title=sanitize_text(payload.get("title"), 300),
+                summary=sanitize_text(payload.get("summary"), 600),
+                opinion=sanitize_text(payload.get("opinion"), 600),
+                mood=self._valid_mood(payload.get("mood"), "calm"),
+                interest_level=_clamp(payload.get("interest_level", 0.5)),
+                interest_key=key,
+                interest_name=name,
+                category=self._valid_category(original.get("category")),
+                tags=self._valid_tags(payload.get("tags")),
+                url_hash=str(original.get("url_hash") or ""),
+            )
+            self.db.stage_seen(persona_id, None, str(original.get("url_hash") or ""))
+        committed = self.db.commit_staged(persona_id, None, status="completed")
+        new_notes = committed[-len(staged):] if staged else []
+        for (original, payload), note in zip(staged, new_notes):
+            self.db.mark_note_revisit(int(note["id"]), int(original["id"]))
+            self.db.append_event(
+                persona_id, "revisit",
+                {"original_id": int(original["id"]),
+                 "note_id": int(note["id"]),
+                 "url": original.get("url") or "",
+                 "title": sanitize_text(payload.get("title"), 300),
+                 "source": "revisit/" + str(original.get("source") or "archive")},
+                [{"note_id": int(original["id"]),
+                  "url": original.get("url") or ""}],
+                f"revisit/{int(original['id'])}",
+            )
+            if self.memory is not None and self.config.memory_host:
+                try:
+                    self.memory.add_note(
+                        persona_id,
+                        {
+                            "summary": sanitize_text(payload.get("summary"), 600),
+                            "opinion": sanitize_text(payload.get("opinion"), 600),
+                            "url": original.get("url") or "",
+                            "url_hash": original.get("url_hash") or "",
+                            "category": self._valid_category(original.get("category")),
+                            "revisit_of": int(original["id"]),
+                        },
+                    )
+                except MemoryHostError as exc:
+                    self.log.warning(
+                        "revisit unified memory write failed for %s: %s",
+                        persona_id, exc,
+                    )
+        if self.memory is not None and self.config.memory_host:
+            try:
+                self.memory.store_event(
+                    persona_id, "internet-life", "", now.timestamp(),
+                    "revisit", {"entity": "revisit", "count": len(staged)},
+                )
+            except MemoryHostError as exc:
+                self.log.warning(
+                    "revisit event mirror failed for %s: %s", persona_id, exc
+                )
+        revisited = len(new_notes)
+        return {"persona_id": persona_id, "ok": True,
+                "candidates": len(candidates), "revisited": revisited,
+                "failed": failed}
 
     # ----- plan -----
 

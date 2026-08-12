@@ -55,8 +55,9 @@ CREATE TABLE IF NOT EXISTS notes (
     deleted_at TEXT DEFAULT '',
     temperature REAL NOT NULL DEFAULT 1.0,
     last_touched_at TEXT DEFAULT '',
-    UNIQUE(persona_id, url_hash)
+    revisit_of INTEGER NOT NULL DEFAULT 0
 );
+CREATE INDEX IF NOT EXISTS idx_notes_persona_url ON notes(persona_id, url_hash);
 CREATE TABLE IF NOT EXISTS diary_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     persona_id TEXT NOT NULL DEFAULT 'default',
@@ -339,13 +340,40 @@ class LifeDB:
             self._ensure_column("daily_usage", "energy_used", "energy_used REAL NOT NULL DEFAULT 0")
             self._ensure_column("notes", "temperature", "temperature REAL NOT NULL DEFAULT 1.0")
             self._ensure_column("notes", "last_touched_at", "last_touched_at TEXT DEFAULT ''")
+            self._ensure_column("notes", "revisit_of", "revisit_of INTEGER NOT NULL DEFAULT 0")
             self._ensure_column("reviews", "confidence", "confidence REAL NOT NULL DEFAULT 0")
+            self._migrate_notes_unique()
             self._conn.commit()
         self.recover_stale_runs()
 
     def close(self) -> None:
         with self._lock:
             self._conn.close()
+
+    def _migrate_notes_unique(self) -> None:
+        """v0.5.10: rebuild notes without UNIQUE(persona_id, url_hash)."""
+        rows = self._conn.execute(
+            "PRAGMA index_list('notes')"
+        ).fetchall()
+        has_unique = any(
+            row["origin"] == "u" and "autoindex" in str(row["name"])
+            for row in rows
+        )
+        if not has_unique:
+            return
+        cols = [
+            row["name"]
+            for row in self._conn.execute("PRAGMA table_info('notes')").fetchall()
+        ]
+        col_sql = ", ".join(f'"{col}"' for col in cols)
+        self._conn.execute("PRAGMA foreign_keys = OFF")
+        self._conn.execute("ALTER TABLE notes RENAME TO notes_migrate_old")
+        self._conn.executescript(_SCHEMA)
+        self._conn.execute(
+            f"INSERT INTO notes ({col_sql}) SELECT {col_sql} FROM notes_migrate_old"
+        )
+        self._conn.execute("DROP TABLE notes_migrate_old")
+        self._conn.execute("PRAGMA foreign_keys = ON")
 
     def _now(self) -> str:
         return _now_str(self.timezone)
@@ -575,6 +603,58 @@ class LifeDB:
         return self._rows(
             "SELECT * FROM notes WHERE persona_id = ? AND deleted_at = '' "
             "AND source LIKE 'watchlist/%' ORDER BY fetched_at DESC LIMIT ?",
+            (persona_id, limit),
+        )
+
+    def list_revisit_candidates(
+        self, persona_id: str, threshold_date: str, limit: int = 50
+    ) -> list[dict]:
+        return self._rows(
+            "SELECT * FROM notes WHERE persona_id = ? AND deleted_at = '' "
+            "AND revisit_of = 0 AND date(fetched_at) <= ? "
+            "AND NOT EXISTS ("
+            "SELECT 1 FROM notes r WHERE r.persona_id = notes.persona_id "
+            "AND r.revisit_of = notes.id AND r.deleted_at = '') "
+            "ORDER BY fetched_at ASC LIMIT ?",
+            (persona_id, threshold_date, limit),
+        )
+
+    def list_notes_by_url_hash(
+        self,
+        persona_id: str,
+        url_hash: str,
+        exclude_id: Optional[int] = None,
+        limit: int = 10,
+    ) -> list[dict]:
+        if exclude_id:
+            return self._rows(
+                "SELECT * FROM notes WHERE persona_id = ? AND url_hash = ? "
+                "AND deleted_at = '' AND id != ? ORDER BY fetched_at DESC LIMIT ?",
+                (persona_id, url_hash, exclude_id, limit),
+            )
+        return self._rows(
+            "SELECT * FROM notes WHERE persona_id = ? AND url_hash = ? "
+            "AND deleted_at = '' ORDER BY fetched_at DESC LIMIT ?",
+            (persona_id, url_hash, limit),
+        )
+
+    def mark_note_revisit(self, note_id: int, original_id: int) -> bool:
+        cur = self._execute(
+            "UPDATE notes SET revisit_of = ? WHERE id = ?",
+            (original_id, note_id),
+        )
+        return cur.rowcount > 0
+
+    def list_revisit_chains(
+        self, persona_id: str, limit: int = 50
+    ) -> list[dict]:
+        """Return original notes plus their follow-up/revisit notes in order."""
+        return self._rows(
+            "SELECT * FROM notes WHERE persona_id = ? AND deleted_at = '' "
+            "AND (revisit_of > 0 OR EXISTS ("
+            "SELECT 1 FROM notes r WHERE r.persona_id = notes.persona_id "
+            "AND r.revisit_of = notes.id AND r.deleted_at = '')) "
+            "ORDER BY fetched_at ASC LIMIT ?",
             (persona_id, limit),
         )
 
@@ -1057,8 +1137,9 @@ class LifeDB:
             )
             self._delete_staging(persona_id, session_id)
         return self._rows(
-            "SELECT * FROM notes WHERE persona_id = ? AND session_id = ? ORDER BY id",
-            (persona_id, session_id),
+            "SELECT * FROM notes WHERE persona_id = ? AND "
+            "(session_id = ? OR (session_id IS NULL AND ? IS NULL)) ORDER BY id",
+            (persona_id, session_id, session_id),
         )
 
     def discard_staged(self, persona_id: str, session_id: int, error: str = "") -> None:
