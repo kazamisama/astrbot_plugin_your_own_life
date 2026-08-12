@@ -8,7 +8,13 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from life.db import LifeDB
-from life.life_tool import LifeMemoryTool, LifePlanEditTool, LifePlansTool, search_life_memory
+from life.life_tool import (
+    LifeMemoryTool,
+    LifePlanEditTool,
+    LifePlansTool,
+    recall_life_memory,
+    search_life_memory,
+)
 
 
 class _FakeEvent:
@@ -71,6 +77,18 @@ class LifeToolTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kinds, {"note", "diary"})
         note_item = next(item for item in result["items"] if item["kind"] == "note")
         self.assertEqual(note_item["tags"], ["ai"])
+        self.assertIn("temperature", note_item)
+
+    def test_recall_rehydrates_and_weights_by_temperature(self):
+        cold = self.db.add_note("shelly", None, "hn", "https://cold", "Cold memory", "s", url_hash="r-cold")
+        hot = self.db.add_note("shelly", None, "hn", "https://hot", "Hot memory", "s", url_hash="r-hot")
+        self.db._execute("UPDATE notes SET temperature = ? WHERE id = ?", (0.2, cold))
+        self.db._execute("UPDATE notes SET temperature = ? WHERE id = ?", (0.9, hot))
+        data = recall_life_memory(self.db, "shelly", query="memory", k=5)
+        self.assertEqual(data["items"][0]["id"], hot)
+        self.assertAlmostEqual(data["items"][0]["temperature"], 0.9)
+        self.assertEqual(self.db.get_note(cold)["temperature"], 1.0)
+        self.assertEqual(self.db.get_note(hot)["temperature"], 1.0)
 
     async def test_tool_resolves_persona(self):
         tool = LifeMemoryTool(self.db, _FakePersonas())

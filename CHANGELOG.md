@@ -2,6 +2,17 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.2] - 2026-08-12
+
+### Added
+
+- L2-03 记忆温度：`notes` 新增 `temperature` / `last_touched_at`；夜间复盘按 `memory_temperature_decay`（默认 0.99）每日衰减，冷记忆淡出下限 0.05；`query_life_memory` 与 WebUI `memory_search` 召回按温度降序加权，命中短记 rehydrate 回温到 1.0；统一记忆库合并结果按同一规则排序。
+
+### Notes
+
+- 测试：193 passed（skipped=1；新增温度衰减/回温、按温度排序、夜间衰减、配置用例）。
+- 调研：DuckDuckGo 检索（2026-08-12）Ebbinghaus 遗忘曲线与 AI agent memory temperature / forgetting 相关文章（标题如 "The Forgetting Curve: From Ebbinghaus to AI Memory"、"Novel Memory Forgetting Techniques for Autonomous AI Agents"）；采纳乘性衰减 + 召回回温，未引入新依赖（推测性借鉴，未细读原文）。
+
 ## [0.5.1] - 2026-08-12
 
 ### Added

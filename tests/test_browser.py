@@ -227,6 +227,21 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         diary = self.db.get_diary("shelly", datetime.now().strftime("%Y-%m-%d"))
         self.assertEqual(diary["signature"], "")
 
+    async def test_nightly_diary_decays_note_temperature(self):
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://x", "X", "s", url_hash="temp-decay"
+        )
+        self.service.config.memory_temperature_decay = 0.5
+        self.service.llm = _FakeLLM(payload={
+            "diary_text": "今天没出门。没有特别的见闻，只是安静地待着。",
+            "signature": "",
+            "mood": "calm",
+            "interest_updates": {},
+        })
+        result = await self.service.run_nightly_diary("shelly")
+        self.assertFalse(result["fallback"])
+        self.assertEqual(self.db.get_note(note_id)["temperature"], 0.5)
+
     async def test_diary_revisits_old_note(self):
         self.service.now_fn = lambda: datetime(2026, 8, 12, 23, 0)
         old_id = self.db.add_note(

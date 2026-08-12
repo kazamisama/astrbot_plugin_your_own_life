@@ -93,6 +93,12 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(load_config({}).lease_ttl_seconds, 300)
         self.assertEqual(load_config({"lease_ttl_seconds": "60"}).lease_ttl_seconds, 60)
 
+    def test_memory_temperature_decay_config(self):
+        self.assertEqual(load_config({}).memory_temperature_decay, 0.99)
+        self.assertEqual(load_config({"memory_temperature_decay": "0.8"}).memory_temperature_decay, 0.8)
+        self.assertEqual(load_config({"memory_temperature_decay": "2"}).memory_temperature_decay, 1.0)
+        self.assertEqual(load_config({"memory_temperature_decay": "0.1"}).memory_temperature_decay, 0.5)
+
     def test_signature_enabled_default(self):
         self.assertTrue(load_config({}).signature_enabled)
         self.assertFalse(load_config({"signature_enabled": False}).signature_enabled)

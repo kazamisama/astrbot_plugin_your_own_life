@@ -270,11 +270,12 @@
 
 ### L2-03 记忆温度
 
+- 状态：已实现（v0.5.2）。
 - 目标：短记带热度与遗忘曲线，冷记忆淡出，被重新提及时“想起来”。
 - 依赖：统一记忆库（L2-01）。
-- 模块：`life/db.py`、`life/memory_adapter.py`、`life/interests.py`。
-- 配置：`memory_temperature_decay`。
-- 验收：温度随时间衰减；召回按温度加权；rehydrate 后恢复原子细节。
+- 模块：`life/db.py`（temperature / last_touched_at 列与衰减/回温接口）、`life/config.py`（`memory_temperature_decay`）、`life/browser.py`（夜间衰减）、`life/life_tool.py` + `life/webui.py`（按温度召回与回温）。
+- 配置：`memory_temperature_decay`（默认 0.99，每日乘一次，下限 0.05）。
+- 验收：温度随时间衰减（已满足，夜间复盘按系数衰减）；召回按温度加权（已满足，`query_life_memory` / WebUI `memory_search` 按 temperature 降序，统一库合并同规则）；rehydrate 后恢复原子细节（已满足，召回命中短记回温到 1.0 并记录 last_touched_at）。
 
 ### L2-04 月度/年度回顾
 

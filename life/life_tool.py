@@ -140,12 +140,15 @@ def search_life_memory(
 ) -> dict[str, Any]:
     """Search the current persona's notes + diaries; pure function for tests."""
     k = max(1, min(int(k or 5), 10))
-    notes = db.search_notes(persona_id, query, category, date, limit=k)
+    notes = db.search_notes(
+        persona_id, query, category, date, limit=k, temperature_weighted=True
+    )
     diaries = db.search_diary(persona_id, query, category, date, limit=3)
     items: list[dict[str, Any]] = []
     for note in notes:
         items.append({
             "kind": "note",
+            "id": note.get("id"),
             "date": (note.get("fetched_at") or "")[:10],
             "category": note.get("category") or "other",
             "tags": _parse_tags(note.get("tags")),
@@ -154,6 +157,7 @@ def search_life_memory(
             "opinion": note.get("opinion") or "",
             "source": note.get("source") or "",
             "url": note.get("url") or "",
+            "temperature": note.get("temperature"),
         })
     for diary in diaries:
         items.append({
@@ -163,6 +167,59 @@ def search_life_memory(
             "content": diary.get("content") or "",
         })
     return {"persona_id": persona_id, "count": len(items), "items": items}
+
+
+def recall_life_memory(
+    db: LifeDB,
+    persona_id: str,
+    query: str = "",
+    category: str = "",
+    date: str = "",
+    k: int = 5,
+) -> dict[str, Any]:
+    """Search life memory and rehydrate recalled notes back to full warmth."""
+    data = search_life_memory(db, persona_id, query=query, category=category,
+                              date=date, k=k)
+    ids = [
+        int(item["id"]) for item in data["items"]
+        if item.get("kind") == "note" and item.get("id")
+    ]
+    db.rehydrate_notes(ids)
+    return data
+
+
+def _merge_unified(host_items: list[dict], local_items: list[dict]) -> list[dict]:
+    """Merge host recall with the local archive, weighting by temperature."""
+    unified: list[dict[str, Any]] = []
+    for item in host_items:
+        mtype = item.get("memory_type") or "note"
+        if mtype == "diary":
+            kind = "diary"
+        elif mtype == "event":
+            kind = "event"
+        else:
+            kind = "note"
+        day = ""
+        try:
+            day = datetime.fromtimestamp(
+                float(item.get("created_at") or 0)
+            ).strftime("%Y-%m-%d")
+        except (TypeError, ValueError, OSError):
+            day = ""
+        unified.append({
+            "kind": kind,
+            "date": day,
+            "summary": item.get("summary") or "",
+            "content": item.get("content") or "",
+            "source": "unified",
+            "url": "",
+            "temperature": float(item.get("temperature") or 0.5),
+        })
+    items = unified + list(local_items)
+    items.sort(
+        key=lambda item: float(item.get("temperature") or 0.5), reverse=True
+    )
+    return items
 
 
 async def _execute_tool(tool: Any, context: Any, query: str, category: str,
@@ -179,7 +236,7 @@ async def _execute_tool(tool: Any, context: Any, query: str, category: str,
             {"ok": False, "count": 0, "error": "persona not whitelisted"},
             ensure_ascii=False,
         )
-    data = search_life_memory(
+    data = recall_life_memory(
         tool.db, persona_id, query=query, category=category, date=date, k=k
     )
     memory = getattr(tool, "memory", None)
@@ -195,31 +252,7 @@ async def _execute_tool(tool: Any, context: Any, query: str, category: str,
                 {"ok": False, "count": 0, "error": f"memory_host: {exc}"},
                 ensure_ascii=False,
             )
-        unified = []
-        for item in host_items:
-            mtype = item.get("memory_type") or "note"
-            if mtype == "diary":
-                kind = "diary"
-            elif mtype == "event":
-                kind = "event"
-            else:
-                kind = "note"
-            day = ""
-            try:
-                day = datetime.fromtimestamp(
-                    float(item.get("created_at") or 0)
-                ).strftime("%Y-%m-%d")
-            except (TypeError, ValueError, OSError):
-                day = ""
-            unified.append({
-                "kind": kind,
-                "date": day,
-                "summary": item.get("summary") or "",
-                "content": item.get("content") or "",
-                "source": "unified",
-                "url": "",
-            })
-        data["items"] = unified + data["items"]
+        data["items"] = _merge_unified(host_items, data["items"])
         data["count"] = len(data["items"])
     tool.db.append_event(
         persona_id,

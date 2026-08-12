@@ -425,6 +425,7 @@ LLM 可自主更改生活数据/计划/记忆，按事件链自主排期，并�
 - 原则：不追求“LLM 一定记住”，而追求“发生过的事一定可查”：事件链是事实账本，LLM 记忆只是入口。
 - 短期：对话窗口 + 当天生活摘要（工作记忆）。
 - 中期：夜间复盘把 notes/snapshots/thoughts 压缩进 diary + center state（记忆金字塔）。
+- 记忆温度（v0.5.2 已落地）：notes 带 0-1 热度，夜间按 `memory_temperature_decay` 乘性衰减（下限 0.05），召回按温度加权并在命中后回温到 1.0（rehydrate），冷记忆淡出但细节不丢失。
 - 长期：分层 cue + 多轮联想召回，带 recency/importance/图激活评分与来源回指。
 - 连续性：每次决策记录 `context_refs`（引用了哪些事件/记忆），下次决策能看到上次引用链；center state 作为人格锚。
 - 检查点：每日/每周生成结构化 life summary，事件链可重放重建，防长窗口漂移。

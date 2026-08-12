@@ -2,6 +2,16 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L2-03 记忆温度落地（v0.5.2）
+
+- 目标：短记带热度与遗忘曲线，冷记忆淡出，被重新提及时“想起来”。
+- 已确认决策：`notes` 新增 `temperature`（0-1，默认 1.0）与 `last_touched_at`；夜间复盘按 `memory_temperature_decay`（默认 0.99，clamp 0.5-1.0）乘性衰减，下限 0.05；`query_life_memory` 与 WebUI `memory_search` 经 `search_notes(temperature_weighted=True)` 按温度降序召回，命中短记 `rehydrate_notes` 回温到 1.0；统一库结果与本地合并后按同一 temperature 规则排序。
+- 改动：`life/db.py`、`life/config.py`、`_conf_schema.json`、`life/browser.py`、`life/life_tool.py`、`life/webui.py`、`tests/test_db.py`、`tests/test_config.py`、`tests/test_life_tool.py`、`tests/test_webui.py`、`tests/test_browser.py`；版本 v0.5.1 → v0.5.2；README / CHANGELOG / features.md L2-03 / design.md / roadmap.md 同步。
+- 外部调研（DuckDuckGo，2026-08-12，已验证检索可访问）：Ebbinghaus 遗忘曲线与 AI agent memory temperature / forgetting 相关文章标题（如 "The Forgetting Curve: From Ebbinghaus to AI Memory"、"Novel Memory Forgetting Techniques for Autonomous AI Agents"）；采纳乘性衰减 + 召回回温，未细读原文，结论按推测性借鉴标注。
+- 验证：unittest 193 passed（skipped=1；新增温度衰减/回温、按温度排序、夜间衰减、配置 clamp 用例）。
+- 遗留：统一记忆宿主端没有温度字段时不参与加权（按 0.5 处理）；多尺度金字塔摘要仍未实现，rehydrate 目前恢复的是本地原子短记而非摘要展开。
+- 下一步：L2-04 月度/年度回顾（`review_schedule` + 确定性聚合回退 + 回顾事件）。
+
 ## 2026-08-12 L2-02 实体与关系图落地（v0.5.1）
 
 - 目标：漫游成功后把信息来源固化为分层实体图（`platform / url` 节点 + `appears_on` 边），WebUI 提供按维度分列的实体图与“我在哪见过 X”查询。

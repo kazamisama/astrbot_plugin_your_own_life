@@ -338,6 +338,12 @@
     "hint": "与 v1 本地 lease_ttl_seconds 区分；多实例串行化用",
     "default": 300
   },
+  "memory_temperature_decay": {
+    "type": "float",
+    "description": "短记记忆温度每日衰减系数（0.5-1.0）",
+    "hint": "每次夜间复盘乘一次；值越小冷记忆淡出越快，被召回时回温",
+    "default": 0.99
+  },
   "life_tool_enabled": {
     "type": "bool",
     "description": "向 LLM 注册 query_life_memory 自查询工具",

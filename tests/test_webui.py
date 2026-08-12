@@ -65,6 +65,7 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         result = await handlers["memory_search"]()
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["items"][0]["title"], "AI story")
+        self.assertIn("temperature", result["items"][0])
 
     async def test_entities_handlers(self):
         config = load_config({

@@ -129,6 +129,28 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(len(self.db.list_notes("shelly", "2026-08-05", limit=10)), 1)
         self.assertEqual(len(self.db.list_notes("shelly", "2026-08-06", limit=10)), 0)
 
+    def test_note_temperature_decay_and_rehydrate(self):
+        cold = self.db.add_note("shelly", None, "hn", "https://cold", "Cold", "s", url_hash="cold-t")
+        hot = self.db.add_note("shelly", None, "hn", "https://hot", "Hot", "s", url_hash="hot-t")
+        self.assertEqual(self.db.get_note(cold)["temperature"], 1.0)
+        self.db.decay_note_temperature("shelly", 0.5)
+        self.assertEqual(self.db.get_note(cold)["temperature"], 0.5)
+        self.assertEqual(self.db.get_note(hot)["temperature"], 0.5)
+        self.db.rehydrate_notes([cold])
+        note = self.db.get_note(cold)
+        self.assertEqual(note["temperature"], 1.0)
+        self.assertTrue(note["last_touched_at"])
+        self.db.decay_note_temperature("shelly", 0.0)
+        self.assertEqual(self.db.get_note(hot)["temperature"], 0.05)
+
+    def test_search_notes_temperature_weighted(self):
+        cold = self.db.add_note("shelly", None, "hn", "https://cold", "Cold", "s", url_hash="cw")
+        hot = self.db.add_note("shelly", None, "hn", "https://hot", "Hot", "s", url_hash="hw")
+        self.db._execute("UPDATE notes SET temperature = ? WHERE id = ?", (0.2, cold))
+        self.db._execute("UPDATE notes SET temperature = ? WHERE id = ?", (0.9, hot))
+        rows = self.db.search_notes("shelly", temperature_weighted=True)
+        self.assertEqual([row["id"] for row in rows], [hot, cold])
+
     def test_diary_upsert_per_persona(self):
         self.db.add_diary("shelly", "2026-08-10", "first", mood="curious", energy=0.6)
         self.db.add_diary("shelly", "2026-08-10", "second", mood="calm", energy=0.5)

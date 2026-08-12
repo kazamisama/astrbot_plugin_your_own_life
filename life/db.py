@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS notes (
     share_status TEXT DEFAULT '',
     url_hash TEXT NOT NULL,
     deleted_at TEXT DEFAULT '',
+    temperature REAL NOT NULL DEFAULT 1.0,
+    last_touched_at TEXT DEFAULT '',
     UNIQUE(persona_id, url_hash)
 );
 CREATE TABLE IF NOT EXISTS diary_entries (
@@ -310,6 +312,8 @@ class LifeDB:
             self._ensure_column("wishlist", "interest_name", "interest_name TEXT DEFAULT ''")
             self._ensure_column("life_plans", "fixed", "fixed INTEGER NOT NULL DEFAULT 0")
             self._ensure_column("daily_usage", "energy_used", "energy_used REAL NOT NULL DEFAULT 0")
+            self._ensure_column("notes", "temperature", "temperature REAL NOT NULL DEFAULT 1.0")
+            self._ensure_column("notes", "last_touched_at", "last_touched_at TEXT DEFAULT ''")
             self._conn.commit()
         self.recover_stale_runs()
 
@@ -560,6 +564,7 @@ class LifeDB:
         category: str = "",
         date: str = "",
         limit: int = 10,
+        temperature_weighted: bool = False,
     ) -> list[dict]:
         sql = "SELECT * FROM notes WHERE persona_id = ? AND deleted_at = ''"
         params: list[Any] = [persona_id]
@@ -573,7 +578,10 @@ class LifeDB:
         if date:
             sql += " AND fetched_at LIKE ?"
             params.append(date + "%")
-        sql += " ORDER BY fetched_at DESC LIMIT ?"
+        if temperature_weighted:
+            sql += " ORDER BY temperature DESC, fetched_at DESC LIMIT ?"
+        else:
+            sql += " ORDER BY fetched_at DESC LIMIT ?"
         params.append(limit)
         return self._rows(sql, tuple(params))
 
@@ -683,6 +691,40 @@ class LifeDB:
             "UPDATE interests SET weight = MAX(0.0, MIN(1.0, weight * ?)) "
             "WHERE persona_id = ?",
             (factor, persona_id),
+        )
+        return int(cur.rowcount)
+
+    # ----- memory temperature -----
+
+    def decay_note_temperature(
+        self, persona_id: str, factor: float, now_str: Optional[str] = None
+    ) -> int:
+        """Decay note warmth by a daily multiplier; floor keeps cold memory alive."""
+        factor = max(0.0, min(1.0, float(factor)))
+        cur = self._execute(
+            "UPDATE notes SET temperature = MAX(0.05, MIN(1.0, temperature * ?)) "
+            "WHERE persona_id = ? AND deleted_at = ''",
+            (factor, persona_id),
+        )
+        return int(cur.rowcount)
+
+    def rehydrate_notes(
+        self,
+        note_ids: list[int],
+        boost: float = 1.0,
+        now_str: Optional[str] = None,
+    ) -> int:
+        """Warm recalled notes back up and mark when they were touched."""
+        ids = [int(note_id) for note_id in note_ids if int(note_id) > 0]
+        if not ids:
+            return 0
+        boost = max(0.0, min(1.0, float(boost)))
+        placeholders = ",".join("?" * len(ids))
+        cur = self._execute(
+            f"UPDATE notes SET temperature = MAX(?, temperature), "
+            f"last_touched_at = ? "
+            f"WHERE id IN ({placeholders}) AND deleted_at = ''",
+            (boost, now_str or self._now(), *ids),
         )
         return int(cur.rowcount)
 

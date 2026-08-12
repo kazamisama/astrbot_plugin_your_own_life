@@ -650,6 +650,9 @@ class LifeService:
 
         now = local_now(self.config.timezone, self.now_fn())
         date = now.strftime("%Y-%m-%d")
+        self.db.decay_note_temperature(
+            persona_id, self.config.memory_temperature_decay
+        )
         if self._energy_budget_exhausted(persona_id, date):
             self.db.add_state_snapshot(
                 persona_id, "diary_skipped", None, "",

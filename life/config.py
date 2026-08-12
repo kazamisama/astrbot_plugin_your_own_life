@@ -254,6 +254,7 @@ class LifeConfig:
     life_tool_enabled: bool = True
     memory_host: str = ""
     memory_lease_ttl_seconds: int = 300
+    memory_temperature_decay: float = 0.99
 
 
 def load_config(cfg: Any) -> LifeConfig:
@@ -296,6 +297,7 @@ def load_config(cfg: Any) -> LifeConfig:
         esm_scope_prefix=_as_str(_get(cfg, "esm_scope_prefix"), "internet-life"),
         memory_host=_as_str(_get(cfg, "memory_host"), ""),
         memory_lease_ttl_seconds=max(1, _as_int(_get(cfg, "memory_lease_ttl_seconds"), 300)),
+        memory_temperature_decay=max(0.5, min(1.0, _as_float(_get(cfg, "memory_temperature_decay"), 0.99))),
         source_timeout=_as_float(_get(cfg, "source_timeout"), 10.0),
         notes_min=notes_min,
         notes_max=notes_max,

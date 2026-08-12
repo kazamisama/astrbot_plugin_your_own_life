@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any, Callable, Optional
 
-from life.life_tool import search_life_memory
+from life.life_tool import _merge_unified, recall_life_memory
 from life.memory_adapter import MemoryHostError
 from life.timeutil import DEFAULT_TIMEZONE, local_today
 
@@ -108,7 +108,7 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
             k = max(1, min(int(args.get("k", 10)), 10))
         except (TypeError, ValueError):
             k = 10
-        result = search_life_memory(db, persona, query, category, date, k)
+        result = recall_life_memory(db, persona, query, category, date, k)
         if memory_adapter is not None and getattr(config, "memory_host", ""):
             try:
                 host_items = memory_adapter.query_memory(
@@ -116,20 +116,7 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
             except MemoryHostError as exc:
                 result["error"] = f"memory_host: {exc}"
                 return result
-            unified = []
-            for item in host_items:
-                mtype = item.get("memory_type") or "note"
-                kind = "diary" if mtype == "diary" else (
-                    "event" if mtype == "event" else "note")
-                unified.append({
-                    "kind": kind,
-                    "date": "",
-                    "summary": item.get("summary") or "",
-                    "content": item.get("content") or "",
-                    "source": "unified",
-                    "url": "",
-                })
-            result["items"] = unified + result["items"]
+            result["items"] = _merge_unified(host_items, result["items"])
             result["count"] = len(result["items"])
         return result
 
