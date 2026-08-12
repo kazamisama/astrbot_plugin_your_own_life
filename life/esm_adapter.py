@@ -36,7 +36,7 @@ class ESMAdapter:
     def available(self) -> bool:
         return self._star() is not None
 
-    def get_energy(self) -> Optional[float]:
+    def get_energy(self, persona_id: Optional[str] = None) -> Optional[float]:
         star = self._star()
         if star is None:
             return None
@@ -44,9 +44,25 @@ class ESMAdapter:
         if fn is None:
             return None
         try:
-            return float(fn())
+            scope = self.scope_for(persona_id) if persona_id else None
+            return float(fn(scope))
         except Exception as exc:
             logger.debug("get_bot_energy failed: %s", exc)
+            return None
+
+    def consume_energy(self, persona_id: str, amount: float,
+                       reason: str = "internet_life") -> Optional[float]:
+        """Deduct energy on the persona scope; None when ESM cannot consume."""
+        star = self._star()
+        if star is None:
+            return None
+        fn = getattr(star, "consume_energy", None)
+        if fn is None:
+            return None
+        try:
+            return float(fn(float(amount), reason, scope=self.scope_for(persona_id)))
+        except Exception as exc:
+            logger.debug("consume_energy failed: %s", exc)
             return None
 
     def get_mood_context(self, persona_id: str) -> str:
@@ -72,9 +88,9 @@ class ESMAdapter:
                 logger.debug("get_combined_state failed: %s", exc)
         return ""
 
-    def gate_energy(self) -> tuple[bool, Optional[float], str]:
+    def gate_energy(self, persona_id: Optional[str] = None) -> tuple[bool, Optional[float], str]:
         """Return (blocked, energy, reason) for a scheduled browse session."""
-        energy = self.get_energy()
+        energy = self.get_energy(persona_id)
         if energy is None:
             return False, None, "esm_unavailable"
         if energy < self.energy_gate:

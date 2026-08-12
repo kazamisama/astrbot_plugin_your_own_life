@@ -2,6 +2,14 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.4.4] - 2026-08-12
+
+### Added
+
+- L1-03 精力预算：新增 `energy_budget` 配置（每日精力消耗上限，0 = 无上限）；漫游/复盘成功后经 ESM `consume_energy` 真实扣减并持久化精力，同时双写 `daily_usage.energy_used` 本地用量；预算耗尽当天剩余任务跳过并记录 `energy_budget_exhausted`；ESM 缺失时显式记录 `browse_energy_fallback` / `diary_energy_fallback` 本地估算快照，不再静默降级；`life/esm_adapter.py` 新增按 persona scope 的 `consume_energy` 转发。
+### Notes
+
+- 测试：179 passed（新增 ESM 适配转发/降级、daily_usage 精力累计、预算耗尽跳过、成功消费与本地估算用例）。
 ## [0.4.3] - 2026-08-12
 
 ### Added

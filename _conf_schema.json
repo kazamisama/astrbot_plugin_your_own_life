@@ -53,6 +53,12 @@
     "hint": "ESM 精力低于该值时跳过定时漫游，记录为“疲惫未出门”",
     "default": 0.3
   },
+  "energy_budget": {
+    "type": "float",
+    "description": "每日精力消耗上限（0 = 无上限）",
+    "hint": "达到上限后当天剩余任务跳过并记录 energy_budget_exhausted",
+    "default": 0.0
+  },
   "explore_probability": {
     "type": "float",
     "description": "探索新话题概率（0-1）",

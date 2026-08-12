@@ -2,6 +2,19 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L1-03 精力预算落地（v0.4.4）
+
+- 目标：每日漫游/复盘真实消耗并持久化精力，预算耗尽当天剩余任务跳过并记录；ESM 未提供 `consume_energy` 时显式本地估算，不再静默降级。
+- 已确认决策：
+  - ESM 上游先发兼容版本：v0.11.0 新增 `consume_energy(amount, reason, scope=None) -> float`（已提交，含 `_PUBLIC_API.md` / CHANGELOG / 测试）。
+  - 下游：`life/esm_adapter.py` 新增按 persona scope 的 `consume_energy(persona_id, amount, reason)`，`get_energy` / `gate_energy` 接受 persona_id；`daily_usage` 新增 `energy_used` 列（建表 + ALTER 迁移）与 `increment_energy_usage`；`LifeConfig` / `_conf_schema.json` 新增 `energy_budget`（默认 0 = 无上限）。
+  - 消费点：漫游成功后 0.15、复盘有素材时 0.2；成功后 ESM 扣减 + 本地双写；ESM 缺失时写 `browse_energy_fallback` / `diary_energy_fallback` 快照显式标注本地估算。
+  - 预算检查：browse/diary 入口先查 `daily_usage.energy_used >= energy_budget`，命中则跳过并记录 `energy_budget_exhausted`（会话/快照 + `change` 事件）。
+- 改动：`life/db.py`、`life/config.py`、`_conf_schema.json`、`life/esm_adapter.py`、`life/browser.py`、`life/share.py`、`tests/test_db.py`、`tests/test_esm_adapter.py`、`tests/test_browser.py`、`tests/test_config.py`；版本 v0.4.3 → v0.4.4；README / CHANGELOG / features.md L1-03 / design.md / roadmap.md / requirements.md 同步。
+- 验证：unittest 179 passed（skipped=1；新增 ESM 转发/降级、精力累计、预算耗尽跳过、成功消费与本地估算用例）；UTF-8 读回校验无乱码。
+- 遗留：`budget_used`（排期板）仍按 tokens 增量，不含精力维度；消费金额为固定常量，未做任务时长/强度调制。
+- 下一步：L2 统一记忆库——先为 engram_core 补 `_PUBLIC_API.md` 与公开方法（store_diary_line / query_recent_memory / claim_task / renew_task / release_task），再落地 `life/memory_adapter.py` 与 L2 各子项。
+
 ## 2026-08-12 上游契约复审计（第二次）
 
 - 复审计结果：ESM 仍为 v0.10.4、源码无 `consume_energy`；engram_core 仍为 1.74.0（HEAD `8dc41f2`）、无 `_PUBLIC_API.md`。L1-03 与 L2 闸门未解锁。

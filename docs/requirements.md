@@ -1,6 +1,6 @@
 # 上游插件需求（Your Own Life 生态对接）
 
-本文档记录 `astrbot_plugin_your_own_life` 对 kazamisama 插件族的对接需求。v0.2.4 现状只消费 ESM 现有能力；v1.1 起按计划消费新增契约（如 `consume_energy`）并同步上游，以下条目用于与上游同步版本计划，不阻塞本插件运行。
+本文档记录 `astrbot_plugin_your_own_life` 对 kazamisama 插件族的对接需求。v0.2.4 现状只消费 ESM 现有能力；v0.4.4 起已消费 ESM v0.11.0 的 `consume_energy` 契约，以下条目用于与上游同步版本计划。
 
 ## 未来规划基调（硬依赖）
 
@@ -25,7 +25,7 @@ kazamisama 仓库下的 AstrBot 插件是一整个需要互操作的家庭，任
 
 | 插件 | 本地版本 | 公开 API 契约 | 远端仓库 | 与本插件对接点 |
 | --- | --- | --- | --- | --- |
-| astrbot_plugin_emotion_state_machine | v0.10.4 | `_PUBLIC_API.md`（v0.10.0+ 跨插件互操作契约，无独立契约版本号） | kazamisama/astrbot_plugin_emotion_state_machine | v1 已接：精力 gate / 情绪 / `apply_self_reply_signal`（经 `life/esm_adapter.py`） |
+| astrbot_plugin_emotion_state_machine | v0.11.0 | `_PUBLIC_API.md`（v0.10.0+ 跨插件互操作契约；v0.11.0 新增 `consume_energy`） | kazamisama/astrbot_plugin_emotion_state_machine | v1 已接：精力 gate / 情绪 / `apply_self_reply_signal` / `consume_energy`（经 `life/esm_adapter.py`） |
 | astrbot_plugin_social_context | v0.8.19 | 无 | kazamisama/astrbot_plugin_social_context | 方向：群聊氛围快照，群聊入档时只读接入 |
 | astrbot_plugin_xml_structured_output | 0.2.9 | `_PUBLIC_API.md`（Public API · v1） | kazamisama/astrbot_plugin_xml_structured_output | 方向：行为/思想层结构化输出路由 |
 | astrbot_plugin_vector_meme | 0.7.3 | 无（`search_sticker_for_external()` 见 README/CHANGELOG） | kazamisama/astrbot_plugin_vector_meme | 方向：分享消息表情行为承接 |
@@ -34,7 +34,7 @@ kazamisama 仓库下的 AstrBot 插件是一整个需要互操作的家庭，任
 | astrbot_plugin_private_proactive_reply | v0.11.2 | 无 | kazamisama/astrbot_plugin_private_proactive_reply | 方向：主动社交行为层（复用人格/记忆/工具链） |
 | astrbot_plugin_engram_core | 1.74.0 | 无（`<engram-context>` 注入与 `extra_user_content_parts` 为 README 约定） | kazamisama/astrbot-plugin-engram-core | v2 硬依赖：统一记忆库/日记写入/召回，经 `LifeMemoryAdapter` |
 | astrbot-plugin-media-warden | 1.8.1 | 无 | kazamisama/astrbot-plugin-media-warden | 方向：素材采集/记忆原料，未见显式契约 |
-| astrbot_plugin_your_own_life（本插件） | v0.4.3 | 无独立 `_PUBLIC_API.md`；跨插件调用全部经适配层 | kazamisama/astrbot_plugin_your_own_life | 本插件（L1/L1.5 已交付，L1-03 与 L2 待上游契约） |
+| astrbot_plugin_your_own_life（本插件） | v0.4.4 | 无独立 `_PUBLIC_API.md`；跨插件调用全部经适配层 | kazamisama/astrbot_plugin_your_own_life | 本插件（L1/L1.5 已交付，L2 待 engram_core 契约） |
 
 升级检查表：
 
@@ -46,9 +46,9 @@ kazamisama 仓库下的 AstrBot 插件是一整个需要互操作的家庭，任
 ## ESM（astrbot_plugin_emotion_state_machine）
 
 - 互联网漫游专用 signal：建议新增 `novelty`（新鲜感）、`info_binge`（信息摄入疲劳）等 signal，语义与群聊信号解耦，避免漫游内容污染群聊关系层。
-- 后台任务精力语义：当前 `get_bot_energy()` 只反映自回复消耗；建议提供 `consume_energy(amount, reason)` 或等效公开方法，让定时漫游/日记任务真实消耗精力并持久化。
+- 后台任务精力语义（已落地）：v0.11.0 新增 `consume_energy(amount, reason, scope=None) -> float`，定时漫游/日记任务真实消耗精力并持久化；本插件经 `life/esm_adapter.py` 接入。
 - 非聊天 scope 契约：`internet-life` 这类非群聊 scope 目前依赖内部归一化规则；建议在 `_PUBLIC_API.md` 中明确非群聊 scope 的创建、衰减与清理语义。
-- 稳定跨插件契约：现状 v0.10.4 已有 `_PUBLIC_API.md`（v0.10.0+ 互操作契约，无独立契约版本号，见兼容矩阵）；为 v0.11 规划契约升级版（能力探测 + 方法清单），使下游插件无需探测私有方法。
+- 稳定跨插件契约：v0.11.0 `_PUBLIC_API.md` 已含 `get_bot_energy` 与 `consume_energy` 稳定条目；下游经 `life/esm_adapter.py` 适配，无需探测私有方法。
 
 ## Your Own Life 自身上游需求
 
@@ -64,14 +64,13 @@ kazamisama 仓库下的 AstrBot 插件是一整个需要互操作的家庭，任
 
 ## 待上游落地的契约提案（2026-08-12 已核实）
 
-以下两项是本插件剩余阶段（L1-03 精力预算、L2 统一记忆库）的硬闸门，上游发布兼容版本前不实现下游代码，避免在契约未定状态下返工：
+以下两项曾是本插件剩余阶段（L1-03 精力预算、L2 统一记忆库）的硬闸门；ESM `consume_energy` 已随 v0.11.0 落地并接入（v0.4.4），engram_core 契约仍为 L2 前置条件：
 
-### ESM `consume_energy`（解锁 L1-03）
+### ESM `consume_energy`（已解锁，v0.11.0）
 
-- 现状（已验证）：`astrbot_plugin_emotion_state_machine` 本地 v0.10.4，`_PUBLIC_API.md` 仅公开 `get_bot_energy(scope=None) -> float`；源码无 `consume_energy`。
-- 提案签名：`consume_energy(amount: float, reason: str, scope: str | None = None) -> float`，扣除并持久化精力、返回剩余精力；`amount` 范围 `(0, 1]`，非法入参抛 `ValueError` 或返回当前值（由上游定）。
-- 本插件落点：`life/esm_adapter.py` 新增 `consume_energy(persona_id, amount, reason)`，漫游/日记任务成功/失败后真实扣减；预算耗尽当天剩余任务跳过并记录 `budget_exhausted`。
-- 契约版本：ESM v0.11 随 `_PUBLIC_API.md` 升级发布。
+- 现状（已验证）：`astrbot_plugin_emotion_state_machine` 本地 v0.11.0，`_PUBLIC_API.md` 公开 `get_bot_energy(scope=None) -> float` 与 `consume_energy(amount, reason, scope=None) -> float`；源码含 `consume_energy`，扣除并持久化精力、返回剩余精力，`amount` 范围 `(0, 1]`，非法入参抛 `ValueError`。
+- 本插件落点（已实现，v0.4.4）：`life/esm_adapter.py` 新增 `consume_energy(persona_id, amount, reason)` 并按 persona scope 转发；漫游/日记成功后真实扣减并双写 `daily_usage.energy_used` 本地用量；ESM 缺失时显式记录本地估算（`browse_energy_fallback` / `diary_energy_fallback` 快照）；预算耗尽当天剩余任务跳过并记录 `energy_budget_exhausted`。
+- 契约版本：ESM v0.11.0 `_PUBLIC_API.md`。
 
 ### engram_core `_PUBLIC_API.md`（解锁 L2）
 
@@ -82,7 +81,7 @@ kazamisama 仓库下的 AstrBot 插件是一整个需要互操作的家庭，任
 
 ### 适配层接口草案（仅设计，不实现）
 
-解锁后按以下接口实现，签名以上游 `_PUBLIC_API.md` 定稿为准：
+已按以下接口实现 ESM 部分（`consume_energy` 为同步方法，签名以 v0.11.0 为准）；engram_core 部分待解锁后实现，签名以上游 `_PUBLIC_API.md` 定稿为准：
 
 ```python
 # life/memory_adapter.py（草案）
@@ -105,7 +104,7 @@ class LifeMemoryAdapter:
 
 ### 对齐闸门
 
-- ESM `consume_energy` 未发布：L1-03 保持 blocked（features.md 已标注）。
+- ESM `consume_energy`：v0.11.0 已发布并接入（L1-03 完成，见 features.md）。
 - engram_core `_PUBLIC_API.md` 未发布：L2 不开工，仅保留本提案与适配层设计。
 
 ## social_context（后置）
@@ -120,5 +119,5 @@ class LifeMemoryAdapter:
 
 ## 对接降级策略
 
-- 本插件对 ESM：v0.2.4 现状缺失 / 方法缺失 / 信号非法时静默 no-op 并记录 debug 日志；v1.1 计划内新契约（`consume_energy`）按 features.md L1-03 处理，不再默认静默降级。
+- 本插件对 ESM：v0.2.4 现状缺失 / 方法缺失 / 信号非法时静默 no-op 并记录 debug 日志；v0.4.4 起 `consume_energy` 缺失时按 features.md L1-03 显式记录本地估算，不再默认静默降级。
 - 本插件对 engram_core / social_context：v1 不调用；后续版本在能力探测通过后才启用，任何上游 API 变化只改对应 adapter。

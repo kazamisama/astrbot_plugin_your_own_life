@@ -59,14 +59,19 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(cfg.daily_llm_call_limit, 0)
         self.assertEqual(cfg.daily_token_budget, 0)
         self.assertEqual(cfg.llm_retry_limit, 3)
+        self.assertEqual(cfg.energy_budget, 0.0)
         cfg = load_config({
             "daily_llm_call_limit": "5",
             "daily_token_budget": "1000",
             "llm_retry_limit": "4",
+            "energy_budget": "0.5",
         })
         self.assertEqual(cfg.daily_llm_call_limit, 5)
         self.assertEqual(cfg.daily_token_budget, 1000)
         self.assertEqual(cfg.llm_retry_limit, 4)
+        self.assertEqual(cfg.energy_budget, 0.5)
+        clamped = load_config({"energy_budget": "2.5"})
+        self.assertEqual(clamped.energy_budget, 1.0)
 
     def test_trash_retention_default(self):
         cfg = load_config({})

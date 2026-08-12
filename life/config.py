@@ -208,6 +208,7 @@ class LifeConfig:
     owner_ids: list[str] = field(default_factory=list)
     life_llm: str = ""
     energy_gate: float = 0.3
+    energy_budget: float = 0.0
     explore_probability: float = 0.2
     interest_decay: float = 0.98
     interests_initial: list[tuple[str, str]] = field(default_factory=list)
@@ -276,6 +277,7 @@ def load_config(cfg: Any) -> LifeConfig:
         owner_ids=_as_list(_get(cfg, "owner_ids"), []),
         life_llm=_as_str(_get(cfg, "life_llm"), ""),
         energy_gate=_as_float(_get(cfg, "energy_gate"), 0.3),
+        energy_budget=max(0.0, min(1.0, _as_float(_get(cfg, "energy_budget"), 0.0))),
         explore_probability=_as_float(_get(cfg, "explore_probability"), 0.2),
         interest_decay=_as_float(_get(cfg, "interest_decay"), 0.98),
         interests_initial=initial,

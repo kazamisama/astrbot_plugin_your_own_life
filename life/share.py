@@ -67,7 +67,7 @@ class ShareGate:
             self.db.log_share_attempt(persona_id, note_id, "blocked", "sleep_window", target)
             return ShareResult("blocked", "sleep_window")
 
-        energy = self.esm.get_energy()
+        energy = self.esm.get_energy(persona_id)
         if energy is not None and energy < self.config.energy_gate:
             self.db.log_share_attempt(persona_id, note_id, "blocked", "energy_gate", target)
             return ShareResult("blocked", "energy_gate")

@@ -230,6 +230,14 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(row["tokens"], 150)
         self.assertEqual(self.db.list_daily_usage("shelly")[0]["date"], "2026-08-12")
 
+    def test_daily_usage_energy_accumulates(self):
+        self.db.increment_energy_usage("shelly", "2026-08-12", 0.15)
+        self.db.increment_energy_usage("shelly", "2026-08-12", 0.2)
+        row = self.db.get_daily_usage("shelly", "2026-08-12")
+        self.assertAlmostEqual(row["energy_used"], 0.35)
+        other = self.db.get_daily_usage("shelly", "2026-08-13")
+        self.assertIsNone(other)
+
     def test_recover_stale_runs(self):
         sid = self.db.start_browse_session("shelly", "scheduled")
         self.db.stage_note("shelly", sid, "hn", "https://a", "A", "s", url_hash="h1")

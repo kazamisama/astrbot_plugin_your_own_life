@@ -32,6 +32,9 @@ logger = logging.getLogger("your_own_life.browser")
 
 VALID_MOODS = {"curious", "calm", "excited", "tired", "skeptical"}
 
+ENERGY_COST_BROWSE = 0.15
+ENERGY_COST_DIARY = 0.2
+
 
 def _clamp(value: Any, low: float = 0.0, high: float = 1.0) -> float:
     try:
@@ -84,6 +87,35 @@ class LifeService:
             self.personas.mark_error(persona_id, str(exc))
             self.log.error("persona %s unavailable, skipping life task: %s", persona_id, exc)
             raise
+
+    # ----- energy budget -----
+
+    def _energy_used(self, persona_id: str, date: str) -> float:
+        row = self.db.get_daily_usage(persona_id, date)
+        return float(row["energy_used"] or 0) if row else 0.0
+
+    def _energy_budget_exhausted(self, persona_id: str, date: str) -> bool:
+        budget = float(self.config.energy_budget or 0)
+        if budget <= 0:
+            return False
+        return self._energy_used(persona_id, date) >= budget
+
+    def _consume_energy(self, persona_id: str, amount: float,
+                        reason: str) -> tuple[Optional[float], str]:
+        """Consume energy via ESM and mirror into local daily usage.
+
+        Returns (remaining, mode); mode is "esm" or "local_estimate".
+        """
+        remaining = self.esm.consume_energy(persona_id, amount, reason)
+        date = local_today(self.config.timezone, self.now_fn())
+        self.db.increment_energy_usage(persona_id, date, amount)
+        if remaining is None:
+            self.log.warning(
+                "ESM consume_energy unavailable for %s; recorded local estimate %s",
+                persona_id, amount,
+            )
+            return None, "local_estimate"
+        return remaining, "esm"
 
     def record_skipped_duplicate(
         self, persona_id: str, kind: str, slot: Optional[datetime] = None
@@ -155,7 +187,7 @@ class LifeService:
         if not force and trigger == "scheduled" and self.config.rest_probability > 0:
             if self.rng.random() < self.config.rest_probability:
                 self.db.add_state_snapshot(
-                    persona_id, "skipped_rest", self.esm.get_energy(), "",
+                    persona_id, "skipped_rest", self.esm.get_energy(persona_id), "",
                     extra=json.dumps({"trigger": trigger}, ensure_ascii=False),
                 )
                 return BrowseResult(None, "rest", 0, "rest_probability")
@@ -165,9 +197,29 @@ class LifeService:
         except PersonaUnavailable:
             return BrowseResult(None, "skipped", 0, "persona_unavailable")
 
-        energy_before = self.esm.get_energy()
+        date = local_today(self.config.timezone, self.now_fn())
+        if self._energy_budget_exhausted(persona_id, date):
+            sid = self.db.start_browse_session(persona_id, trigger, None, "")
+            self.db.finish_browse_session(sid, "skipped", 0, "energy_budget_exhausted")
+            self.db.add_state_snapshot(
+                persona_id, "browse_skipped", None, "",
+                extra=json.dumps(
+                    {"trigger": trigger, "reason": "energy_budget_exhausted"},
+                    ensure_ascii=False,
+                ),
+            )
+            self.db.append_event(
+                persona_id, "change",
+                {"entity": "task", "kind": "browse", "action": "skip",
+                 "reason": "energy_budget_exhausted", "slot": ""},
+                [],
+                f"task/browse/{date}/energy_budget_exhausted",
+            )
+            return BrowseResult(sid, "skipped", 0, "energy_budget_exhausted")
+
+        energy_before = self.esm.get_energy(persona_id)
         if not force:
-            blocked, energy, reason = self.esm.gate_energy()
+            blocked, energy, reason = self.esm.gate_energy(persona_id)
             if blocked:
                 sid = self.db.start_browse_session(persona_id, trigger, energy, "")
                 self.db.finish_browse_session(sid, "skipped_energy", 0, reason)
@@ -317,6 +369,17 @@ class LifeService:
                 note_refs,
                 f"session/{sid}/commit",
             )
+            _, energy_mode = self._consume_energy(
+                persona_id, ENERGY_COST_BROWSE, "internet_life:browse"
+            )
+            if energy_mode == "local_estimate":
+                self.db.add_state_snapshot(
+                    persona_id, "browse_energy_fallback", energy_before, session_mood,
+                    extra=json.dumps(
+                        {"trigger": trigger, "energy_mode": "local_estimate"},
+                        ensure_ascii=False,
+                    ),
+                )
             try:
                 self.esm.apply_browse_signal(persona_id, session_mood, intensity=0.3)
             except Exception as exc:
@@ -402,7 +465,7 @@ class LifeService:
             done = self.db.count_sessions_by_kind(persona_id, date, "peek")
             if done >= self.config.peek_daily_cap:
                 return BrowseResult(None, "skipped", 0, "peek_daily_cap")
-        energy = self.esm.get_energy()
+        energy = self.esm.get_energy(persona_id)
         mood = self.esm.get_mood_context(persona_id)
         sid = self.db.start_browse_session(
             persona_id, "scheduled", energy, mood, kind="peek"
@@ -508,6 +571,22 @@ class LifeService:
 
         now = local_now(self.config.timezone, self.now_fn())
         date = now.strftime("%Y-%m-%d")
+        if self._energy_budget_exhausted(persona_id, date):
+            self.db.add_state_snapshot(
+                persona_id, "diary_skipped", None, "",
+                extra=json.dumps(
+                    {"reason": "energy_budget_exhausted"}, ensure_ascii=False
+                ),
+            )
+            self.db.append_event(
+                persona_id, "change",
+                {"entity": "task", "kind": "diary", "action": "skip",
+                 "reason": "energy_budget_exhausted", "slot": ""},
+                [],
+                f"task/diary/{date}/energy_budget_exhausted",
+            )
+            return {"date": date, "notes": 0, "fallback": False,
+                    "skipped": "energy_budget_exhausted"}
         notes: list[dict] = []
         try:
             if self.share_gate is not None:
@@ -563,7 +642,7 @@ class LifeService:
                 except BudgetExhausted as exc:
                     self.log.warning("diary budget exhausted for %s: %s", persona_id, exc)
                     self.db.add_state_snapshot(
-                        persona_id, "diary_skipped", self.esm.get_energy(), "",
+                        persona_id, "diary_skipped", self.esm.get_energy(persona_id), "",
                         extra=json.dumps(
                             {"reason": "budget_exhausted", "notes": len(notes)},
                             ensure_ascii=False,
@@ -582,7 +661,7 @@ class LifeService:
                 )
                 wishlist_candidates = self._wishlist_candidates(payload)
 
-            energy = self.esm.get_energy()
+            energy = self.esm.get_energy(persona_id)
             top = ",".join(
                 row["name"] or row["key"] for row in self.db.get_interests(persona_id, limit=5)
             )
@@ -604,6 +683,17 @@ class LifeService:
             if notes and interest_updates:
                 self.interests.stage_updates(persona_id, None, interest_updates, now=now)
             self.db.commit_staged(persona_id, None, status="completed")
+            if notes or raw_revisit_notes:
+                _, energy_mode = self._consume_energy(
+                    persona_id, ENERGY_COST_DIARY, "internet_life:diary"
+                )
+                if energy_mode == "local_estimate":
+                    self.db.add_state_snapshot(
+                        persona_id, "diary_energy_fallback", energy, mood,
+                        extra=json.dumps(
+                            {"energy_mode": "local_estimate"}, ensure_ascii=False
+                        ),
+                    )
             source_refs = [
                 {"note_id": note["id"], "url": note.get("url") or ""}
                 for note in notes
@@ -631,7 +721,7 @@ class LifeService:
             self.log.exception("nightly diary failed for %s", persona_id)
             self.db.discard_staged(persona_id, None, repr(exc))
             self.db.add_state_snapshot(
-                persona_id, "diary_error", self.esm.get_energy(), "",
+                persona_id, "diary_error", self.esm.get_energy(persona_id), "",
                 extra=json.dumps({"error": repr(exc), "notes": len(notes)}, ensure_ascii=False),
             )
             return {"date": date, "notes": len(notes), "fallback": False, "error": repr(exc)}
@@ -687,7 +777,7 @@ class LifeService:
         energy_blocked = False
         energy_reason = ""
         try:
-            energy_blocked, _, energy_reason = self.esm.gate_energy()
+            energy_blocked, _, energy_reason = self.esm.gate_energy(persona_id)
         except Exception:
             energy_blocked = False
         usage = self.db.get_daily_usage(persona_id, date)

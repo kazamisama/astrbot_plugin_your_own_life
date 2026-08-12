@@ -262,6 +262,7 @@ CREATE TABLE IF NOT EXISTS daily_usage (
     date TEXT NOT NULL,
     llm_calls INTEGER NOT NULL DEFAULT 0,
     tokens INTEGER NOT NULL DEFAULT 0,
+    energy_used REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (persona_id, date)
 );
 CREATE INDEX IF NOT EXISTS idx_notes_persona_fetched ON notes(persona_id, fetched_at);
@@ -308,6 +309,7 @@ class LifeDB:
             self._ensure_column("browse_sessions", "kind", "kind TEXT NOT NULL DEFAULT 'browse'")
             self._ensure_column("wishlist", "interest_name", "interest_name TEXT DEFAULT ''")
             self._ensure_column("life_plans", "fixed", "fixed INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column("daily_usage", "energy_used", "energy_used REAL NOT NULL DEFAULT 0")
             self._conn.commit()
         self.recover_stale_runs()
 
@@ -1023,6 +1025,14 @@ class LifeDB:
             "llm_calls = daily_usage.llm_calls + excluded.llm_calls, "
             "tokens = daily_usage.tokens + excluded.tokens",
             (persona_id, date, max(0, int(calls)), max(0, int(tokens))),
+        )
+
+    def increment_energy_usage(self, persona_id: str, date: str, amount: float) -> None:
+        self._execute(
+            "INSERT INTO daily_usage (persona_id, date, energy_used) VALUES (?, ?, ?) "
+            "ON CONFLICT(persona_id, date) DO UPDATE SET "
+            "energy_used = daily_usage.energy_used + excluded.energy_used",
+            (persona_id, date, max(0.0, float(amount))),
         )
 
     def get_daily_usage(self, persona_id: str, date: str) -> Optional[dict]:

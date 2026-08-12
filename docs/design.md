@@ -53,7 +53,7 @@ Your Own Life 是一个观察者模式的 AstrBot 插件：Bot 不注册账号�
 - `seen_items`：按 URL 哈希去重缓存。
 - `share_log`：分享尝试日志。
 - `persona_prompts`：人格 prompt 缓存与错误状态。
-- `daily_usage`：每日 LLM 调用/token 用量。
+- `daily_usage`：每日 LLM 调用/token 与精力消耗用量（`llm_calls` / `tokens` / `energy_used`）。
 - `change_log`：写操作变更账本（软删除/恢复等，配合回收站）。
 - `injection_log`：疑似提示词注入审计日志。
 - `life_leases`：同人格任务租约（多实例单写者，v1 本地兜底）。
@@ -145,7 +145,7 @@ hunger = 0（触发一次意外后清空）
 
 1. 调度器或 `/life_now` 触发。
 2. `PersonaService` 解析并刷新 persona prompt，失败则跳过该 persona。
-3. ESM 精力 gate，低精力记录 `skipped_energy`。
+3. 精力预算检查：每日 `daily_usage.energy_used` 达到 `energy_budget` 上限时跳过并记录 `energy_budget_exhausted`；未超限再走 ESM 精力 gate，低精力记录 `skipped_energy`。
 4. 按兴趣权重选题，默认 20% 概率探索低权重/新话题。
 5. 并行抓取候选，按 URL 哈希过滤已见。
 6. LLM 挑选 3-5 条并生成结构化 JSON；v0.2.6 起 LLM 失败走预算/重试语义（重试上限 3，耗尽报 error），不再生成确定性 fallback。
@@ -163,6 +163,8 @@ hunger = 0（触发一次意外后清空）
 （已实现，v0.3.4）时段模式：漫游按当地时间判定时段，`time_slots` 提供各时段的 topics/tone，以可选块注入选择 prompt；配置缺失时不注入，回退默认语气。
 
 （已实现，v0.3.6）灵感抽屉：`wishlist` 表存放待评估想法，日记可写入 `wishlist_candidates`，复盘后 LLM 评估升级为兴趣种子或丢弃，WebUI 可查看与手动处理。
+
+（已实现，v0.4.4）精力预算：漫游/复盘成功后按 `ENERGY_COST_BROWSE=0.15` / `ENERGY_COST_DIARY=0.2` 经 ESM `consume_energy` 真实扣减并双写 `daily_usage.energy_used`；每日累计达到 `energy_budget`（默认 0 = 无上限）后当天剩余任务跳过并记录 `energy_budget_exhausted`；ESM 缺失时以 `browse_energy_fallback` / `diary_energy_fallback` 快照显式标注本地估算。
 
 ## 分享决策
 
@@ -182,7 +184,7 @@ hunger = 0（触发一次意外后清空）
 
 历史 v0.2.4：LLM 失败时使用确定性 fallback（`_fallback_selected` / `_fallback_diary`），不重试、不报 error；该行为已随 v0.2.6 移除。以下为当前语义。
 
-- 预算全部可配置：`daily_llm_call_limit` 与 `daily_token_budget` 默认 `0`（无上限）；达到上限后当天剩余任务跳过并记录 `budget_exhausted`，WebUI 展示用量。多轮联想每轮召回候选上限 5（第 1 轮 5、第 2 轮 3、brainstorm 3-5），`hop_limit` 默认 2（brainstorm 5）。`daily_token_budget` 的计量依赖 provider 是否返回 usage；拿不到 token 用量时只执行调用次数上限。用量落点：新增 `daily_usage` 表（persona_id / date / llm_calls / tokens）承载每日计数，WebUI 用量视图读取该表。
+- 预算全部可配置：`daily_llm_call_limit` 与 `daily_token_budget` 默认 `0`（无上限）；达到上限后当天剩余任务跳过并记录 `budget_exhausted`，WebUI 展示用量。多轮联想每轮召回候选上限 5（第 1 轮 5、第 2 轮 3、brainstorm 3-5），`hop_limit` 默认 2（brainstorm 5）。`daily_token_budget` 的计量依赖 provider 是否返回 usage；拿不到 token 用量时只执行调用次数上限。用量落点：`daily_usage` 表（persona_id / date / llm_calls / tokens / energy_used）承载每日计数，WebUI 用量视图读取该表。
 - 重试：LLM 调用失败重试上限 `llm_retry_limit` 默认 3，带指数退避；重试耗尽后该任务标记 `failed` 并报 error（WebUI 错误区 + 命令 + 日志），不生成确定性伪造内容。
 - 崩溃：每个漫游/复盘 run 采用暂存区（staging）优先，SQLite 写事务只包住最终落库阶段；进程崩溃或异常中断时丢弃该 run 全部未提交数据，不写半成品 note/diary，`browse_sessions` 标记 `failed` 并记录 error；不自动重放，可 `/life_now` 手动重跑。
 

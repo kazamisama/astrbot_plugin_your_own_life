@@ -84,6 +84,36 @@ class _NoStarContext:
         return None
 
 
+class _EnergyStar:
+    def __init__(self, energy=0.9):
+        self.energy = energy
+        self.consumed = []
+        self.scopes = []
+
+    def get_bot_energy(self, scope=None):
+        self.scopes.append(scope)
+        return self.energy
+
+    def consume_energy(self, amount, reason, scope=None):
+        self.consumed.append((amount, reason, scope))
+        self.energy = max(0.0, self.energy - amount)
+        return self.energy
+
+    def get_combined_state(self, scope):
+        class View:
+            combined_label = "平静"
+
+        return View()
+
+
+class _EnergyContext:
+    def __init__(self, star):
+        self.star = star
+
+    def get_registered_star(self, plugin_id):
+        return self.star
+
+
 class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -222,6 +252,98 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.reason, "budget_exhausted")
         self.assertEqual(self.db.list_notes("shelly"), [])
         self.assertEqual(self.db.list_sessions("shelly")[0]["status"], "skipped")
+
+    async def test_energy_budget_exhausted_skips_browse(self):
+        self.service.config.energy_budget = 0.2
+        today = datetime.now().strftime("%Y-%m-%d")
+        self.db.increment_energy_usage("shelly", today, 0.2)
+        result = await self.service.run_browse_session("shelly", "scheduled")
+        self.assertEqual(result.status, "skipped")
+        self.assertEqual(result.reason, "energy_budget_exhausted")
+        self.assertEqual(self.db.list_notes("shelly"), [])
+        session = self.db.list_sessions("shelly")[0]
+        self.assertEqual(session["status"], "skipped")
+        self.assertEqual(session["reason"], "energy_budget_exhausted")
+        snapshot = self.db.list_state_snapshots("shelly")[0]
+        self.assertEqual(snapshot["activity"], "browse_skipped")
+        self.assertIn("energy_budget_exhausted", snapshot["extra"])
+
+    async def test_energy_budget_exhausted_skips_diary(self):
+        self.service.config.energy_budget = 0.2
+        today = datetime.now().strftime("%Y-%m-%d")
+        self.db.increment_energy_usage("shelly", today, 0.2)
+        result = await self.service.run_nightly_diary("shelly")
+        self.assertEqual(result["skipped"], "energy_budget_exhausted")
+        self.assertIsNone(self.db.get_diary("shelly", today))
+        snapshot = self.db.list_state_snapshots("shelly")[0]
+        self.assertEqual(snapshot["activity"], "diary_skipped")
+        self.assertIn("energy_budget_exhausted", snapshot["extra"])
+
+    async def test_successful_browse_consumes_energy(self):
+        star = _EnergyStar(energy=0.9)
+        self.service.esm = ESMAdapter(
+            _EnergyContext(star), scope_prefix="internet-life", energy_gate=0.3
+        )
+        self.service.llm = _FakeLLM(payload={
+            "selected": [{
+                "index": 0, "summary": "s", "opinion": "o", "mood": "curious",
+                "interest_level": 0.5, "interest_key": "ai", "interest_name": "AI",
+                "category": "opinion", "tags": [],
+                "share": {"should_share": False, "reason": "", "target": ""},
+            }],
+            "session_mood": "calm",
+        })
+        result = await self.service.run_browse_session("shelly", "scheduled")
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(star.consumed[0][0], 0.15)
+        self.assertEqual(star.consumed[0][1], "internet_life:browse")
+        self.assertEqual(star.consumed[0][2], "internet-life:shelly")
+        self.assertEqual(star.energy, 0.75)
+        today = datetime.now().strftime("%Y-%m-%d")
+        usage = self.db.get_daily_usage("shelly", today)
+        self.assertAlmostEqual(usage["energy_used"], 0.15)
+
+    async def test_missing_consume_records_local_estimate(self):
+        self.service.llm = _FakeLLM(payload={
+            "selected": [{
+                "index": 0, "summary": "s", "opinion": "o", "mood": "curious",
+                "interest_level": 0.5, "interest_key": "ai", "interest_name": "AI",
+                "category": "opinion", "tags": [],
+                "share": {"should_share": False, "reason": "", "target": ""},
+            }],
+            "session_mood": "calm",
+        })
+        result = await self.service.run_browse_session("shelly", "scheduled")
+        self.assertEqual(result.status, "completed")
+        today = datetime.now().strftime("%Y-%m-%d")
+        usage = self.db.get_daily_usage("shelly", today)
+        self.assertAlmostEqual(usage["energy_used"], 0.15)
+        snapshots = self.db.list_state_snapshots("shelly")
+        self.assertTrue(
+            any(s["activity"] == "browse_energy_fallback" for s in snapshots)
+        )
+
+    async def test_diary_consumes_energy_with_material(self):
+        star = _EnergyStar(energy=0.9)
+        self.service.esm = ESMAdapter(
+            _EnergyContext(star), scope_prefix="internet-life", energy_gate=0.3
+        )
+        self.db.add_note(
+            "shelly", None, "hn", "https://x", "X", "s", url_hash="energy-diary"
+        )
+        self.service.llm = _FakeLLM(payload={
+            "diary_text": "today was good",
+            "signature": "ok",
+            "mood": "calm",
+            "interest_updates": {},
+        })
+        result = await self.service.run_nightly_diary("shelly")
+        self.assertFalse(result["fallback"])
+        self.assertEqual(star.consumed[0][0], 0.2)
+        self.assertEqual(star.consumed[0][2], "internet-life:shelly")
+        today = datetime.now().strftime("%Y-%m-%d")
+        usage = self.db.get_daily_usage("shelly", today)
+        self.assertAlmostEqual(usage["energy_used"], 0.2)
 
     async def test_suspicious_fetched_content_is_logged(self):
         async def suspicious_fetcher(config, client, queries):
