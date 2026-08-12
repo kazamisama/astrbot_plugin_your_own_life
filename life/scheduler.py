@@ -109,31 +109,33 @@ class LifeScheduler:
 
     def _slot_datetimes(
         self, persona_id: str, day: Any
-    ) -> list[tuple[datetime, str, str]]:
-        slots: list[tuple[datetime, str, str]] = []
+    ) -> list[tuple[datetime, str, str, str]]:
+        """Return (jittered slot, kind, anchored task_id, anchored plan_date)."""
+        plan_date = day.strftime("%Y-%m-%d")
+        slots: list[tuple[datetime, str, str, str]] = []
         for raw in self.config.browse_times:
             slot_time = _parse_hhmm(raw)
             if slot_time:
                 base = datetime.combine(day, slot_time)
                 slot = self._jittered_slot(persona_id, base, "browse")
-                slots.append((slot, "browse", f"browse-{slot.strftime('%H-%M')}"))
+                slots.append((slot, "browse", f"browse-{base.strftime('%H-%M')}", plan_date))
         diary_time = _parse_hhmm(self.config.diary_time)
         if diary_time:
             base = datetime.combine(day, diary_time)
             slot = self._jittered_slot(persona_id, base, "diary")
-            slots.append((slot, "diary", f"diary-{slot.strftime('%H-%M')}"))
+            slots.append((slot, "diary", f"diary-{base.strftime('%H-%M')}", plan_date))
         for raw in self.config.peek_times:
             peek_time = _parse_hhmm(raw)
             if peek_time:
                 base = datetime.combine(day, peek_time)
                 slot = self._jittered_slot(persona_id, base, "peek")
-                slots.append((slot, "peek", f"peek-{slot.strftime('%H-%M')}"))
+                slots.append((slot, "peek", f"peek-{base.strftime('%H-%M')}", plan_date))
         if self._review_due(day, "monthly"):
-            slots.append((datetime.combine(day, time(9, 0)), "review", "review-monthly"))
+            slots.append((datetime.combine(day, time(9, 0)), "review", "review-monthly", plan_date))
         if self._review_due(day, "yearly"):
-            slots.append((datetime.combine(day, time(9, 30)), "review", "review-yearly"))
+            slots.append((datetime.combine(day, time(9, 30)), "review", "review-yearly", plan_date))
         if self._review_due(day, "quarterly"):
-            slots.append((datetime.combine(day, time(9, 15)), "review", "review-quarterly"))
+            slots.append((datetime.combine(day, time(9, 15)), "review", "review-quarterly", plan_date))
         return slots
 
     def _plan_datetime(self, row: dict) -> Optional[datetime]:
@@ -145,18 +147,20 @@ class LifeScheduler:
 
     def next_target(
         self, now: datetime, personas: Sequence[str]
-    ) -> Optional[tuple[datetime, str, str, str]]:
-        best: Optional[tuple[datetime, str, str, str]] = None
+    ) -> Optional[tuple[datetime, str, str, str, str]]:
+        best: Optional[tuple[datetime, str, str, str, str]] = None
         seen: set[tuple[datetime, str, str]] = set()
 
-        def consider(slot: datetime, persona_id: str, kind: str, task_id: str) -> None:
+        def consider(
+            slot: datetime, persona_id: str, kind: str, task_id: str, plan_date: str
+        ) -> None:
             nonlocal best
             key = (slot, persona_id, kind)
             if key in seen:
                 return
             seen.add(key)
             if slot > now and (best is None or slot < best[0]):
-                best = (slot, persona_id, kind, task_id)
+                best = (slot, persona_id, kind, task_id, plan_date)
 
         if self.db is not None:
             day_str = now.date().strftime("%Y-%m-%d")
@@ -164,13 +168,16 @@ class LifeScheduler:
                 for row in self.db.list_plans(persona_id, day_str, status="pending"):
                     slot = self._plan_datetime(row)
                     if slot is not None:
-                        consider(slot, persona_id, str(row.get("kind") or ""),
-                                 str(row.get("task_id") or ""))
+                        consider(
+                            slot, persona_id, str(row.get("kind") or ""),
+                            str(row.get("task_id") or ""),
+                            str(row.get("plan_date") or day_str),
+                        )
         for offset in (0, 1):
             day = now.date() + timedelta(days=offset)
             for persona_id in personas:
-                for slot, kind, task_id in self._slot_datetimes(persona_id, day):
-                    consider(slot, persona_id, kind, task_id)
+                for slot, kind, task_id, plan_date in self._slot_datetimes(persona_id, day):
+                    consider(slot, persona_id, kind, task_id, plan_date)
         return best
 
     def _current_target(
@@ -183,10 +190,9 @@ class LifeScheduler:
         """Create pending plan rows for every configured slot of one day."""
         if self.db is None:
             return 0
-        plan_date = day.strftime("%Y-%m-%d")
         count = 0
         for persona_id in personas:
-            for slot, kind, task_id in self._slot_datetimes(persona_id, day):
+            for slot, kind, task_id, plan_date in self._slot_datetimes(persona_id, day):
                 self.db.ensure_plan(
                     persona_id, plan_date, task_id, kind,
                     scheduled_at=slot.strftime("%Y-%m-%d %H:%M:%S"),
@@ -262,6 +268,9 @@ class LifeScheduler:
     async def _run(self) -> None:
         personas = list(self.config.life_personas or [])
         while not self._stop.is_set():
+            if not self.config.enabled:
+                await self._stop.wait()
+                break
             if not personas:
                 await self._stop.wait()
                 break
@@ -274,7 +283,7 @@ class LifeScheduler:
             if target is None:
                 await self._stop.wait()
                 break
-            slot, persona_id, kind, task_id = target
+            slot, persona_id, kind, task_id, plan_date = target
             now_local = local_now(self.config.timezone, self.now_fn())
             wait = max(1.0, (slot - now_local).total_seconds())
             try:
@@ -286,7 +295,6 @@ class LifeScheduler:
             key = f"{slot.strftime('%Y-%m-%d %H:%M')}:{persona_id}:{kind}"
             if key in self._done_keys:
                 continue
-            plan_date = slot.strftime("%Y-%m-%d")
             if not self._acquire_lease(persona_id, key, kind):
                 self.log.warning(
                     "lease for %s %s held by another instance, skipping", persona_id, key

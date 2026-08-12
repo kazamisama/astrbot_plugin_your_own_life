@@ -2,6 +2,20 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 第二轮全量 review 修复：暂存捕获/软删/启动恢复与调度锚定（v0.5.12）
+- 目标：三个只读 subagent（db、服务层/调度、WebUI/适配层）再 review 一遍，落地确认的 P1，其余 P2/P3 记录遗留。
+- 已确认决策：
+  - `commit_staged` 用 `INSERT ... RETURNING id` 精确捕获本次插入，移除按 URL hash/标题/时间 JOIN 反查（v0.5.11 的 JOIN 修复仍有同秒碰撞）。
+  - 日记 upsert 重写时重置 `deleted_at`，软删后同日重写可再次可见。
+  - `recover_stale_runs` 增加 1 小时年龄门槛，清理全部 staging 表的 NULL-session 与负 token 残留；diary/revisit 每轮用独立负 token，`commit_staged(None)` 不再聚合匿名 staging。
+  - `enabled=False` 统一门控调度器与日记/回顾/胶囊/重游；调度 `task_id`/`plan_date` 锚定原始槽位，jitter 跨午夜不再错位。
+- 改动：`life/db.py`、`life/browser.py`、`life/scheduler.py`、`tests/test_db.py`、`tests/test_scheduler.py`、`tests/test_browser.py`；版本 v0.5.11 → v0.5.12；CHANGELOG 同步。
+- 验证：unittest 246 passed（skipped=1；新增 8 个回归：捕获碰撞、日记软删重写 x2、恢复多实例/孤儿清理、token 隔离、enabled 门、跨午夜锚定、disabled 循环退出）。
+- 遗留（subagent 已确认、本轮未修）：
+  - P2：share 渲染未计入 LLM 预算；调度循环无顶层异常兜底；长任务无租约续租；睡眠窗口只对 browse jitter 生效；commit 后副作用异常会把 session 标 failed；兴趣键/名无注入清洗；日记同日重跑无幂等事件；WebUI 实体图 SVG 属性注入；memory 合并去重；interest 编辑误改 seen_count；timeline 分页；share_note 非法 body 500；time_slots schema 与解析器不一致；LLM rollback 可回滚 owner 变更；`_plan_time` 不校验范围。
+  - P3：config clamp 不齐、review_schedule 逐键合并、错过槽位永补、`_done_keys` 无界、迁移非崩溃安全等。
+- 下一步：按 P2 优先级修 share 预算与调度健壮性；提交推送 v0.5.12。
+
 ## 2026-08-12 全量 review 修复：启动配置崩溃与重访链漏洞（v0.5.11）
 
 - 目标：修掉用户报告的插件加载错误 `'items'`，并把全量 review 发现的 P2/P3 一起收口。

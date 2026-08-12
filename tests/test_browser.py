@@ -230,6 +230,29 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         diary = self.db.get_diary("shelly", datetime.now().strftime("%Y-%m-%d"))
         self.assertEqual(diary["signature"], "")
 
+    async def test_disabled_config_skips_all_writes(self):
+        cfg = load_config({"enabled": False, "sleep_window": "00:00-00:01"})
+        service = LifeService(
+            cfg, self.db, self.interests, self.esm, _FakeLLM(payload={}),
+            self.personas, share_gate=self.share_gate, fetcher_fn=_fake_fetcher,
+            now_fn=datetime.now,
+        )
+        diary = await service.run_nightly_diary("shelly")
+        self.assertEqual(diary["skipped"], "disabled")
+        review = await service.run_review("shelly", "monthly")
+        self.assertEqual(review["skipped"], "disabled")
+        quarterly = await service.run_quarterly_review("shelly")
+        self.assertEqual(quarterly["skipped"], "disabled")
+        capsules = await service.run_capsules("shelly")
+        self.assertEqual(capsules["error"], "disabled")
+        revisit = await service.run_revisit("shelly")
+        self.assertEqual(revisit["error"], "disabled")
+        self.assertEqual(self.db.list_notes("shelly"), [])
+        self.assertIsNone(
+            self.db.get_diary("shelly", datetime.now().strftime("%Y-%m-%d"))
+        )
+        self.assertEqual(len(self.db._rows("SELECT * FROM staging_notes")), 0)
+
     async def test_nightly_diary_decays_note_temperature(self):
         note_id = self.db.add_note(
             "shelly", None, "hn", "https://x", "X", "s", url_hash="temp-decay"

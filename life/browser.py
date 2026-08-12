@@ -663,6 +663,9 @@ class LifeService:
     # ----- diary -----
 
     async def run_nightly_diary(self, persona_id: str) -> dict[str, Any]:
+        if not self.config.enabled:
+            return {"date": local_today(self.config.timezone, self.now_fn()),
+                    "notes": 0, "fallback": False, "skipped": "disabled"}
         try:
             persona = await self._resolve_persona(persona_id)
         except PersonaUnavailable:
@@ -671,6 +674,7 @@ class LifeService:
 
         now = local_now(self.config.timezone, self.now_fn())
         date = now.strftime("%Y-%m-%d")
+        run_token = -random.randrange(1, 2**62)
         self.db.decay_note_temperature(
             persona_id, self.config.memory_temperature_decay
         )
@@ -790,9 +794,9 @@ class LifeService:
             top = ",".join(
                 row["name"] or row["key"] for row in self.db.get_interests(persona_id, limit=5)
             )
-            self.db.stage_diary(persona_id, None, date, diary_text, mood, energy, top, signature=signature)
+            self.db.stage_diary(persona_id, run_token, date, diary_text, mood, energy, top, signature=signature)
             self.db.stage_snapshot(
-                persona_id, None, "diary", energy, mood,
+                persona_id, run_token, "diary", energy, mood,
                 extra=json.dumps(
                     {"notes": len(notes), "revisit_day": revisit_day,
                      "revisit_notes": len(raw_revisit_notes)},
@@ -801,13 +805,13 @@ class LifeService:
             )
             for candidate in wishlist_candidates:
                 self.db.stage_wishlist(
-                    persona_id, None, candidate["text"],
+                    persona_id, run_token, candidate["text"],
                     interest_key=candidate["interest_key"],
                     source=candidate["source"],
                 )
             if notes and interest_updates:
-                self.interests.stage_updates(persona_id, None, interest_updates, now=now)
-            self.db.commit_staged(persona_id, None, status="completed")
+                self.interests.stage_updates(persona_id, run_token, interest_updates, now=now)
+            self.db.commit_staged(persona_id, run_token, status="completed")
             if notes or raw_revisit_notes:
                 _, energy_mode = self._consume_energy(
                     persona_id, ENERGY_COST_DIARY, "internet_life:diary"
@@ -864,7 +868,7 @@ class LifeService:
                     "revisit_failed": revisit_result.get("failed", 0)}
         except Exception as exc:
             self.log.exception("nightly diary failed for %s", persona_id)
-            self.db.discard_staged(persona_id, None, repr(exc))
+            self.db.discard_staged(persona_id, run_token, repr(exc))
             self.db.add_state_snapshot(
                 persona_id, "diary_error", self.esm.get_energy(persona_id), "",
                 extra=json.dumps({"error": repr(exc), "notes": len(notes)}, ensure_ascii=False),
@@ -993,6 +997,8 @@ class LifeService:
 
     async def run_review(self, persona_id: str, period: str) -> dict[str, Any]:
         period = "yearly" if period == "yearly" else "monthly"
+        if not self.config.enabled:
+            return {"period": period, "ok": False, "skipped": "disabled"}
         try:
             persona = await self._resolve_persona(persona_id)
         except PersonaUnavailable:
@@ -1096,6 +1102,8 @@ class LifeService:
         ]
 
     async def run_quarterly_review(self, persona_id: str) -> dict[str, Any]:
+        if not self.config.enabled:
+            return {"persona_id": persona_id, "ok": False, "skipped": "disabled"}
         if not self.config.quarterly_review_enabled:
             return {"persona_id": persona_id, "ok": False,
                     "skipped": "disabled"}
@@ -1231,6 +1239,8 @@ class LifeService:
         )
 
     async def run_capsules(self, persona_id: str) -> dict[str, Any]:
+        if not self.config.enabled:
+            return {"persona_id": persona_id, "ok": False, "error": "disabled"}
         try:
             persona = await self._resolve_persona(persona_id)
         except PersonaUnavailable:
@@ -1306,6 +1316,8 @@ class LifeService:
 
     async def run_revisit(self, persona_id: str) -> dict[str, Any]:
         """Nightly light action: revisit old links and write a "what happened next" note."""
+        if not self.config.enabled:
+            return {"persona_id": persona_id, "ok": False, "error": "disabled"}
         try:
             persona = await self._resolve_persona(persona_id)
         except PersonaUnavailable:
@@ -1313,6 +1325,7 @@ class LifeService:
                     "error": "persona_unavailable"}
         now = local_now(self.config.timezone, self.now_fn())
         today = now.strftime("%Y-%m-%d")
+        run_token = -random.randrange(1, 2**62)
         threshold = (
             now - timedelta(days=max(1, int(self.config.revisit_interval_days)))
         ).strftime("%Y-%m-%d")
@@ -1386,7 +1399,7 @@ class LifeService:
                     "candidates": len(candidates), "revisited": 0,
                     "failed": failed}
         self.db.stage_snapshot(
-            persona_id, None, "revisit", self.esm.get_energy(persona_id),
+            persona_id, run_token, "revisit", self.esm.get_energy(persona_id),
             extra=json.dumps({"count": len(staged)}, ensure_ascii=False),
         )
         for original, payload in staged:
@@ -1394,7 +1407,7 @@ class LifeService:
             name = str(original.get("interest_name") or key)
             self.db.stage_note(
                 persona_id,
-                None,
+                run_token,
                 source="revisit/" + str(original.get("source") or "archive"),
                 url=str(original.get("url") or ""),
                 title=sanitize_text(payload.get("title"), 300),
@@ -1408,8 +1421,8 @@ class LifeService:
                 tags=self._valid_tags(payload.get("tags")),
                 url_hash=str(original.get("url_hash") or ""),
             )
-            self.db.stage_seen(persona_id, None, str(original.get("url_hash") or ""))
-        committed = self.db.commit_staged(persona_id, None, status="completed")
+            self.db.stage_seen(persona_id, run_token, str(original.get("url_hash") or ""))
+        committed = self.db.commit_staged(persona_id, run_token, status="completed")
         for (original, payload), note in zip(staged, committed):
             self.db.mark_note_revisit(int(note["id"]), int(original["id"]))
             self.db.append_event(

@@ -436,16 +436,98 @@ class LifeDBTest(unittest.TestCase):
         other = self.db.get_daily_usage("shelly", "2026-08-13")
         self.assertIsNone(other)
 
-    def test_recover_stale_runs(self):
-        sid = self.db.start_browse_session("shelly", "scheduled")
-        self.db.stage_note("shelly", sid, "hn", "https://a", "A", "s", url_hash="h1")
+    def test_recover_stale_runs_ignores_recent_and_fails_old(self):
+        old = self.db.start_browse_session("shelly", "scheduled")
+        self.db.stage_note("shelly", old, "hn", "https://a", "A", "s", url_hash="h1")
+        self.db._execute(
+            "UPDATE browse_sessions SET started_at = '2020-01-01 00:00:00' WHERE id = ?",
+            (old,),
+        )
+        fresh = self.db.start_browse_session("shelly", "scheduled")
         db2 = LifeDB(Path(self.tmp.name) / "life.db")
-        sessions = db2.list_sessions("shelly")
-        self.assertEqual(sessions[0]["status"], "failed")
-        self.assertEqual(sessions[0]["reason"], "stale_run_recovered")
-        self.assertEqual(db2.list_notes("shelly"), [])
-        self.assertEqual(db2._rows("SELECT COUNT(*) AS n FROM staging_notes")[0]["n"], 0)
-        db2.close()
+        try:
+            sessions = db2.list_sessions("shelly")
+            by_id = {row["id"]: row for row in sessions}
+            self.assertEqual(by_id[old]["status"], "failed")
+            self.assertEqual(by_id[old]["reason"], "stale_run_recovered")
+            self.assertEqual(by_id[fresh]["status"], "running")
+            self.assertEqual(db2.list_notes("shelly"), [])
+            self.assertEqual(
+                db2._rows("SELECT COUNT(*) AS n FROM staging_notes")[0]["n"], 0
+            )
+        finally:
+            db2.close()
+
+    def test_recover_stale_runs_cleans_orphan_staging_by_age(self):
+        self.db.stage_diary("shelly", None, "2020-01-01", "old null diary")
+        self.db.stage_note("shelly", None, "hn", "https://null", "Null", "s", url_hash="null-h")
+        self.db.stage_note("shelly", -1001, "hn", "https://tok", "Tok", "s", url_hash="tok-h")
+        self.db.stage_note("shelly", -2002, "hn", "https://fresh", "Fresh", "s", url_hash="fresh-h")
+        self.db._execute(
+            "UPDATE staging_notes SET fetched_at = '2020-01-01 00:00:00' WHERE url_hash = 'tok-h'"
+        )
+        self.db._execute(
+            "UPDATE staging_diary SET created_at = '2020-01-01 00:00:00' WHERE date = '2020-01-01'"
+        )
+        db2 = LifeDB(Path(self.tmp.name) / "life.db")
+        try:
+            notes = db2._rows("SELECT session_id, url_hash FROM staging_notes")
+            self.assertEqual(
+                {(row["session_id"], row["url_hash"]) for row in notes},
+                {(None, "null-h"), (-2002, "fresh-h")},
+            )
+            self.assertEqual(
+                db2._rows("SELECT COUNT(*) AS n FROM staging_diary")[0]["n"], 0
+            )
+        finally:
+            db2.close()
+
+    def test_commit_staged_returns_only_new_notes_when_old_duplicate_exists(self):
+        same_ts = self.db._now()
+        old_id = self.db.add_note(
+            "shelly", None, "hn", "https://a", "Same", "s", url_hash="dup-h"
+        )
+        self.db._execute(
+            "UPDATE notes SET fetched_at = ? WHERE id = ?", (same_ts, old_id)
+        )
+        self.db.stage_note("shelly", None, "hn", "https://a", "Same", "s", url_hash="dup-h")
+        self.db._execute(
+            "UPDATE staging_notes SET fetched_at = ? WHERE persona_id = 'shelly'",
+            (same_ts,),
+        )
+        notes = self.db.commit_staged("shelly", None, status="completed")
+        self.assertEqual(len(notes), 1)
+        self.assertNotEqual(notes[0]["id"], old_id)
+        self.assertEqual(notes[0]["url_hash"], "dup-h")
+
+    def test_add_diary_rewrite_after_soft_delete_becomes_visible(self):
+        self.db.add_diary("shelly", "2026-08-12", "old", mood="calm")
+        self.assertTrue(self.db.soft_delete_diary("shelly", "2026-08-12", reason="cleanup"))
+        self.assertIsNone(self.db.get_diary("shelly", "2026-08-12"))
+        self.db.add_diary("shelly", "2026-08-12", "new", mood="curious")
+        row = self.db.get_diary("shelly", "2026-08-12")
+        self.assertIsNotNone(row)
+        self.assertEqual(row["content"], "new")
+
+    def test_staged_diary_rewrite_after_soft_delete_becomes_visible(self):
+        self.db.add_diary("shelly", "2026-08-12", "old")
+        self.assertTrue(self.db.soft_delete_diary("shelly", "2026-08-12", reason="cleanup"))
+        self.db.stage_diary("shelly", None, "2026-08-12", "staged", signature="s")
+        self.db.commit_staged("shelly", None, status="completed")
+        row = self.db.get_diary("shelly", "2026-08-12")
+        self.assertIsNotNone(row)
+        self.assertEqual(row["content"], "staged")
+
+    def test_synthetic_token_staging_is_scoped(self):
+        self.db.stage_note("shelly", -101, "hn", "https://a", "A", "s", url_hash="t1")
+        self.db.stage_note("shelly", -102, "hn", "https://b", "B", "s", url_hash="t2")
+        notes = self.db.commit_staged("shelly", -102, status="completed")
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(notes[0]["url_hash"], "t2")
+        remaining = self.db._rows(
+            "SELECT session_id FROM staging_notes WHERE persona_id = 'shelly'"
+        )
+        self.assertEqual([row["session_id"] for row in remaining], [-101])
 
     def test_soft_delete_and_restore_note(self):
         note_id = self.db.add_note("shelly", None, "hn", "https://a", "A", "s", url_hash="h1")

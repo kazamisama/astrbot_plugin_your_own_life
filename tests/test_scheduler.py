@@ -1,9 +1,11 @@
+import asyncio
 import os
 import sys
 import tempfile
 import unittest
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -247,6 +249,67 @@ class SchedulerPlansTest(unittest.TestCase):
         after = {"tokens": 34, "llm_calls": 2}
         self.assertEqual(self.scheduler._budget_delta(before, after), 24.0)
         self.assertEqual(self.scheduler._budget_delta(None, None), 0.0)
+
+    def test_jitter_crossing_midnight_keeps_plan_anchored(self):
+        cfg = LifeConfig(
+            browse_times=[], diary_time="23:00",
+            browse_jitter_minutes=0, diary_jitter_minutes=60,
+            peek_times=[], life_personas=["shelly"],
+        )
+        scheduler = LifeScheduler(service=_FakeService(self.db), config=cfg)
+        with patch(
+            "life.scheduler.deterministic_offset",
+            return_value=timedelta(minutes=60),
+        ):
+            count = scheduler.seed_plans(["shelly"], datetime(2026, 8, 12))
+            rows = self.db.list_plans("shelly", "2026-08-12")
+            self.assertEqual(count, 1)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["task_id"], "diary-23-00")
+            self.assertEqual(rows[0]["plan_date"], "2026-08-12")
+            self.assertEqual(rows[0]["scheduled_at"], "2026-08-13 00:00:00")
+            target = scheduler.next_target(
+                datetime(2026, 8, 12, 23, 0), ["shelly"]
+            )
+            self.assertIsNotNone(target)
+            self.assertEqual(target[0], datetime(2026, 8, 13, 0, 0))
+            self.assertEqual(target[3], "diary-23-00")
+            self.assertEqual(target[4], "2026-08-12")
+            self.assertTrue(self.db.update_plan(
+                "shelly", target[4], target[3], "done",
+                reason="ok",
+                finished_at="2026-08-13 00:01:00",
+            ))
+
+    def test_scheduler_loop_exits_when_disabled(self):
+        class _TrackingService(_FakeService):
+            def __init__(self, db):
+                super().__init__(db)
+                self.calls: list[str] = []
+
+            async def run_browse_session(self, persona_id, trigger):
+                self.calls.append(persona_id)
+                return None
+
+            def record_skipped_duplicate(self, persona_id, kind, slot):
+                self.calls.append("skip")
+
+        service = _TrackingService(self.db)
+        cfg = LifeConfig(
+            enabled=False, browse_times=["10:00"], diary_time="23:00",
+            browse_jitter_minutes=0, diary_jitter_minutes=0,
+            peek_times=[], life_personas=["shelly"],
+        )
+        scheduler = LifeScheduler(service=service, config=cfg)
+
+        async def run():
+            task = asyncio.create_task(scheduler._run())
+            await asyncio.sleep(0.05)
+            scheduler._stop.set()
+            await task
+
+        asyncio.run(run())
+        self.assertEqual(service.calls, [])
 
 
 if __name__ == "__main__":

@@ -308,6 +308,15 @@ _LEGACY_TABLES = (
     "seen_items",
 )
 
+_STAGING_TS_COLUMNS = (
+    ("staging_notes", "fetched_at"),
+    ("staging_diary", "created_at"),
+    ("staging_snapshots", "ts"),
+    ("staging_seen", "first_seen_at"),
+    ("staging_wishlist", "created_at"),
+    ("staging_interests", "last_seen_at"),
+)
+
 
 def _now_str(tz_name: str = DEFAULT_TIMEZONE) -> str:
     return local_now(tz_name).strftime("%Y-%m-%d %H:%M:%S")
@@ -736,7 +745,7 @@ class LifeDB:
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(persona_id, date) DO UPDATE SET content = excluded.content, "
             "signature = excluded.signature, mood = excluded.mood, energy = excluded.energy, "
-            "interest_top = excluded.interest_top",
+            "interest_top = excluded.interest_top, deleted_at = ''",
             (persona_id, date, content, signature, mood, energy, interest_top, self._now()),
         )
 
@@ -1071,38 +1080,19 @@ class LifeDB:
         reason: str = "",
         error: str = "",
     ) -> list[dict]:
-        staging_ids = [
-            int(row["id"])
-            for row in self._rows(
-                "SELECT id FROM staging_notes WHERE persona_id = ? "
-                "AND (session_id = ? OR (session_id IS NULL AND ? IS NULL))",
-                (persona_id, session_id, session_id),
-            )
-        ]
         with self._transaction():
-            self._conn.execute(
+            inserted = self._conn.execute(
                 "INSERT INTO notes "
                 "(persona_id, session_id, fetched_at, source, url, title, summary, opinion, mood, "
                 "interest_level, interest_key, interest_name, category, tags, share_decision, share_status, url_hash) "
                 "SELECT persona_id, session_id, fetched_at, source, url, title, summary, opinion, mood, "
                 "interest_level, interest_key, interest_name, category, tags, share_decision, share_status, url_hash "
                 "FROM staging_notes WHERE persona_id = ? AND "
-                "(session_id = ? OR (session_id IS NULL AND ? IS NULL))",
+                "(session_id = ? OR (session_id IS NULL AND ? IS NULL)) "
+                "ORDER BY id RETURNING id",
                 (persona_id, session_id, session_id),
             )
-            if staging_ids:
-                inserted = self._conn.execute(
-                    "SELECT n.id FROM notes n JOIN staging_notes s "
-                    "ON s.persona_id = n.persona_id AND s.url_hash = n.url_hash "
-                    "AND s.fetched_at = n.fetched_at AND s.title = n.title "
-                    "WHERE s.id IN (%s) AND s.persona_id = ? "
-                    "AND (s.session_id = ? OR (s.session_id IS NULL AND ? IS NULL)) "
-                    "ORDER BY n.id" % ",".join("?" for _ in staging_ids),
-                    (*staging_ids, persona_id, session_id, session_id),
-                ).fetchall()
-                new_note_ids = [int(row["id"]) for row in inserted]
-            else:
-                new_note_ids = []
+            new_note_ids = [int(row[0]) for row in inserted.fetchall()]
             self._conn.execute(
                 "INSERT INTO diary_entries "
                 "(persona_id, date, content, signature, mood, energy, interest_top, created_at) "
@@ -1111,7 +1101,8 @@ class LifeDB:
                 "(session_id = ? OR (session_id IS NULL AND ? IS NULL)) "
                 "ON CONFLICT(persona_id, date) DO UPDATE SET content = excluded.content, "
                 "signature = excluded.signature, mood = excluded.mood, "
-                "energy = excluded.energy, interest_top = excluded.interest_top",
+                "energy = excluded.energy, interest_top = excluded.interest_top, "
+                "deleted_at = ''",
                 (persona_id, session_id, session_id),
             )
             self._conn.execute(
@@ -1174,10 +1165,22 @@ class LifeDB:
                 (self._now(), error, session_id),
             )
 
-    def recover_stale_runs(self) -> int:
+    def recover_stale_runs(self, stale_after_seconds: int = 3600) -> int:
+        """Recover crash leftovers without clobbering a live second instance.
+
+        Running browse sessions are only failed once they are older than the
+        cutoff. Anonymous and synthetic-token staging rows older than the cutoff
+        are discarded so orphan diary/revisit data is never committed later.
+        """
+        cutoff = to_local(
+            datetime.now() - timedelta(seconds=max(60, int(stale_after_seconds))),
+            self.timezone,
+        ).strftime("%Y-%m-%d %H:%M:%S")
         with self._transaction():
             rows = self._conn.execute(
-                "SELECT id, persona_id FROM browse_sessions WHERE status = 'running'"
+                "SELECT id, persona_id FROM browse_sessions "
+                "WHERE status = 'running' AND started_at <= ?",
+                (cutoff,),
             ).fetchall()
             for row in rows:
                 self._delete_staging(row["persona_id"], int(row["id"]))
@@ -1186,9 +1189,17 @@ class LifeDB:
                     "reason = 'stale_run_recovered', error = 'interrupted before commit' WHERE id = ?",
                     (self._now(), int(row["id"])),
                 )
-            self._conn.execute(
-                "DELETE FROM staging_diary WHERE session_id IS NULL"
-            )
+            for table, ts_col in _STAGING_TS_COLUMNS:
+                self._conn.execute(
+                    f"DELETE FROM {table} WHERE session_id IS NULL "
+                    f"AND {ts_col} <> '' AND {ts_col} <= ?",
+                    (cutoff,),
+                )
+                self._conn.execute(
+                    f"DELETE FROM {table} WHERE session_id < 0 "
+                    f"AND {ts_col} <> '' AND {ts_col} <= ?",
+                    (cutoff,),
+                )
             self._conn.execute(
                 "DELETE FROM life_leases WHERE expires_at <= ?", (self._now(),)
             )

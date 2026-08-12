@@ -2,6 +2,21 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.12] - 2026-08-12
+
+### Fixed
+
+- `commit_staged` 捕获新短记改用 `INSERT ... RETURNING id`，不再按 `(persona_id, url_hash, fetched_at, title)` 反查；同秒同标题同 hash 的旧短记不会再混入返回列表，`run_revisit` 的 `zip(staged, committed)` 配对保持正确。
+- 软删日记同日期重写不再不可见：`add_diary` 与 `commit_staged` 的 `ON CONFLICT ... DO UPDATE` 现在会重置 `deleted_at = ''`。
+- `recover_stale_runs` 改为按年龄/暂存时间判定残留：近期 running 会话与新鲜 staging 不会被第二个实例启动时清掉；同时清理全部 staging 表的 NULL-session 与合成 token 残留，避免崩溃后的重游短记被下一次日记误提交。
+- 夜间日记与重游改为每轮独立负 session token 暂存，`commit_staged(None)` 不再一把提交该 persona 全部匿名 staging。
+- `enabled=False` 现在统一拦截调度循环与日记、月度/年度/季度回顾、胶囊、重游，符合"关闭后不漫游、不写日记"的配置语义。
+- 调度器跨午夜抖动不再错位记账：`task_id` 与 `plan_date` 锚定原始槽位，jitter 只影响实际执行时刻，原 plan 不会再永久 pending。
+
+### Notes
+
+- 测试：246 passed（skipped=1；新增同字段捕获碰撞、软删日记重写、多实例/孤儿 staging 恢复、合成 token 隔离、enabled 门、跨午夜锚定回归）。
+
 ## [0.5.11] - 2026-08-12
 
 ### Fixed
