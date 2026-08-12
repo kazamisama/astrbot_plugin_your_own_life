@@ -34,7 +34,7 @@ kazamisama 仓库下的 AstrBot 插件是一整个需要互操作的家庭，任
 | astrbot_plugin_private_proactive_reply | v0.11.2 | 无 | kazamisama/astrbot_plugin_private_proactive_reply | 方向：主动社交行为层（复用人格/记忆/工具链） |
 | astrbot_plugin_engram_core | 1.76.0 | `_PUBLIC_API.md`（Public API · v1；v1.75 日记/召回/租约，v1.76 事件/短记/实体图） | kazamisama/astrbot-plugin-engram-core | v2 硬依赖：统一记忆库/日记写入/召回/实体图/租约，经 `LifeMemoryAdapter` |
 | astrbot-plugin-media-warden | 1.8.1 | 无 | kazamisama/astrbot-plugin-media-warden | 方向：素材采集/记忆原料，未见显式契约 |
-| astrbot_plugin_your_own_life（本插件） | v0.5.10 | 无独立 `_PUBLIC_API.md`；跨插件调用全部经适配层 | kazamisama/astrbot_plugin_your_own_life | 本插件（L1/L1.5 已交付，L2-01 至 L2-11 全部已落地，v0.5.0-v0.5.10） |
+| astrbot_plugin_your_own_life（本插件） | v0.5.13 | 无独立 `_PUBLIC_API.md`；跨插件调用全部经适配层 | kazamisama/astrbot_plugin_your_own_life | 本插件（L1/L1.5 已交付，L2-01 至 L2-11 全部已落地，v0.5.0-v0.5.13） |
 
 升级检查表：
 

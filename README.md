@@ -6,9 +6,11 @@
 
 当前 v1 仅 owner 侧档案，不进入群聊主动表达；跨平台社交交互为后续方向。
 
+当前版本：v0.5.13。
+
 ## 功能
 
-- 每实例独立生活（现状 v0.3.0）：`life_personas` 白名单，每个 persona 拥有独立的档案、兴趣、情绪 scope 与分享记录；v1.1 起同人格多实例共享同一 SQLite 档案（见 `docs/design.md` 多实例并发）。
+- 每实例独立生活：`life_personas` 白名单，每个 persona 拥有独立的档案、兴趣、情绪 scope 与分享记录；同人格多实例共享同一 SQLite（v0.2.9 起）或统一记忆宿主租约（v0.5.8 起），租约保证单写者（见 `docs/design.md` 多实例并发）。
 - 人格跟随实例：人格 prompt 取自 AstrBot 对应 persona 的 `system_prompt`，缓存进 SQLite，每天自动刷新，WebUI 可查看与手动刷新；解析失败则跳过该 persona 当天任务。
 - 定时漫游：默认每天 10:00 / 15:00 各一次（±2 小时确定性波动），夜间 23:00 复盘写日记（±1 小时，日期锚定原始槽位）。
 - 免密钥信息源：Hacker News、GitHub 公开搜索、Reddit 公开 JSON、自定义 RSS/Atom；可选 Tavily 搜索。
@@ -35,8 +37,9 @@
 - 多实例租约（v0.5.8）：配置 `memory_host` 后调度器经统一宿主 claim/release 租约串行化同人格任务，拿不到租约跳过；未配置时回退本地 SQLite 租约。
 - 关注对象（v0.5.9）：`watchlist` 配置博客/GitHub 项目/用户/RSS，进入漫游选题；实体图标记 watched，WebUI“关注”tab 查看近期更新。
 - 故地重游（v0.5.10）：旧短记超过 `revisit_interval_days` 后夜间自动重访链接，LLM 写“后来呢”短记并引用原短记；WebUI“故地重游”tab 可串联查看原短记与后续状态。
+- 工程健壮性（v0.5.11-v0.5.13）：修复 `'items'` 启动崩溃、同秒暂存捕获/软删恢复/启动恢复与跨午夜调度锚定；v0.5.13 再收口 SVG 属性转义、睡眠窗口、reject 事件、LLM rollback 权限与长任务租约续租。
 - 摘要优先：只持久化摘要、观点与链接，不保存网页原文。
-- 生态联动（现状 v0.3.0）：可选接入 ESM 读取精力/情绪、施加信号；缺失时静默降级；v0.4.4 起精力消费缺失时显式记录本地估算，不再默认降级。
+- 生态联动：可选接入 ESM 读取精力/情绪、施加信号；v0.4.4 起精力消费缺失时显式记录本地估算，不再默认静默降级；配置 `memory_host` 后统一记忆宿主为硬依赖。
 
 ## 安装
 
@@ -44,7 +47,7 @@
 
 ## WebUI
 
-插件页面由 AstrBot Dashboard 自动发现：在管理面板的插件详情里进入「Your Own Life」页面（`pages/life/index.html`），无需单独注册路由。页面数据接口由插件在启动时通过 `register_web_api` 注册，统一挂在 `/api/plug/astrbot_plugin_your_own_life/api/...` 下，访问需要 Dashboard 登录态。
+插件页面由 AstrBot Dashboard 自动发现：在管理面板的插件详情里进入「Your Own Life」页面（`pages/life/index.html`），无需单独注册路由。页面数据接口由插件在启动时通过 `register_web_api` 注册（引擎不可用时回退 `register_web_routes`），统一挂在 `/api/plug/astrbot_plugin_your_own_life/api/...` 下，访问需要 Dashboard 登录态。
 
 ## 文档
 
@@ -59,29 +62,72 @@
 
 ## 配置
 
-关键项：
+完整配置项与默认值（以 `_conf_schema.json` 为准）：
 
-- `life_personas`：允许生活的 persona 白名单；留空 = 插件不运行生活任务。
-- `browse_times` / `diary_time` / `browse_jitter_minutes` / `diary_jitter_minutes`：漫游与日记时间及波动。
-- `sleep_window` / `timezone`：睡眠窗口与生活任务时区（默认 `Asia/Shanghai`；非法配置回退默认并告警）。
-- `daily_llm_call_limit` / `daily_token_budget` / `llm_retry_limit`：LLM 每日调用/token 预算（0 = 无上限）与失败重试上限。
-- `energy_budget`：每日精力消耗上限（默认 0 = 无上限），达到上限后当天剩余任务跳过并记录 `energy_budget_exhausted`。
-- `memory_host` / `memory_lease_ttl_seconds`：统一记忆宿主插件 ID（留空 = 本地 SQLite）与宿主任务租约 TTL（默认 300 秒）。
-- `trash_retention_days`：回收站保留天数（默认 30），超期内容可彻底清除。
-- `injection_log_enabled`：记录疑似提示词注入内容到审计日志（默认开）。
-- `lease_ttl_seconds`：同人格任务租约 TTL（默认 300 秒），多实例共享 SQLite 时保证单写者。
-- `signature_enabled`：夜间复盘生成今日签名（默认开）。
-- `revisit_days` / `revisit_probability`：旧事新感回看天数（默认 `[7, 30]`）与触发概率（默认 0.5）。
-- `revisit_interval_days`：故地重游间隔天数（默认 30）；旧短记到期后夜间自动生成“后来呢”短记。
-- `rest_probability`：定时漫游随机跳过概率（默认 0.1），写 `skipped_rest` 快照；手动 `/life_now` 不受影响。
-- `time_slots`：时段模式（morning/afternoon/evening/night 各项含 topics/tone）；缺省时使用内置默认语气。
-- `peek_times` / `peek_daily_cap`：轻接触时间（默认 09:00/13:00/17:00/21:00）与每日上限（0 = 不限制）；peek 不调用 LLM、不写短记。
-- `plan_daily_action_cap`：LLM 自主排期每日可选任务上限（默认 5，0 = 不限制）。
-- `wishlist_enabled`：灵感抽屉开关（默认开）；日记可写入灵感，复盘时评估升级为兴趣种子或丢弃。
-- `owner_ids`：允许执行命令的主人 ID（留空则仅要求管理员权限）。
-- `share_sessions` / `share_daily_cap` / `share_cooldown_minutes`：分享白名单（每行 `persona_id:sid`）与频率控制。
-- `persona_cache_hours` / `persona_prompt_max_chars`：人格缓存刷新间隔与截断长度。
-- `rss_feeds` / `tavily_api_key`：扩展信息源。
+| 配置项 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `enabled` | bool | `true` | 启用互联网生活插件 |
+| `browse_times` | list | `["10:00", "15:00"]` | 每日漫游时间（HH:MM） |
+| `diary_time` | string | `"23:00"` | 夜间复盘/写日记时间（HH:MM） |
+| `sleep_window` | string | `"00:00-07:00"` | 睡眠窗口（如 00:00-07:00） |
+| `timezone` | string | `"Asia/Shanghai"` | 生活任务时区（IANA 名称） |
+| `owner_ids` | list | `[]` | 允许执行命令的主人 ID |
+| `life_llm` | string | `""` | 生活任务专用 LLM Provider ID |
+| `energy_gate` | float | `0.3` | 精力门槛（0-1） |
+| `energy_budget` | float | `0.0` | 每日精力消耗上限（0 = 无上限） |
+| `explore_probability` | float | `0.2` | 探索新话题概率（0-1） |
+| `interest_decay` | float | `0.98` | 兴趣每日衰减系数 |
+| `interests_initial` | list | `["technology:科技", "ai:人工智能", "open-source:开源", "science:科学", "internet-culture:互联网文化"]` | 初始兴趣领域（key 或 key:展示名） |
+| `hn_enabled` | bool | `true` | 启用 Hacker News（Algolia API） |
+| `github_enabled` | bool | `true` | 启用 GitHub 公开搜索 API |
+| `reddit_enabled` | bool | `true` | 启用 Reddit 公开 JSON |
+| `reddit_subreddits` | list | `["programming", "artificial", "MachineLearning", "technology"]` | Reddit 子版块列表 |
+| `rss_feeds` | list | `[]` | 自定义 RSS/Atom 源 |
+| `watchlist` | list | `[]` | 持续关注名单（blog / github_repo / github_user / rss） |
+| `tavily_api_key` | string | `""` | 可选：Tavily 搜索 API Key |
+| `db_path` | string | `""` | SQLite 数据库路径 |
+| `source_timeout` | float | `10.0` | 信息源请求超时（秒） |
+| `notes_min` | int | `3` | 每次漫游最少短记数 |
+| `notes_max` | int | `5` | 每次漫游最多短记数 |
+| `life_personas` | list | `[]` | 允许过互联网生活的 persona 白名单 |
+| `browse_jitter_minutes` | int | `120` | 漫游时间随机波动范围（±分钟） |
+| `diary_jitter_minutes` | int | `60` | 夜间复盘时间随机波动范围（±分钟） |
+| `daily_llm_call_limit` | int | `0` | 每日 LLM 调用上限 |
+| `daily_token_budget` | int | `0` | 每日 token 预算 |
+| `llm_retry_limit` | int | `3` | LLM 失败重试上限 |
+| `trash_retention_days` | int | `30` | 回收站保留天数 |
+| `injection_log_enabled` | bool | `true` | 记录疑似提示词注入内容到审计日志 |
+| `lease_ttl_seconds` | int | `300` | 同人格任务租约 TTL（秒） |
+| `signature_enabled` | bool | `true` | 夜间复盘生成今日签名 |
+| `revisit_days` | list | `[7, 30]` | 夜间复盘回看旧短记的天数 |
+| `revisit_probability` | float | `0.5` | 夜间复盘触发旧事新感的概率（0-1） |
+| `revisit_interval_days` | int | `30` | 故地重游间隔天数 |
+| `rest_probability` | float | `0.1` | 随机不出门概率（0-1） |
+| `time_slots` | object | `{"morning": {"topics": "", "tone": ""}, "afternoon": {"topics": "", "tone": ""}, "evening": {"topics": "", "tone": ""}, "night": {"topics": "", "tone": ""}}` | 时段模式：每个时段的偏好主题与语气 |
+| `peek_times` | list | `["09:00", "13:00", "17:00", "21:00"]` | 轻接触 peek 时间（HH:MM） |
+| `peek_daily_cap` | int | `0` | 每日 peek 上限（0 = 不限制） |
+| `plan_daily_action_cap` | int | `5` | LLM 自主排期每日可选任务上限 |
+| `wishlist_enabled` | bool | `true` | 启用灵感抽屉 |
+| `share_enabled` | bool | `true` | 启用感悟分享 |
+| `share_daily_cap` | int | `2` | 每 persona 每日成功分享上限 |
+| `share_cooldown_minutes` | int | `360` | 同一会话分享冷却（分钟） |
+| `share_silence_rate` | float | `0.15` | 每日“今天不想说”概率（0-1） |
+| `quarterly_review_enabled` | bool | `true` | 启用季度自我评估 |
+| `life_edit_allowed` | list | `["note.summary", "note.opinion", "interest.weight"]` | LLM 可直接修改的实体字段白名单 |
+| `share_include_link` | bool | `true` | 分享消息末尾附带源链接 |
+| `share_max_chars` | int | `200` | 分享消息最大字数 |
+| `share_sessions` | list | `[]` | 每 persona 允许分享的会话 sid 白名单 |
+| `persona_prompt_max_chars` | int | `6000` | 注入生活 prompt 的人格 system_prompt 最大字数 |
+| `persona_cache_hours` | float | `24.0` | 人格缓存刷新间隔（小时） |
+| `esm_scope_prefix` | string | `"internet-life"` | ESM 作用域前缀 |
+| `memory_host` | string | `""` | 统一记忆宿主插件 ID（留空 = 使用本地 SQLite） |
+| `memory_lease_ttl_seconds` | int | `300` | 统一记忆宿主任务租约 TTL（秒） |
+| `memory_temperature_decay` | float | `0.99` | 短记记忆温度每日衰减系数（0.5-1.0） |
+| `review_schedule` | object | `{"monthly": "1", "yearly": "01-01"}` | 月度/年度回顾触发日 |
+| `capsule_days` | int | `30` | 时间胶囊封存天数 |
+| `life_tool_enabled` | bool | `true` | 向 LLM 注册 query_life_memory 自查询工具 |
+
+各字段的详细提示以 AstrBot 管理面板中展示的 schema hint 为准。
 
 ## 命令
 
