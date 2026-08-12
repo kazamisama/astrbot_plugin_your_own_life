@@ -392,7 +392,7 @@ LLM 可自主更改生活数据/计划/记忆，按事件链自主排期，并�
 
 ### 变更账本与版本
 
-- 所有写操作进变更账本：`{entity, old_value, new_value, actor, reason, source_refs, ts, status}`；实体保留版本历史，WebUI 可查看 diff 与“为什么改自己”。
+- owner/LLM 显式变更与删除/恢复等可逆写操作进变更账本：`{entity, old_value, new_value, actor, reason, source_refs, ts, status}`；普通生活写操作以事件链记录（见 L1.5-01）；实体保留版本历史，WebUI 可查看 diff 与“为什么改自己”。
 
 ### 回收站与回滚
 

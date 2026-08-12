@@ -60,6 +60,26 @@ class SchedulerTest(unittest.TestCase):
         self.assertTrue(window.contains(datetime(2026, 8, 10, 0, 30)))
         self.assertFalse(window.contains(datetime(2026, 8, 10, 12, 0)))
 
+    def test_jittered_slot_pushes_diary_and_peek_out_of_sleep_window(self):
+        cfg = LifeConfig(
+            browse_times=[], diary_time="23:00",
+            browse_jitter_minutes=0, diary_jitter_minutes=0,
+            peek_times=["01:00"], life_personas=["shelly"],
+        )
+        scheduler = LifeScheduler(service=None, config=cfg)
+        self.assertEqual(
+            scheduler._jittered_slot(
+                "shelly", datetime(2026, 8, 12, 1, 0), "diary"
+            ),
+            datetime(2026, 8, 12, 7, 0),
+        )
+        self.assertEqual(
+            scheduler._jittered_slot(
+                "shelly", datetime(2026, 8, 12, 1, 0), "peek"
+            ),
+            datetime(2026, 8, 12, 7, 0),
+        )
+
     def test_current_target_uses_configured_timezone(self):
         cfg = LifeConfig(
             browse_times=["10:00", "15:00"], diary_time="23:00",
@@ -85,6 +105,7 @@ class _FakeMemoryLease:
         self.claimed = claimed
         self.claims = []
         self.releases = []
+        self.renews = []
 
     def claim_task(self, persona_id, task_kind, holder=None, ttl_seconds=300):
         self.claims.append((persona_id, task_kind, holder, ttl_seconds))
@@ -92,6 +113,10 @@ class _FakeMemoryLease:
 
     def release_task(self, persona_id, task_kind, holder=None):
         self.releases.append((persona_id, task_kind, holder))
+        return True
+
+    def renew_task(self, persona_id, task_kind, holder=None, ttl_seconds=300):
+        self.renews.append((persona_id, task_kind, holder, ttl_seconds))
         return True
 
 
@@ -203,6 +228,86 @@ class SchedulerPlansTest(unittest.TestCase):
         self.assertTrue(scheduler._acquire_lease("shelly", "local-key", "browse"))
         scheduler._release_lease("shelly", "local-key")
 
+    def test_renew_lease_uses_memory_host_when_configured(self):
+        memory = _FakeMemoryLease()
+        service = _FakeServiceWithMemory(self.db, memory)
+        cfg = LifeConfig(
+            memory_host="astrbot_plugin_engram_core",
+            memory_lease_ttl_seconds=120,
+        )
+        scheduler = LifeScheduler(service=service, config=cfg)
+        self.assertTrue(scheduler._renew_lease("shelly", "key-1", "browse"))
+        self.assertEqual(
+            memory.renews,
+            [("shelly", "key-1", scheduler._instance_id, 120)],
+        )
+
+    def test_renew_lease_falls_back_to_local_sqlite(self):
+        service = _FakeService(self.db)
+        cfg = LifeConfig(lease_ttl_seconds=60)
+        scheduler = LifeScheduler(service=service, config=cfg)
+        self.assertTrue(scheduler._acquire_lease("shelly", "local-key", "browse"))
+        self.assertTrue(scheduler._renew_lease("shelly", "local-key", "browse"))
+        scheduler._release_lease("shelly", "local-key")
+
+    def test_review_slot_pushed_out_of_sleep_window(self):
+        cfg = LifeConfig(
+            browse_times=[], diary_time="23:00",
+            browse_jitter_minutes=0, diary_jitter_minutes=0,
+            peek_times=[], life_personas=["shelly"],
+            review_schedule={"monthly": "12", "yearly": "01-01"},
+            sleep_window=SleepWindow(time(8, 0), time(10, 0)),
+        )
+        scheduler = LifeScheduler(service=_FakeService(self.db), config=cfg)
+        scheduler.seed_plans(["shelly"], datetime(2026, 8, 12))
+        rows = self.db.list_plans("shelly", "2026-08-12")
+        self.assertEqual(rows[0]["task_id"], "review-monthly")
+        self.assertEqual(rows[0]["scheduled_at"], "2026-08-12 10:00:00")
+
+    def test_long_task_renews_lease_while_running(self):
+        class _DoneResult:
+            status = "completed"
+            reason = ""
+            error = ""
+
+        class _RunningService(_FakeServiceWithMemory):
+            def __init__(self, db, memory):
+                super().__init__(db, memory)
+                self.runs = 0
+
+            async def run_browse_session(self, persona_id, trigger):
+                self.runs += 1
+                await asyncio.sleep(0.08)
+                return _DoneResult()
+
+        memory = _FakeMemoryLease()
+        service = _RunningService(self.db, memory)
+        cfg = LifeConfig(
+            browse_times=["10:00"], diary_time="23:00",
+            browse_jitter_minutes=0, diary_jitter_minutes=0,
+            peek_times=[], life_personas=["shelly"],
+            memory_host="astrbot_plugin_engram_core",
+            memory_lease_ttl_seconds=300,
+        )
+        scheduler = LifeScheduler(
+            service=service, config=cfg,
+            now_fn=lambda: datetime(2026, 8, 12, 9, 59, 59),
+        )
+        scheduler._renew_interval = lambda kind: 0.02
+
+        async def run():
+            loop = asyncio.get_running_loop()
+            task = asyncio.create_task(scheduler._run())
+            deadline = loop.time() + 3
+            while loop.time() < deadline and not memory.renews:
+                await asyncio.sleep(0.01)
+            scheduler._stop.set()
+            await task
+
+        asyncio.run(run())
+        self.assertGreaterEqual(len(memory.renews), 1)
+        self.assertEqual(service.runs, 1)
+
     def test_next_target_includes_pending_optional_plan(self):
         self.scheduler.seed_plans(["shelly"], datetime(2026, 8, 12))
         self.db.add_optional_plan(
@@ -267,12 +372,12 @@ class SchedulerPlansTest(unittest.TestCase):
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["task_id"], "diary-23-00")
             self.assertEqual(rows[0]["plan_date"], "2026-08-12")
-            self.assertEqual(rows[0]["scheduled_at"], "2026-08-13 00:00:00")
+            self.assertEqual(rows[0]["scheduled_at"], "2026-08-13 07:00:00")
             target = scheduler.next_target(
                 datetime(2026, 8, 12, 23, 0), ["shelly"]
             )
             self.assertIsNotNone(target)
-            self.assertEqual(target[0], datetime(2026, 8, 13, 0, 0))
+            self.assertEqual(target[0], datetime(2026, 8, 13, 7, 0))
             self.assertEqual(target[3], "diary-23-00")
             self.assertEqual(target[4], "2026-08-12")
             self.assertTrue(self.db.update_plan(

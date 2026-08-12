@@ -2,6 +2,20 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.13] - 2026-08-12
+
+### Fixed
+
+- WebUI 实体图 `data-entity` / `data-id` 不再直接拼接注入 SVG 属性，统一经 `escAttr()` 转义；事件链过滤与标签新增 `reject`（拒绝）。
+- 睡眠窗口不再只对 browse 生效：browse/diary/peek 抖动槽位与月度/年度/季度 review 槽位统一外推到窗口结束后，`run_peek` / `run_nightly_diary` 入口也做 `sleep_window.contains` 拦截并返回 `skipped/sleep_window`。
+- 系统裁决拒绝事件 kind 由 `change` 改为 `reject`，符合事件链设计语义。
+- LLM rollback 现在只能回滚 `actor=llm` 的 applied 条目；owner 在 WebUI 直接调 db 不受影响。
+- 长任务增加租约续租：按 TTL/2（最小 1s）定期续租，memory_host 走 `renew_task`，本地 SQLite 走 `renew_lease`；任务结束取消 keepalive 后释放。
+
+### Notes
+
+- 测试：253 passed（skipped=1；新增睡眠窗口外推、review 槽位外推、memory_host/本地续租、长任务续租、diary/peek 睡眠拦截、rollback actor 限制回归）。
+
 ## [0.5.12] - 2026-08-12
 
 ### Fixed

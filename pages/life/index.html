@@ -925,7 +925,7 @@ function renderEventFilters() {
   box.innerHTML = "";
   var opts = [
     ["", "全部"], ["observe", "观察"], ["express", "表达"], ["think", "思考"],
-    ["change", "更改"], ["recall", "召回"], ["rollback", "回滚"]
+    ["change", "更改"], ["recall", "召回"], ["rollback", "回滚"], ["reject", "拒绝"]
   ];
   opts.forEach(function (opt) {
     var chip = document.createElement("button");
@@ -960,7 +960,7 @@ function loadEvents(reset) {
     .then(function (data) {
       var labels = {
         observe: "观察", express: "表达", think: "思考",
-        change: "更改", recall: "召回", rollback: "回滚"
+        change: "更改", recall: "召回", rollback: "回滚", reject: "拒绝"
       };
       document.getElementById("eventTotal").textContent = data.total || 0;
       document.getElementById("eventPage").textContent = data.items ? data.items.length : 0;
@@ -1607,8 +1607,8 @@ function renderEntityGraph(box, entities, links, seen) {
     var color = colors[e.dimension] || "#64748b";
     var label = String(e.name || e.entity_id || e.id);
     if (label.length > 18) label = label.slice(0, 18) + "…";
-    svg += '<g class="entity-node" data-entity="' + e.entity_id +
-      '" data-id="' + e.id + '">';
+    svg += '<g class="entity-node" data-entity="' + escAttr(e.entity_id) +
+      '" data-id="' + escAttr(e.id) + '">';
     svg += '<circle cx="' + p.x + '" cy="' + p.y + '" r="9" fill="' + color +
       '"/>';
     svg += '<text x="' + (p.x + 14) + '" y="' + (p.y + 4) +
@@ -1650,6 +1650,12 @@ function loadEntitySeen(seen, entityId) {
       li.textContent = "查询失败。";
       seen.appendChild(li);
     });
+}
+
+function escAttr(text) {
+  return String(text == null ? "" : text)
+    .replace(/&/g, "&amp;").replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function escHtml(text) {

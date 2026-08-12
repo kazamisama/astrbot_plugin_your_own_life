@@ -455,6 +455,13 @@ def edit_life_memory(
             log_id = int(change_id or 0)
         except (TypeError, ValueError):
             return {"ok": False, "error": "change_id required"}
+        row = db.get_change_log_entry(persona_id, log_id)
+        if row is None or row.get("status") != "applied":
+            return {"ok": False,
+                    "error": "cannot rollback (missing or not applied)"}
+        if str(row.get("actor") or "") != actor:
+            return {"ok": False,
+                    "error": "cannot rollback another actor's change"}
         row = db.rollback_change(persona_id, log_id, actor=actor)
         if row is None:
             return {"ok": False,

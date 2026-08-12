@@ -73,25 +73,30 @@ class LifeScheduler:
                 self._task.cancel()
             self._task = None
 
+    def _window_shifted(self, slot: datetime) -> datetime:
+        """Postpone any slot inside the sleep window to just after it ends."""
+        if not self.config.sleep_window.contains(slot):
+            return slot
+        end = self.config.sleep_window.end
+        candidate = datetime.combine(slot.date(), end)
+        if candidate <= slot:
+            candidate += timedelta(days=1)
+        return candidate
+
     def _jittered_slot(self, persona_id: str, base_dt: datetime, kind: str) -> datetime:
         if kind == "peek":
-            return base_dt
-        minutes = (
-            self.config.browse_jitter_minutes
-            if kind == "browse"
-            else self.config.diary_jitter_minutes
-        )
-        seed_key = (
-            f"{persona_id}|{base_dt.strftime('%Y-%m-%d')}|{base_dt.strftime('%H:%M')}|{kind}"
-        )
-        slot = base_dt + deterministic_offset(seed_key, minutes)
-        if kind == "browse" and self.config.sleep_window.contains(slot):
-            end = self.config.sleep_window.end
-            candidate = datetime.combine(slot.date(), end)
-            if candidate <= slot:
-                candidate += timedelta(days=1)
-            return candidate
-        return slot
+            slot = base_dt
+        else:
+            minutes = (
+                self.config.browse_jitter_minutes
+                if kind == "browse"
+                else self.config.diary_jitter_minutes
+            )
+            seed_key = (
+                f"{persona_id}|{base_dt.strftime('%Y-%m-%d')}|{base_dt.strftime('%H:%M')}|{kind}"
+            )
+            slot = base_dt + deterministic_offset(seed_key, minutes)
+        return self._window_shifted(slot)
 
     def _review_due(self, day: Any, period: str) -> bool:
         if period == "quarterly":
@@ -131,11 +136,14 @@ class LifeScheduler:
                 slot = self._jittered_slot(persona_id, base, "peek")
                 slots.append((slot, "peek", f"peek-{base.strftime('%H-%M')}", plan_date))
         if self._review_due(day, "monthly"):
-            slots.append((datetime.combine(day, time(9, 0)), "review", "review-monthly", plan_date))
+            slots.append((self._window_shifted(datetime.combine(day, time(9, 0))),
+                          "review", "review-monthly", plan_date))
         if self._review_due(day, "yearly"):
-            slots.append((datetime.combine(day, time(9, 30)), "review", "review-yearly", plan_date))
+            slots.append((self._window_shifted(datetime.combine(day, time(9, 30))),
+                          "review", "review-yearly", plan_date))
         if self._review_due(day, "quarterly"):
-            slots.append((datetime.combine(day, time(9, 15)), "review", "review-quarterly", plan_date))
+            slots.append((self._window_shifted(datetime.combine(day, time(9, 15))),
+                          "review", "review-quarterly", plan_date))
         return slots
 
     def _plan_datetime(self, row: dict) -> Optional[datetime]:
@@ -265,6 +273,36 @@ class LifeScheduler:
         if self.db is not None:
             self.db.release_lease(persona_id, task_key, self._instance_id)
 
+    def _lease_ttl(self, kind: str) -> int:
+        memory = getattr(self.service, "memory", None) if self.service else None
+        if memory is not None and getattr(self.config, "memory_host", ""):
+            return int(self.config.memory_lease_ttl_seconds or 300)
+        return int(self.config.lease_ttl_seconds or 300)
+
+    def _renew_interval(self, kind: str) -> float:
+        return max(1.0, float(self._lease_ttl(kind)) / 2.0)
+
+    def _renew_lease(self, persona_id: str, task_key: str, kind: str) -> bool:
+        memory = getattr(self.service, "memory", None) if self.service else None
+        ttl = self._lease_ttl(kind)
+        if memory is not None and getattr(self.config, "memory_host", ""):
+            try:
+                return bool(memory.renew_task(
+                    persona_id, task_key, holder=self._instance_id,
+                    ttl_seconds=ttl,
+                ))
+            except Exception as exc:
+                self.log.warning(
+                    "memory lease renew failed for %s %s: %s",
+                    persona_id, task_key, exc,
+                )
+                return False
+        if self.db is not None:
+            return self.db.renew_lease(
+                persona_id, task_key, self._instance_id, ttl
+            )
+        return True
+
     async def _run(self) -> None:
         personas = list(self.config.life_personas or [])
         while not self._stop.is_set():
@@ -318,10 +356,18 @@ class LifeScheduler:
                 self.db.get_daily_usage(persona_id, plan_date)
                 if self.db is not None else None
             )
+            keepalive: Optional[asyncio.Task] = None
+
+            async def _keepalive() -> None:
+                while True:
+                    await asyncio.sleep(self._renew_interval(kind))
+                    self._renew_lease(persona_id, key, kind)
+
             async with self._lock:
                 status = "failed"
                 reason = ""
                 try:
+                    keepalive = asyncio.create_task(_keepalive())
                     if kind == "browse":
                         result = await self.service.run_browse_session(persona_id, "scheduled")
                         status, reason = self._plan_status_browse(result)
@@ -345,6 +391,8 @@ class LifeScheduler:
                     )
                     status, reason = "failed", repr(exc)
                 finally:
+                    if keepalive is not None:
+                        keepalive.cancel()
                     self._done_keys.add(key)
                     self._release_lease(persona_id, key)
                     if self.db is not None:

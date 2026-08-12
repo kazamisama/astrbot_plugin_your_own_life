@@ -560,6 +560,8 @@ class LifeService:
         if not self.config.enabled:
             return BrowseResult(None, "disabled", 0, "disabled")
         now = local_now(self.config.timezone, self.now_fn())
+        if self.config.sleep_window.contains(now):
+            return BrowseResult(None, "skipped", 0, "sleep_window")
         date = now.strftime("%Y-%m-%d")
         if self.config.peek_daily_cap > 0:
             done = self.db.count_sessions_by_kind(persona_id, date, "peek")
@@ -674,6 +676,9 @@ class LifeService:
 
         now = local_now(self.config.timezone, self.now_fn())
         date = now.strftime("%Y-%m-%d")
+        if self.config.sleep_window.contains(now):
+            return {"date": date, "notes": 0, "fallback": False,
+                    "skipped": "sleep_window"}
         run_token = -random.randrange(1, 2**62)
         self.db.decay_note_temperature(
             persona_id, self.config.memory_temperature_decay
@@ -1605,7 +1610,7 @@ class LifeService:
     ) -> None:
         self.db.append_event(
             persona_id,
-            "change",
+            "reject",
             {"entity": "plan", "action": "reject", "plan_date": plan_date,
              "plan_action": action, "reason": reason},
             [{"entity": "plan", "plan_date": plan_date}],

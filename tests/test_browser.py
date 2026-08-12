@@ -253,6 +253,25 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(len(self.db._rows("SELECT * FROM staging_notes")), 0)
 
+    async def test_sleep_window_skips_diary_and_peek(self):
+        cfg = load_config({"sleep_window": "00:00-23:59",
+                           "share_sessions": {"shelly": ["sid-1"]},
+                           "rest_probability": 0})
+        service = LifeService(
+            cfg, self.db, self.interests, self.esm, _FakeLLM(payload={}),
+            self.personas, share_gate=self.share_gate, fetcher_fn=_fake_fetcher,
+            now_fn=lambda: datetime(2026, 8, 12, 12, 0),
+        )
+        diary = await service.run_nightly_diary("shelly")
+        self.assertEqual(diary["skipped"], "sleep_window")
+        peek = await service.run_peek("shelly")
+        self.assertEqual(peek.status, "skipped")
+        self.assertEqual(peek.reason, "sleep_window")
+        self.assertEqual(self.db.list_notes("shelly"), [])
+        self.assertEqual(
+            self.db.count_sessions_by_kind("shelly", "2026-08-12", "peek"), 0
+        )
+
     async def test_nightly_diary_decays_note_temperature(self):
         note_id = self.db.add_note(
             "shelly", None, "hn", "https://x", "X", "s", url_hash="temp-decay"
@@ -1045,7 +1064,8 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         reject_events = [
             json.loads(e["payload"])
             for e in self.db.list_events("shelly")
-            if json.loads(e["payload"]).get("action") == "reject"
+            if e["kind"] == "reject"
+            and json.loads(e["payload"]).get("action") == "reject"
         ]
         self.assertGreaterEqual(len(reject_events), 4)
         self.assertIn("unknown_action", {e["reason"] for e in reject_events})
@@ -1082,7 +1102,8 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         reject = [
             json.loads(e["payload"])
             for e in events
-            if json.loads(e["payload"]).get("action") == "reject"
+            if e["kind"] == "reject"
+            and json.loads(e["payload"]).get("action") == "reject"
         ]
         self.assertEqual(reject[0]["reason"], "budget_exhausted")
 

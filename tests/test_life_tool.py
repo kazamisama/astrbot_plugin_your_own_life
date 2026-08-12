@@ -112,6 +112,31 @@ class LifeToolTest(unittest.IsolatedAsyncioTestCase):
         entry = self.db.get_change_log_entry("shelly", pending["change_id"])
         self.assertEqual(entry["status"], "pending_owner")
 
+    def test_edit_tool_cannot_rollback_another_actor_change(self):
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://x", "T", "Old", url_hash="rt1"
+        )
+        owner = edit_life_memory(
+            self.db, "shelly", "update", entity="note",
+            entity_id=str(note_id), field="summary", value="Owner new",
+            allowed=["note.summary"], actor="owner", reason="owner edit",
+        )
+        self.assertTrue(owner["ok"])
+        log_id = owner["change_id"]
+        data = edit_life_memory(
+            self.db, "shelly", "rollback", change_id=log_id, actor="llm",
+        )
+        self.assertFalse(data["ok"])
+        self.assertIn("another actor", data["error"])
+        entry = self.db.get_change_log_entry("shelly", log_id)
+        self.assertEqual(entry["status"], "applied")
+        self.assertEqual(self.db.get_note(note_id)["summary"], "Owner new")
+        ok = edit_life_memory(
+            self.db, "shelly", "rollback", change_id=log_id, actor="owner",
+        )
+        self.assertTrue(ok["ok"])
+        self.assertEqual(self.db.get_note(note_id)["summary"], "Old")
+
     async def test_edit_tool_updates_and_rolls_back(self):
         tool = LifeEditTool(self.db, _FakePersonas(), allowed=["note.summary"])
         note_id = self.db.add_note(

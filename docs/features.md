@@ -160,7 +160,7 @@
 - 依赖：SQLite（L0）。
 - 模块：`life/db.py`（`change_log`、软删除字段）、`life/webui.py`（diff/回收站视图）。
 - 配置：`trash_retention_days`（默认 30）。
-- 验收：写操作记 `{entity, old_value, new_value, actor, reason, ts, status}`；删除走 tombstone；owner 可恢复。
+- 验收：owner/LLM 显式变更与删除/恢复等可逆写操作记 `{entity, old_value, new_value, actor, reason, ts, status}`；普通生活写操作以事件链记录（L1.5-01）；删除走 tombstone；owner 可恢复。
 
 ### L1-14 不可信内容与记忆卫生
 

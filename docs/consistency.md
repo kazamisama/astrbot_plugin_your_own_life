@@ -3,6 +3,16 @@
 审计基线：2026-08-12，版本 v0.5.12（HEAD `54e58b6`），工作树干净。
 方法：4 个只读 subagent 分域审查（行为层 / 记忆档案 / 人格安全 / WebUI 适配），主 agent 复核高影响结论；单测基线 `python -m unittest discover -s tests` 246 passed（skipped=1，网络冒烟按配置跳过）。
 
+## 已修复（v0.5.13）
+
+- 实体图 SVG 属性注入：`data-entity` / `data-id` 改为 `escAttr()` 转义，事件链过滤/标签补充 reject。
+- 睡眠窗口只对 browse 生效：browse/diary/peek 与月度/年度/季度 review 槽位统一外推，`run_peek` / `run_nightly_diary` 入口也做 `sleep_window.contains` 拦截。
+- 系统裁决拒绝事件 kind 由 `change` 改为 `reject`。
+- LLM rollback 无 actor 限制：仅允许回滚 `actor=llm` 的 applied 条目，owner 走 WebUI 直接调 db 不受影响。
+- 长任务无租约续租：按 TTL/2（最小 1s）定期 `renew_task` / `renew_lease`，任务结束取消 keepalive 后释放。
+
+以上修复的代码与测试证据见 `CHANGELOG.md` v0.5.13；下方矩阵保留 v0.5.12 审计基线，偏差/缺口状态以最新代码为准。
+
 本文档只做「实现 vs 设计目标/验收标准」的一致性核对，不替代 `docs/features.md` 的验收清单。状态含义：对齐 = 实现满足设计验收；偏差 = 实现与设计语义不符；缺口 = 设计承诺但未实现。
 
 ## 逐项状态

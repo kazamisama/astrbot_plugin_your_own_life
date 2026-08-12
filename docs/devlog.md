@@ -2,6 +2,20 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 矩阵 P2 修复：安全/硬约束类 + 租约续租与文档口径收敛（v0.5.13）
+- 目标：按 `docs/consistency.md` 优先级先修安全类（SVG 转义）与硬约束类（睡眠窗口 / reject kind / rollback 权限），再补租约续租与文档口径收敛。
+- 已确认决策：
+  - WebUI 实体图 `data-entity` / `data-id` 改为 `escAttr()` 转义，事件链过滤/标签新增 `reject`（拒绝）。
+  - 睡眠窗口统一外推 browse/diary/peek 与月度/年度/季度 review 槽位，`run_peek` / `run_nightly_diary` 入口也做 `sleep_window.contains` 拦截。
+  - 系统裁决拒绝事件 kind 由 `change` 改为 `reject`。
+  - LLM rollback 仅允许回滚 `actor=llm` 的 applied 条目，owner 走 WebUI 直接调 db 不受影响。
+  - 长任务按 TTL/2（最小 1s）定期续租：memory_host 走 `renew_task`，否则本地 `renew_lease`；任务结束取消 keepalive 后释放。
+  - 变更账本文档口径收敛：账本覆盖 owner/LLM 显式变更与删除/恢复等可逆写操作，普通生活写操作以事件链记录。
+- 改动：`pages/life/index.html`、`life/scheduler.py`、`life/browser.py`、`life/life_tool.py`、`tests/test_scheduler.py`、`tests/test_browser.py`、`tests/test_life_tool.py`、`docs/features.md`、`docs/design.md`、`docs/consistency.md`、`CHANGELOG.md`、`metadata.yaml`、`life/__init__.py`；版本 v0.5.12 → v0.5.13。
+- 验证：unittest 253 passed（skipped=1；新增 7 个回归：睡眠窗口外推 x2、review 槽位外推、续租 memory_host/本地/长任务、diary/peek 睡眠拦截、rollback actor 限制）；`_conf_schema.json` 递归校验无缺 `items` 的 list 节点；UTF-8 读回无 `\ufffd`。
+- 遗留：矩阵其余 P2/P3 未动：提交后副作用异常误标 failed、`_plan_time` 范围校验、`share_note` 500、沉默率日掷语义、memory_host 镜像 warning、`purge_trash` 胶囊级联、revisit 崩溃窗口等。
+- 下一步：`git diff --check` 后提交 `chore(release): v0.5.13 ...` 并推送 origin main。
+
 ## 2026-08-12 功能实现与设计目标一致性审计（docs 批次）
 - 目标：按功能逐项确认实现逻辑与设计目标的一致性，沉淀可追踪矩阵。
 - 方法：4 个只读 subagent 分域审查（行为层/记忆档案/人格安全/WebUI 适配），主 agent 复核高影响结论；基线 246 passed（skipped=1）。
