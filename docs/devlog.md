@@ -2,6 +2,15 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 功能实现与设计目标一致性审计（docs 批次）
+- 目标：按功能逐项确认实现逻辑与设计目标的一致性，沉淀可追踪矩阵。
+- 方法：4 个只读 subagent 分域审查（行为层/记忆档案/人格安全/WebUI 适配），主 agent 复核高影响结论；基线 246 passed（skipped=1）。
+- 结论：无 P1 级设计矛盾；L0/L1/L1.5/L2 已交付功能主体对齐，偏差集中在边界语义与低概率一致性问题，完整矩阵见新增 `docs/consistency.md`。
+- 主要偏差（P2）：睡眠窗口只对 browse 生效；提交后副作用异常把已落库 run 标 failed；变更账本仅覆盖 owner/LLM 变更；热力图点击跳档缺失；`register_web_routes` 回退缺失；`_plan_time` 不校验范围；系统裁决拒绝事件 kind 用 `change`；LLM rollback 无 actor 限制；interest 编辑误改 seen_count；实体图 SVG 属性未转义；沉默率不是每天只掷一次；memory_host 镜像失败仅 warning；生产无租约续租；`share_note` 非法 body 500。
+- 改动：新增 `docs/consistency.md`，`docs/README.md` 索引加行；版本不变（纯文档）。
+- 验证：UTF-8 读回无 `\ufffd`；未改代码，无需重跑单测。
+- 下一步：按矩阵优先级修安全类（SVG 转义）与硬约束类（睡眠窗口/reject kind/rollback 权限），再补租约续租与文档口径收敛。
+
 ## 2026-08-12 第二轮全量 review 修复：暂存捕获/软删/启动恢复与调度锚定（v0.5.12）
 - 目标：三个只读 subagent（db、服务层/调度、WebUI/适配层）再 review 一遍，落地确认的 P1，其余 P2/P3 记录遗留。
 - 已确认决策：
