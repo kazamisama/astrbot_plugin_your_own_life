@@ -40,6 +40,7 @@ from life.browser import LifeService  # noqa: E402
 from life.config import LifeConfig, load_config  # noqa: E402
 from life.db import LifeDB  # noqa: E402
 from life.esm_adapter import ESMAdapter  # noqa: E402
+from life.memory_adapter import LifeMemoryAdapter  # noqa: E402
 from life.interests import InterestStore  # noqa: E402
 from life.life_tool import LifeMemoryTool, LifePlanEditTool, LifePlansTool  # noqa: E402
 from life.llm import LLMClient  # noqa: E402
@@ -68,6 +69,10 @@ class LifeStar(Star):
             scope_prefix=self._cfg.esm_scope_prefix,
             energy_gate=self._cfg.energy_gate,
         )
+        self.memory = (
+            LifeMemoryAdapter(context, host_id=self._cfg.memory_host)
+            if self._cfg.memory_host else None
+        )
         self.llm = LLMClient(context, provider_id=self._cfg.life_llm)
         self.interests = InterestStore(
             self.db,
@@ -82,14 +87,14 @@ class LifeStar(Star):
         )
         self.service = LifeService(
             self._cfg, self.db, self.interests, self.esm, self.llm,
-            self.personas, share_gate=self.share_gate,
+            self.personas, share_gate=self.share_gate, memory=self.memory,
             logger=logger, now_fn=datetime.now,
         )
         self.scheduler = LifeScheduler(
             self.service, self._cfg, logger=logger, now_fn=datetime.now
         )
         self.scheduler.start()
-        self.life_tool = LifeMemoryTool(self.db, self.personas)
+        self.life_tool = LifeMemoryTool(self.db, self.personas, memory=self.memory)
         self.life_plans_tool = LifePlansTool(self.db, self.personas)
         self.life_plan_edit_tool = LifePlanEditTool(self.db, self.personas)
         if self._cfg.life_tool_enabled:
@@ -97,7 +102,7 @@ class LifeStar(Star):
             self.life_plans_tool.register(context)
             self.life_plan_edit_tool.register(context)
         webui.register_api(context, self.db, self.service, self.share_gate,
-                           self.personas, self._cfg, logger)
+                           self.personas, self._cfg, self.memory, logger)
 
     async def terminate(self):
         try:

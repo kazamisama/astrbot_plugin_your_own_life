@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any, Optional
 
 from life.db import LifeDB
+from life.memory_adapter import MemoryHostError
 from life.persona import PersonaService
 from life.timeutil import DEFAULT_TIMEZONE, local_today
 
@@ -180,6 +182,45 @@ async def _execute_tool(tool: Any, context: Any, query: str, category: str,
     data = search_life_memory(
         tool.db, persona_id, query=query, category=category, date=date, k=k
     )
+    memory = getattr(tool, "memory", None)
+    memory_host = getattr(
+        getattr(getattr(tool, "personas", None), "config", None),
+        "memory_host", "",
+    )
+    if memory is not None and memory_host:
+        try:
+            host_items = memory.query_memory(persona_id, query=query or "", k=k)
+        except MemoryHostError as exc:
+            return json.dumps(
+                {"ok": False, "count": 0, "error": f"memory_host: {exc}"},
+                ensure_ascii=False,
+            )
+        unified = []
+        for item in host_items:
+            mtype = item.get("memory_type") or "note"
+            if mtype == "diary":
+                kind = "diary"
+            elif mtype == "event":
+                kind = "event"
+            else:
+                kind = "note"
+            day = ""
+            try:
+                day = datetime.fromtimestamp(
+                    float(item.get("created_at") or 0)
+                ).strftime("%Y-%m-%d")
+            except (TypeError, ValueError, OSError):
+                day = ""
+            unified.append({
+                "kind": kind,
+                "date": day,
+                "summary": item.get("summary") or "",
+                "content": item.get("content") or "",
+                "source": "unified",
+                "url": "",
+            })
+        data["items"] = unified + data["items"]
+        data["count"] = len(data["items"])
     tool.db.append_event(
         persona_id,
         "recall",
@@ -310,9 +351,11 @@ async def _execute_edit_plan_tool(
 
 
 class _LifeMemoryToolMixin:
-    def _init(self, db: LifeDB, personas: PersonaService) -> None:
+    def _init(self, db: LifeDB, personas: PersonaService,
+              memory: Optional[Any] = None) -> None:
         self.db = db
         self.personas = personas
+        self.memory = memory
 
     async def _resolve_persona(self, context: Any) -> Optional[str]:
         ctx = getattr(context, "context", context)
@@ -361,14 +404,15 @@ if _HAS_ASTRBOT_TOOL:
     class LifeMemoryTool(_LifeMemoryToolMixin, FunctionTool[AstrAgentContext]):
         """AstrBot-native FunctionTool: handler field + call(context, **kwargs)."""
 
-        def __init__(self, db: LifeDB, personas: PersonaService):
+        def __init__(self, db: LifeDB, personas: PersonaService,
+                     memory: Optional[Any] = None):
             super().__init__(
                 name=TOOL_NAME,
                 description=TOOL_DESCRIPTION,
                 parameters=TOOL_PARAMETERS,
                 handler=None,
             )
-            self._init(db, personas)
+            self._init(db, personas, memory)
 
         async def call(
             self,
@@ -389,8 +433,9 @@ else:
         description = TOOL_DESCRIPTION
         parameters = TOOL_PARAMETERS
 
-        def __init__(self, db: LifeDB, personas: PersonaService):
-            self._init(db, personas)
+        def __init__(self, db: LifeDB, personas: PersonaService,
+                     memory: Optional[Any] = None):
+            self._init(db, personas, memory)
 
         async def call(self, context: Any, query: str = "", category: str = "",
                        date: str = "", k: int = 5) -> str:

@@ -37,6 +37,7 @@ Your Own Life 是一个观察者模式的 AstrBot 插件：Bot 不注册账号�
 - `life/persona.py`：按 persona 拉取 `system_prompt` 并缓存到 SQLite。
 - `life/prompts.py`：漫游挑选、日记、分享等生活任务 prompt 的构建与 JSON schema 校验。
 - `life/esm_adapter.py`：ESM 能力探测与精力/信号适配，缺失时静默降级。
+- `life/memory_adapter.py`：统一记忆宿主（engram_core）适配层，`LifeMemoryAdapter` 路由日记/短记/事件/召回/实体图/任务租约；`memory_host` 配置后为硬依赖，缺失报 error。
 - `life/browser.py`：`LifeService`，漫游与夜间复盘的核心编排。
 - `life/scheduler.py`：每 persona 独立槽位、确定性时间抖动、睡眠窗口。
 - `life/share.py`：`ShareGate`，分享决策与频率/去重/精力门槛。
@@ -254,7 +255,7 @@ kazamisama 插件家族必须整体兼容，但兼容不等于冻结：允许对
 ### 落地路径
 
 - v1.1：本插件继续自持 SQLite，记忆读写保持 `life/db.py` 单一入口，不新增统一库依赖。
-- v2：引入 `LifeMemoryAdapter` 并收敛全部记忆读写；统一库为权威，本地库降级为缓存；事件归一化（persona/platform/session/ts/kind/payload）+ 实体身份解析。
+- v2（已实现 v0.5.0）：`LifeMemoryAdapter` 已引入并收敛记忆读写；engram_core v1.75 / v1.76 版本化公开 API 已接入，`memory_host` 配置后统一库为权威、本地库为缓存；事件归一化（persona/platform/session/ts/kind/payload）+ 实体身份解析（分层维度模型）已具备原语。
 - 未来按硬依赖规划：v2 直接切统一库为权威，不等待第二个消费者；允许对 ESM 与记忆宿主做架构级变动（精力消费语义、统一记忆 API、生命链事件流）。
 
 ### 多实例并发与同人格锁

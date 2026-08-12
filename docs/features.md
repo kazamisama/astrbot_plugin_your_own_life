@@ -252,10 +252,11 @@
 
 ### L2-01 统一记忆库
 
+- 状态：已实现（v0.5.0；配置 `memory_host` 后启用，空值保持 v1 本地 SQLite 权威）。
 - 目标：由记忆宿主持有统一逻辑库，本插件经 `LifeMemoryAdapter` 读写，本地 SQLite 降级为缓存。
-- 依赖：engram_core 或未来 life-chain 提供版本化 API（见 `docs/requirements.md`）。
-- 模块：`life/memory_adapter.py`（与 `life/esm_adapter.py` 同级）、`life/db.py`。
-- 配置：`memory_host`（插件 ID）。
+- 依赖：engram_core 版本化 API（v1.75.0 / v1.76.0 `_PUBLIC_API.md` 已落地，见 `docs/requirements.md`）。
+- 模块：`life/memory_adapter.py`（与 `life/esm_adapter.py` 同级）、`life/browser.py`、`life/life_tool.py`、`life/webui.py`、`life/db.py`。
+- 配置：`memory_host`（插件 ID，默认空）、`memory_lease_ttl_seconds`（默认 300）。
 - 验收：`store_event / add_note / store_diary / upsert_entity / link_entities / query_memory / search` 全部经 adapter；宿主缺失时报 error（硬依赖，不再静默降级）。
 
 ### L2-02 实体与关系图
@@ -356,4 +357,4 @@
 2. 高体感：L1-01 今日签名、L1-08 状态卡、L1-09 热力图；L1-15 WebUI 美化随前两项视图落地后推进（视觉层已落地 v0.3.1，L1-10 时间轴仍属 L1 剩余）。
 3. L1 剩余：L1-03 精力预算（v0.4.4 已实现）；L1 全部完成。
 4. L1.5：事件链（L1.5-01）→ 排期板（L1.5-02/03）→ 自主排期（L1.5-04/05）→ 事件链可视化（L1.5-06）。
-5. L2：先与上游对齐 `_PUBLIC_API.md` 并整族协调，再按 L2 项推进。
+5. L2：上游 `_PUBLIC_API.md` 已对齐（engram_core v1.75 / v1.76），L2-01 已落地（v0.5.0），按依赖顺序继续 L2-02 起。

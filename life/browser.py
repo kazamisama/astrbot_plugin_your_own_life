@@ -17,6 +17,7 @@ from life.fetchers import FetchedItem, USER_AGENT, fetch_all
 from life.injection import is_suspicious, sanitize_text
 from life.interests import InterestStore
 from life.llm import BudgetExhausted, LLMClient, LLMError
+from life.memory_adapter import LifeMemoryAdapter, MemoryHostError
 from life.persona import PersonaService, PersonaUnavailable
 from life.prompts import (
     MEMORY_CATEGORIES,
@@ -62,6 +63,7 @@ class LifeService:
         llm: LLMClient,
         personas: PersonaService,
         share_gate: Optional[Any] = None,
+        memory: Optional[LifeMemoryAdapter] = None,
         logger: Optional[logging.Logger] = None,
         now_fn: Optional[Callable[[], datetime]] = None,
         fetcher_fn: Optional[Callable[..., Awaitable[list[FetchedItem]]]] = None,
@@ -73,6 +75,7 @@ class LifeService:
         self.llm = llm
         self.personas = personas
         self.share_gate = share_gate
+        self.memory = memory
         self.log = logger or logging.getLogger("your_own_life")
         self.now_fn = now_fn or datetime.now
         self.fetcher_fn = fetcher_fn or fetch_all
@@ -344,6 +347,35 @@ class LifeService:
                     persona_id, sid, key, name,
                     _clamp(meta.get("interest_level", 0.5)), now=now,
                 )
+            if self.memory is not None and self.config.memory_host:
+                try:
+                    for item, meta in selected:
+                        self.memory.add_note(
+                            persona_id,
+                            {
+                                "summary": sanitize_text(
+                                    meta.get("summary") or item.summary or item.title, 600),
+                                "opinion": sanitize_text(meta.get("opinion"), 600),
+                                "url": item.url,
+                                "url_hash": item.url_hash,
+                                "category": self._valid_category(meta.get("category")),
+                                "tags": self._valid_tags(meta.get("tags")),
+                                "importance": _clamp(meta.get("interest_level", 0.5)),
+                            },
+                        )
+                except MemoryHostError as exc:
+                    self.log.error(
+                        "browse unified memory write failed for %s: %s",
+                        persona_id, exc,
+                    )
+                    self.db.discard_staged(persona_id, sid, f"memory_host: {exc}")
+                    self.db.add_state_snapshot(
+                        persona_id, "browse_error", energy_before, "",
+                        extra=json.dumps(
+                            {"error": f"memory_host: {exc}"}, ensure_ascii=False
+                        ),
+                    )
+                    return BrowseResult(sid, "error", 0, "", f"memory_host: {exc}")
             self.db.stage_snapshot(
                 persona_id, sid, "browse", energy_before, session_mood,
                 extra=json.dumps({"trigger": trigger}, ensure_ascii=False),
@@ -369,6 +401,24 @@ class LifeService:
                 note_refs,
                 f"session/{sid}/commit",
             )
+            if self.memory is not None and self.config.memory_host:
+                try:
+                    self.memory.store_event(
+                        persona_id, "internet-life", str(sid), now.timestamp(),
+                        "observe",
+                        {"entity": "browse", "session_id": sid,
+                         "notes_count": len(notes)},
+                    )
+                    self.memory.store_event(
+                        persona_id, "internet-life", str(sid), now.timestamp(),
+                        "change",
+                        {"entity": "note", "session_id": sid,
+                         "note_ids": [note["id"] for note in notes]},
+                    )
+                except MemoryHostError as exc:
+                    self.log.warning(
+                        "browse event mirror failed for %s: %s", persona_id, exc
+                    )
             _, energy_mode = self._consume_energy(
                 persona_id, ENERGY_COST_BROWSE, "internet_life:browse"
             )
@@ -661,6 +711,28 @@ class LifeService:
                 )
                 wishlist_candidates = self._wishlist_candidates(payload)
 
+            memory_ref = ""
+            if self.memory is not None and self.config.memory_host:
+                try:
+                    memory_ref = self.memory.store_diary_line(
+                        persona_id, date, diary_text, mood=mood,
+                        signature=signature,
+                        source_refs=[f"note:{note['id']}" for note in notes],
+                    )
+                except MemoryHostError as exc:
+                    self.log.error(
+                        "diary unified memory write failed for %s: %s",
+                        persona_id, exc,
+                    )
+                    self.db.add_state_snapshot(
+                        persona_id, "diary_error", None, "",
+                        extra=json.dumps(
+                            {"error": f"memory_host: {exc}"}, ensure_ascii=False
+                        ),
+                    )
+                    return {"date": date, "notes": len(notes), "fallback": False,
+                            "error": f"memory_host: {exc}"}
+
             energy = self.esm.get_energy(persona_id)
             top = ",".join(
                 row["name"] or row["key"] for row in self.db.get_interests(persona_id, limit=5)
@@ -707,10 +779,23 @@ class LifeService:
                 {"entity": "diary", "date": date, "mood": mood,
                  "signature": signature, "notes_count": len(notes),
                  "revisit_day": revisit_day,
-                 "revisit_notes": len(raw_revisit_notes)},
+                 "revisit_notes": len(raw_revisit_notes),
+                 "unified_memory_id": memory_ref},
                 source_refs,
                 f"diary/{date}",
             )
+            if self.memory is not None and self.config.memory_host:
+                try:
+                    self.memory.store_event(
+                        persona_id, "internet-life", "", now.timestamp(), "think",
+                        {"entity": "diary", "date": date,
+                         "notes_count": len(notes),
+                         "unified_memory_id": memory_ref},
+                    )
+                except MemoryHostError as exc:
+                    self.log.warning(
+                        "diary event mirror failed for %s: %s", persona_id, exc
+                    )
             self.interests.daily_decay(persona_id)
             wishlist_eval = await self._evaluate_wishlist(persona_id, persona.system_prompt)
             return {"date": date, "notes": len(notes), "fallback": False,

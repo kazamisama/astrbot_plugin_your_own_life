@@ -7,6 +7,7 @@ import logging
 from typing import Any, Callable, Optional
 
 from life.life_tool import search_life_memory
+from life.memory_adapter import MemoryHostError
 from life.timeutil import DEFAULT_TIMEZONE, local_today
 
 PLUGIN_NAME = "astrbot_plugin_your_own_life"
@@ -42,7 +43,7 @@ def _first_persona(config: Any) -> str:
 
 
 def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
-                   config: Any) -> dict[str, Callable]:
+                   config: Any, memory: Any = None) -> dict[str, Callable]:
     async def _persona_arg() -> str:
         args = await _query_args()
         return str(args.get("persona") or _first_persona(config))
@@ -107,7 +108,29 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
             k = max(1, min(int(args.get("k", 10)), 10))
         except (TypeError, ValueError):
             k = 10
-        return search_life_memory(db, persona, query, category, date, k)
+        result = search_life_memory(db, persona, query, category, date, k)
+        if memory is not None and getattr(config, "memory_host", ""):
+            try:
+                host_items = memory.query_memory(persona, query=query or "", k=k)
+            except MemoryHostError as exc:
+                result["error"] = f"memory_host: {exc}"
+                return result
+            unified = []
+            for item in host_items:
+                mtype = item.get("memory_type") or "note"
+                kind = "diary" if mtype == "diary" else (
+                    "event" if mtype == "event" else "note")
+                unified.append({
+                    "kind": kind,
+                    "date": "",
+                    "summary": item.get("summary") or "",
+                    "content": item.get("content") or "",
+                    "source": "unified",
+                    "url": "",
+                })
+            result["items"] = unified + result["items"]
+            result["count"] = len(result["items"])
+        return result
 
     async def usage():
         persona = await _persona_arg()
@@ -284,11 +307,13 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
 
 def register_api(context: Any, db: Any, service: Any, share_gate: Any,
                  personas: Any, config: Any,
+                 memory: Any = None,
                  logger: Optional[logging.Logger] = None) -> bool:
     register = getattr(context, "register_web_api", None)
     if register is None:
         return False
-    handlers = build_handlers(db, service, share_gate, personas, config)
+    handlers = build_handlers(db, service, share_gate, personas, config,
+                              memory=memory)
     routes = (
         (f"{API_PREFIX}/overview", "overview", ["GET"], "Life overview"),
         (f"{API_PREFIX}/status", "status", ["GET"], "Today status card"),

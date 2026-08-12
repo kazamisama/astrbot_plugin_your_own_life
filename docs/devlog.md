@@ -2,6 +2,17 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L2-01 统一记忆库落地（v0.5.0）
+
+- 目标：`store_event / add_note / store_diary / upsert_entity / link_entities / query_memory / search` 全部经 `LifeMemoryAdapter` 路由到统一记忆宿主；宿主缺失报 error，不再静默降级；本地 SQLite 降级为缓存。
+- 已确认决策：
+  - 上游 engram_core 先行发布版本化公开契约：v1.75.0（`store_diary_line` / `query_recent_memory` / `claim_task` / `renew_task` / `release_task` / `task_lease_owner` + `TaskLeaseStore`）、v1.76.0（`store_event` / `add_note` / `query_memory` / `search` / `upsert_entity` / `link_entities` / `list_entities` / `list_links` + `LifeGraphStore` 分层维度实体图），均含 `_PUBLIC_API.md` 与 smoke 测试。
+  - 下游：新增 `life/memory_adapter.py`（`LifeMemoryAdapter` + `MemoryHostError`）；`LifeConfig` / `_conf_schema.json` 新增 `memory_host`（默认空 = 本地 SQLite 权威）与 `memory_lease_ttl_seconds`；`LifeService` 注入 memory，复盘/漫游/事件写入经 adapter（`store_diary_line` / `add_note` / `store_event`），失败抛 `MemoryHostError` 且不落本地；`query_life_memory` 工具与 WebUI `memory_search` 在配置 host 后合并统一库结果。
+- 改动：`life/memory_adapter.py`（新增）、`life/config.py`、`_conf_schema.json`、`life/browser.py`、`life/life_tool.py`、`life/webui.py`、`main.py`、`tests/test_memory_adapter.py`（新增）、`tests/test_browser.py`、`tests/test_config.py`；版本 v0.4.4 → v0.5.0；README / CHANGELOG / features.md L2-01 / design.md / roadmap.md / requirements.md 同步。
+- 验证：unittest 186 passed（skipped=1；新增 adapter 转发/缺失报错、browse/diary 主机写入与失败回滚、配置用例）；engram_core smoke 66 项仅 `_smoke_v36.py` 基线既有失败（已取证与本次改动无关）。
+- 遗留：`memory_host` 默认关闭，未配置时仍走本地 SQLite；实体图/租约 API 已就绪，L2-02 实体关系图与 L2-09 多实例租约待接入；WebUI 实体图视图未做。
+- 下一步：L2-02 实体与关系图（adapter 实体写入 + WebUI 实体图视图 + “我在哪见过 X”）。
+
 ## 2026-08-12 L1-03 精力预算落地（v0.4.4）
 
 - 目标：每日漫游/复盘真实消耗并持久化精力，预算耗尽当天剩余任务跳过并记录；ESM 未提供 `consume_energy` 时显式本地估算，不再静默降级。

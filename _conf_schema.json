@@ -326,6 +326,18 @@
     "hint": "最终 scope 形如 {prefix}:{persona_id}",
     "default": "internet-life"
   },
+  "memory_host": {
+    "type": "string",
+    "description": "统一记忆宿主插件 ID（留空 = 使用本地 SQLite）",
+    "hint": "配置后为硬依赖：宿主缺失时生活任务报 error，不再静默降级",
+    "default": ""
+  },
+  "memory_lease_ttl_seconds": {
+    "type": "int",
+    "description": "统一记忆宿主任务租约 TTL（秒）",
+    "hint": "与 v1 本地 lease_ttl_seconds 区分；多实例串行化用",
+    "default": 300
+  },
   "life_tool_enabled": {
     "type": "bool",
     "description": "向 LLM 注册 query_life_memory 自查询工具",

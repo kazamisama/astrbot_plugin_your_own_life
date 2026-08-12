@@ -252,6 +252,8 @@ class LifeConfig:
     persona_cache_hours: float = 24.0
     esm_scope_prefix: str = "internet-life"
     life_tool_enabled: bool = True
+    memory_host: str = ""
+    memory_lease_ttl_seconds: int = 300
 
 
 def load_config(cfg: Any) -> LifeConfig:
@@ -292,6 +294,8 @@ def load_config(cfg: Any) -> LifeConfig:
         tavily_api_key=_as_str(_get(cfg, "tavily_api_key"), ""),
         db_path=_as_str(_get(cfg, "db_path"), ""),
         esm_scope_prefix=_as_str(_get(cfg, "esm_scope_prefix"), "internet-life"),
+        memory_host=_as_str(_get(cfg, "memory_host"), ""),
+        memory_lease_ttl_seconds=max(1, _as_int(_get(cfg, "memory_lease_ttl_seconds"), 300)),
         source_timeout=_as_float(_get(cfg, "source_timeout"), 10.0),
         notes_min=notes_min,
         notes_max=notes_max,

@@ -60,16 +60,22 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(cfg.daily_token_budget, 0)
         self.assertEqual(cfg.llm_retry_limit, 3)
         self.assertEqual(cfg.energy_budget, 0.0)
+        self.assertEqual(cfg.memory_host, "")
+        self.assertEqual(cfg.memory_lease_ttl_seconds, 300)
         cfg = load_config({
             "daily_llm_call_limit": "5",
             "daily_token_budget": "1000",
             "llm_retry_limit": "4",
             "energy_budget": "0.5",
+            "memory_host": "astrbot_plugin_engram_core",
+            "memory_lease_ttl_seconds": "120",
         })
         self.assertEqual(cfg.daily_llm_call_limit, 5)
         self.assertEqual(cfg.daily_token_budget, 1000)
         self.assertEqual(cfg.llm_retry_limit, 4)
         self.assertEqual(cfg.energy_budget, 0.5)
+        self.assertEqual(cfg.memory_host, "astrbot_plugin_engram_core")
+        self.assertEqual(cfg.memory_lease_ttl_seconds, 120)
         clamped = load_config({"energy_budget": "2.5"})
         self.assertEqual(clamped.energy_budget, 1.0)
 

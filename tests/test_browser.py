@@ -16,6 +16,7 @@ from life.esm_adapter import ESMAdapter
 from life.fetchers import FetchedItem
 from life.interests import InterestStore
 from life.llm import BudgetExhausted, LLMError
+from life.memory_adapter import MemoryHostError
 from life.persona import PersonaPrompt, PersonaUnavailable
 
 
@@ -112,6 +113,32 @@ class _EnergyContext:
 
     def get_registered_star(self, plugin_id):
         return self.star
+
+
+class _FakeMemory:
+    def __init__(self, fail_note=False, fail_diary=False):
+        self.notes = []
+        self.diaries = []
+        self.events = []
+        self.fail_note = fail_note
+        self.fail_diary = fail_diary
+
+    def add_note(self, persona_id, note):
+        if self.fail_note:
+            raise MemoryHostError("host gone")
+        self.notes.append(note)
+        return "n" + str(len(self.notes))
+
+    def store_diary_line(self, persona_id, date, content, **kwargs):
+        if self.fail_diary:
+            raise MemoryHostError("host gone")
+        self.diaries.append((persona_id, date, content, kwargs))
+        return "d" + str(len(self.diaries))
+
+    def store_event(self, persona_id, platform, session_id, ts, kind,
+                    payload=None, source="external"):
+        self.events.append((persona_id, kind, payload or {}))
+        return "e" + str(len(self.events))
 
 
 class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
@@ -344,6 +371,90 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         today = datetime.now().strftime("%Y-%m-%d")
         usage = self.db.get_daily_usage("shelly", today)
         self.assertAlmostEqual(usage["energy_used"], 0.2)
+
+    async def test_browse_mirrors_notes_and_events_to_memory(self):
+        memory = _FakeMemory()
+        self.service.memory = memory
+        self.service.config.memory_host = "astrbot_plugin_engram_core"
+        self.service.llm = _FakeLLM(payload={
+            "selected": [{
+                "index": 0, "summary": "s1", "opinion": "o1", "mood": "curious",
+                "interest_level": 0.8, "interest_key": "ai", "interest_name": "AI",
+                "category": "opinion", "tags": ["ai"],
+                "share": {"should_share": False, "reason": "", "target": ""},
+            }, {
+                "index": 1, "summary": "s2", "opinion": "o2", "mood": "calm",
+                "interest_level": 0.6, "interest_key": "tech", "interest_name": "Tech",
+                "category": "observation", "tags": [],
+                "share": {"should_share": False, "reason": "", "target": ""},
+            }],
+            "session_mood": "curious",
+        })
+        result = await self.service.run_browse_session("shelly", "scheduled")
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(len(memory.notes), 2)
+        self.assertEqual(memory.notes[0]["summary"], "s1")
+        self.assertEqual(memory.notes[1]["category"], "observation")
+        kinds = [e[1] for e in memory.events]
+        self.assertIn("observe", kinds)
+        self.assertIn("change", kinds)
+        self.assertEqual(len(self.db.list_notes("shelly")), 2)
+
+    async def test_diary_writes_to_memory(self):
+        memory = _FakeMemory()
+        self.service.memory = memory
+        self.service.config.memory_host = "astrbot_plugin_engram_core"
+        self.db.add_note(
+            "shelly", None, "hn", "https://x", "X", "s", url_hash="mem-diary"
+        )
+        self.service.llm = _FakeLLM(payload={
+            "diary_text": "unified diary text",
+            "signature": "ok",
+            "mood": "calm",
+            "interest_updates": {},
+        })
+        result = await self.service.run_nightly_diary("shelly")
+        self.assertFalse(result["fallback"])
+        self.assertEqual(len(memory.diaries), 1)
+        self.assertEqual(memory.diaries[0][2], "unified diary text")
+        self.assertEqual(memory.diaries[0][3]["signature"], "ok")
+        self.assertTrue(any(e[1] == "think" for e in memory.events))
+
+    async def test_memory_host_error_fails_browse_without_local_write(self):
+        memory = _FakeMemory(fail_note=True)
+        self.service.memory = memory
+        self.service.config.memory_host = "astrbot_plugin_engram_core"
+        self.service.llm = _FakeLLM(payload={
+            "selected": [{
+                "index": 0, "summary": "s", "opinion": "o", "mood": "curious",
+                "interest_level": 0.5, "interest_key": "ai", "interest_name": "AI",
+                "category": "opinion", "tags": [],
+                "share": {"should_share": False, "reason": "", "target": ""},
+            }],
+            "session_mood": "calm",
+        })
+        result = await self.service.run_browse_session("shelly", "scheduled")
+        self.assertEqual(result.status, "error")
+        self.assertIn("memory_host", result.error)
+        self.assertEqual(self.db.list_notes("shelly"), [])
+
+    async def test_memory_host_error_fails_diary_without_local_write(self):
+        memory = _FakeMemory(fail_diary=True)
+        self.service.memory = memory
+        self.service.config.memory_host = "astrbot_plugin_engram_core"
+        self.db.add_note(
+            "shelly", None, "hn", "https://x", "X", "s", url_hash="mem-fail"
+        )
+        self.service.llm = _FakeLLM(payload={
+            "diary_text": "should not persist",
+            "signature": "ok",
+            "mood": "calm",
+            "interest_updates": {},
+        })
+        result = await self.service.run_nightly_diary("shelly")
+        self.assertIn("memory_host", result["error"])
+        today = datetime.now().strftime("%Y-%m-%d")
+        self.assertIsNone(self.db.get_diary("shelly", today))
 
     async def test_suspicious_fetched_content_is_logged(self):
         async def suspicious_fetcher(config, client, queries):

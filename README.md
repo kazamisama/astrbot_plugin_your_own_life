@@ -24,6 +24,7 @@
 - 系统裁决（v0.4.2）：预算（LLM 调用/token）与依赖校验成为硬约束，所有越界/未知/未实现动作拒绝并写 `reject` 事件链。
 - 事件链可视化（v0.4.3）：WebUI“事件链”tab 按时间倒序展示事件流，kind 过滤 + 分页 + `source_refs` + 幂等键，底部只读重放元数据视图。
 - 精力预算（v0.4.4）：`energy_budget` 每日上限，漫游/复盘真实消耗并持久化精力（ESM `consume_energy`），ESM 缺失时本地估算显式标注；预算耗尽当天剩余任务跳过并记录。
+- 统一记忆库（v0.5.0）：配置 `memory_host` 后，日记/短记/事件/召回/实体图/任务租约统一经 `LifeMemoryAdapter` 读写 engram_core；本地 SQLite 降级为缓存，宿主缺失报 error。
 - 摘要优先：只持久化摘要、观点与链接，不保存网页原文。
 - 生态联动（现状 v0.3.0）：可选接入 ESM 读取精力/情绪、施加信号；缺失时静默降级；v0.4.4 起精力消费缺失时显式记录本地估算，不再默认降级。
 
@@ -55,6 +56,7 @@
 - `sleep_window` / `timezone`：睡眠窗口与生活任务时区（默认 `Asia/Shanghai`；非法配置回退默认并告警）。
 - `daily_llm_call_limit` / `daily_token_budget` / `llm_retry_limit`：LLM 每日调用/token 预算（0 = 无上限）与失败重试上限。
 - `energy_budget`：每日精力消耗上限（默认 0 = 无上限），达到上限后当天剩余任务跳过并记录 `energy_budget_exhausted`。
+- `memory_host` / `memory_lease_ttl_seconds`：统一记忆宿主插件 ID（留空 = 本地 SQLite）与宿主任务租约 TTL（默认 300 秒）。
 - `trash_retention_days`：回收站保留天数（默认 30），超期内容可彻底清除。
 - `injection_log_enabled`：记录疑似提示词注入内容到审计日志（默认开）。
 - `lease_ttl_seconds`：同人格任务租约 TTL（默认 300 秒），多实例共享 SQLite 时保证单写者。

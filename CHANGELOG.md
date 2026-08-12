@@ -2,6 +2,15 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.0] - 2026-08-12
+
+### Added
+
+- L2-01 统一记忆库：新增 `life/memory_adapter.py`（`LifeMemoryAdapter`，与 ESM 适配器同级）；`memory_host`（默认空 = 本地 SQLite）与 `memory_lease_ttl_seconds` 配置；漫游/复盘/事件写入统一经适配器路由到 engram_core（store_diary_line / add_note / store_event / query_memory / search / upsert_entity / link_entities / 任务租约），本地 SQLite 降级为缓存；宿主缺失时报 error（硬依赖，不再静默降级）。
+### Notes
+
+- 测试：186 passed（新增 memory adapter 转发/缺失报错、漫游/复盘主机写入与失败回滚、配置用例）。
+- 上游：engram_core v1.75.0 / v1.76.0 已先发布公开契约（`_PUBLIC_API.md` + 全量记忆/实体图/租约 API）。
 ## [0.4.4] - 2026-08-12
 
 ### Added
