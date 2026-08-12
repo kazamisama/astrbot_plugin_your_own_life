@@ -2,6 +2,16 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.14] - 2026-08-12
+
+### Added
+
+- 新增 LLM 工具 `query_life_status`：查询当前 persona 当天的漫游/peek 会话、状态快照、事件链条目与短记，让 bot 在对话中能知道自己刚才/今天在做什么、读了什么；调用本身写 `recall` 事件（`query=life_status`）。
+
+### Notes
+
+- 测试：256 passed（skipped=1；新增状态查询纯函数、工具调用写 recall、无 persona 拒绝 3 个回归）。
+
 ## [0.5.13] - 2026-08-12
 
 ### Fixed

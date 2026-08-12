@@ -47,6 +47,7 @@ from life.life_tool import (  # noqa: E402
     LifeMemoryTool,
     LifePlanEditTool,
     LifePlansTool,
+    LifeStatusTool,
 )
 from life.llm import LLMClient  # noqa: E402
 from life.persona import PersonaService, PersonaUnavailable  # noqa: E402
@@ -101,6 +102,7 @@ class LifeStar(Star):
         self.scheduler.start()
         self.life_tool = LifeMemoryTool(self.db, self.personas, memory=self.memory)
         self.life_plans_tool = LifePlansTool(self.db, self.personas)
+        self.life_status_tool = LifeStatusTool(self.db, self.personas)
         self.life_plan_edit_tool = LifePlanEditTool(self.db, self.personas)
         self.life_edit_tool = LifeEditTool(
             self.db, self.personas, allowed=self._cfg.life_edit_allowed
@@ -108,6 +110,7 @@ class LifeStar(Star):
         if self._cfg.life_tool_enabled:
             self.life_tool.register(context)
             self.life_plans_tool.register(context)
+            self.life_status_tool.register(context)
             self.life_plan_edit_tool.register(context)
             self.life_edit_tool.register(context)
         webui.register_api(context, self.db, self.service, self.share_gate,

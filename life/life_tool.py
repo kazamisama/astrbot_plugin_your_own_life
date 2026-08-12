@@ -157,6 +157,30 @@ EDIT_MEMORY_TOOL_PARAMETERS: dict[str, Any] = {
     "required": ["action"],
 }
 
+STATUS_TOOL_NAME = "query_life_status"
+STATUS_TOOL_DESCRIPTION = (
+    "Query the current bot persona's recent life activity: today's browse/peek "
+    "sessions, state snapshots, recent event-chain entries and notes. "
+    "Use it when the conversation asks what this persona was doing, what it read, "
+    "or how the day went. Returns only the current persona's records."
+)
+STATUS_TOOL_PARAMETERS: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "date": {
+            "type": "string",
+            "description": "Optional date filter, YYYY-MM-DD; defaults to today.",
+            "default": "",
+        },
+        "limit": {
+            "type": "integer",
+            "description": "Maximum items per section (1-50).",
+            "default": 10,
+        },
+    },
+    "required": [],
+}
+
 
 def _parse_tags(raw: Any) -> list[str]:
     if isinstance(raw, list):
@@ -323,6 +347,104 @@ def query_life_plans(
     }
 
 
+def _json_value(raw: Any, fallback: Any) -> Any:
+    if isinstance(raw, (dict, list)):
+        return raw
+    try:
+        return json.loads(raw or "{}")
+    except (ValueError, TypeError):
+        return fallback
+
+
+def query_life_status(
+    db: LifeDB,
+    persona_id: str,
+    date: str = "",
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Read-only recent life activity snapshot; pure function for tests."""
+    limit = max(1, min(int(limit or 10), 50))
+    plan_date = date or local_today(getattr(db, "timezone", DEFAULT_TIMEZONE))
+    sessions = db.list_sessions(persona_id, plan_date, limit=limit)
+    snapshots = db.list_state_snapshots(
+        persona_id, since_date=plan_date, limit=limit
+    )
+    notes = db.list_notes(persona_id, plan_date, limit=limit)
+    events = db.list_events(persona_id, limit=max(limit * 5, 50))
+    events = [
+        e for e in events if str(e.get("ts") or "").startswith(plan_date)
+    ][:limit]
+    browse = [s for s in sessions if s.get("kind") != "peek"]
+    return {
+        "persona_id": persona_id,
+        "date": plan_date,
+        "mood": next(
+            (s.get("mood") or "" for s in snapshots if s.get("mood")), ""
+        ),
+        "energy": next(
+            (s.get("energy") for s in snapshots if s.get("energy") is not None),
+            None,
+        ),
+        "stats": {
+            "sessions": len(browse),
+            "notes": len(notes),
+            "completed": sum(
+                1 for s in browse if s.get("status") == "completed"
+            ),
+            "skipped": sum(
+                1 for s in browse
+                if str(s.get("status") or "").startswith("skipped")
+            ),
+            "errors": sum(
+                1 for s in browse if s.get("status") in ("error", "failed")
+            ),
+        },
+        "sessions": [
+            {
+                "started_at": s.get("started_at") or "",
+                "ended_at": s.get("ended_at") or "",
+                "trigger": s.get("trigger") or "",
+                "kind": s.get("kind") or "browse",
+                "status": s.get("status") or "",
+                "notes_count": s.get("notes_count") or 0,
+                "reason": s.get("reason") or "",
+            }
+            for s in sessions
+        ],
+        "snapshots": [
+            {
+                "ts": s.get("ts") or "",
+                "activity": s.get("activity") or "",
+                "energy": s.get("energy"),
+                "mood": s.get("mood") or "",
+                "extra": _json_value(s.get("extra"), {}),
+            }
+            for s in snapshots
+        ],
+        "events": [
+            {
+                "id": e.get("id"),
+                "ts": e.get("ts") or "",
+                "kind": e.get("kind") or "",
+                "payload": _json_value(e.get("payload"), {}),
+                "source_refs": _json_value(e.get("source_refs"), []),
+            }
+            for e in events
+        ],
+        "notes": [
+            {
+                "id": n.get("id"),
+                "fetched_at": n.get("fetched_at") or "",
+                "source": n.get("source") or "",
+                "title": n.get("title") or "",
+                "summary": n.get("summary") or "",
+                "url": n.get("url") or "",
+            }
+            for n in notes
+        ],
+    }
+
+
 async def _execute_plans_tool(tool: Any, context: Any, date: str, status: str) -> str:
     persona_id = await tool._resolve_persona(context)
     if not persona_id:
@@ -339,6 +461,37 @@ async def _execute_plans_tool(tool: Any, context: Any, date: str, status: str) -
     data = query_life_plans(tool.db, persona_id, date=date, status=status)
     data["ok"] = True
     data["count"] = len(data["items"])
+    return json.dumps(data, ensure_ascii=False)
+
+
+async def _execute_status_tool(tool: Any, context: Any, date: str,
+                               limit: int) -> str:
+    persona_id = await tool._resolve_persona(context)
+    if not persona_id:
+        return json.dumps(
+            {"ok": False, "count": 0, "error": "cannot resolve current persona"},
+            ensure_ascii=False,
+        )
+    whitelist = getattr(getattr(tool.personas, "config", None), "life_personas", None)
+    if whitelist is not None and persona_id not in whitelist:
+        return json.dumps(
+            {"ok": False, "count": 0, "error": "persona not whitelisted"},
+            ensure_ascii=False,
+        )
+    data = query_life_status(tool.db, persona_id, date=date, limit=limit)
+    count = (
+        len(data["sessions"]) + len(data["snapshots"])
+        + len(data["events"]) + len(data["notes"])
+    )
+    tool.db.append_event(
+        persona_id,
+        "recall",
+        {"query": "life_status", "date": data["date"], "limit": limit,
+         "count": count},
+        [],
+    )
+    data["ok"] = True
+    data["count"] = count
     return json.dumps(data, ensure_ascii=False)
 
 
@@ -714,6 +867,44 @@ else:
 
         async def call(self, context: Any, date: str = "", status: str = "") -> str:
             return await _execute_plans_tool(self, context, date, status)
+
+
+if _HAS_ASTRBOT_TOOL:
+
+    class LifeStatusTool(_LifeMemoryToolMixin, FunctionTool[AstrAgentContext]):
+        """AstrBot-native read-only recent life activity tool."""
+
+        def __init__(self, db: LifeDB, personas: PersonaService):
+            super().__init__(
+                name=STATUS_TOOL_NAME,
+                description=STATUS_TOOL_DESCRIPTION,
+                parameters=STATUS_TOOL_PARAMETERS,
+                handler=None,
+            )
+            self._init(db, personas)
+
+        async def call(
+            self,
+            context: ContextWrapper[AstrAgentContext],
+            date: str = "",
+            limit: int = 10,
+        ) -> ToolExecResult:
+            return await _execute_status_tool(self, context, date, limit)
+
+else:
+
+    class LifeStatusTool(_LifeMemoryToolMixin):
+        """Duck-typed fallback used by unit tests outside AstrBot."""
+
+        name = STATUS_TOOL_NAME
+        description = STATUS_TOOL_DESCRIPTION
+        parameters = STATUS_TOOL_PARAMETERS
+
+        def __init__(self, db: LifeDB, personas: PersonaService):
+            self._init(db, personas)
+
+        async def call(self, context: Any, date: str = "", limit: int = 10) -> str:
+            return await _execute_status_tool(self, context, date, limit)
 
 
 if _HAS_ASTRBOT_TOOL:

@@ -2,6 +2,14 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 新增 query_life_status 聊天侧生活状态工具（v0.5.14）
+- 目标：让 bot 在 QQ 等对话场景能知道自己刚才/今天在干什么、读了什么新闻，补上“事件链可查但聊天侧无入口”的缺口。
+- 已确认决策：新增只读 LLM 工具 `query_life_status`，按当前 persona 返回当天 browse/peek 会话、状态快照、事件链条目与短记；调用本身写 `recall` 事件（`query=life_status`）；不新增配置项，`life_tool_enabled` 开关统一生效。
+- 改动：`life/life_tool.py`、`main.py`、`tests/test_life_tool.py`、`README.md`、`docs/features.md`、`CHANGELOG.md`、`metadata.yaml`、`life/__init__.py`；版本 v0.5.13 → v0.5.14。
+- 验证：unittest 256 passed（skipped=1；新增 3 个回归）；UTF-8 读回无 `\ufffd`。
+- 遗留：事件链本地查询仍按当天截取，跨日“最近经历”需要传具体 date；宿主镜像失败仍按 warning 记录。
+- 下一步：`git diff --check` 后提交 `chore(release): v0.5.14 ...` 并推送 origin main。
+
 ## 2026-08-12 README 配置清单与版本同步（docs 批次）
 - 目标：修复根 README 配置项落后于 `_conf_schema.json` 的问题，并把文档中的插件版本同步到 v0.5.13。
 - 已确认决策：README 配置章节改为从 schema 生成的完整表格（60 项，含类型/默认值/说明），不再维护精简清单；根 README 补当前版本、v0.5.11-v0.5.13 工程修复条目并更新多实例/生态描述。

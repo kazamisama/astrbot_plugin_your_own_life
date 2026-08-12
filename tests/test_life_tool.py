@@ -13,7 +13,9 @@ from life.life_tool import (
     LifeMemoryTool,
     LifePlanEditTool,
     LifePlansTool,
+    LifeStatusTool,
     edit_life_memory,
+    query_life_status,
     recall_life_memory,
     search_life_memory,
 )
@@ -222,6 +224,70 @@ class LifeToolTest(unittest.IsolatedAsyncioTestCase):
         extra = next(item for item in items if item["task_id"] == "extra-1")
         self.assertEqual(extra["status"], "skipped")
         self.assertEqual(extra["reason"], "not now")
+
+    def test_query_life_status_returns_sections(self):
+        sid = self.db.start_browse_session(
+            "shelly", "scheduled", 0.6, "curious"
+        )
+        self.db.finish_browse_session(sid, "completed", 2, "")
+        self.db.add_state_snapshot(
+            "shelly", "browse", 0.5, "curious",
+            extra='{"trigger": "scheduled"}',
+        )
+        self.db.add_note(
+            "shelly", None, "hn", "https://x", "Morning AI news",
+            "summary", url_hash="st1",
+        )
+        self.db.append_event(
+            "shelly", "observe",
+            {"entity": "browse", "session_id": sid, "notes_count": 2},
+            [{"url": "https://x"}],
+            f"session/{sid}/observe",
+        )
+        data = query_life_status(self.db, "shelly")
+        self.assertEqual(data["persona_id"], "shelly")
+        self.assertEqual(data["stats"]["completed"], 1)
+        self.assertEqual(len(data["sessions"]), 1)
+        self.assertEqual(len(data["snapshots"]), 1)
+        self.assertEqual(len(data["events"]), 1)
+        self.assertEqual(data["events"][0]["kind"], "observe")
+        self.assertEqual(data["notes"][0]["title"], "Morning AI news")
+        self.assertEqual(data["notes"][0]["url"], "https://x")
+
+    async def test_status_tool_reads_activity_and_writes_recall(self):
+        sid = self.db.start_browse_session("shelly", "scheduled", 0.6, "")
+        self.db.finish_browse_session(sid, "completed", 1, "")
+        self.db.add_state_snapshot("shelly", "browse", 0.5, "curious")
+        self.db.add_note(
+            "shelly", None, "hn", "https://x", "Morning AI news",
+            "summary", url_hash="st2",
+        )
+        self.db.append_event(
+            "shelly", "observe",
+            {"entity": "browse", "session_id": sid, "notes_count": 1},
+            [{"url": "https://x"}],
+            f"session/{sid}/observe-2",
+        )
+        tool = LifeStatusTool(self.db, _FakePersonas())
+        raw = await tool.call(_FakeWrapper())
+        data = json.loads(raw)
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["persona_id"], "shelly")
+        self.assertTrue(data["sessions"])
+        self.assertTrue(data["snapshots"])
+        self.assertTrue(data["events"])
+        self.assertTrue(any(
+            n["title"] == "Morning AI news" for n in data["notes"]
+        ))
+        events = self.db.list_events("shelly")
+        self.assertEqual(events[0]["kind"], "recall")
+        self.assertEqual(json.loads(events[0]["payload"])["query"], "life_status")
+
+    async def test_status_tool_refuses_without_persona(self):
+        tool = LifeStatusTool(self.db, _FakePersonas())
+        raw = await tool.call(_FakeWrapper(with_managers=False))
+        data = json.loads(raw)
+        self.assertFalse(data["ok"])
 
 
 if __name__ == "__main__":

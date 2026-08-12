@@ -32,7 +32,7 @@
 | SQLite 档案 | `life/db.py` | 8 张表 + 旧版自动迁移；`db_path` 可配 |
 | 聊天命令 | `main.py` | `/life`、`/life_now`、`/life_archive`、`/life_interest`、`/life_personas`、`/life_share`、`/life_reset` |
 | WebUI | `life/webui.py` + `pages/life/index.html` | `register_web_api`（引擎不可用时回退 `register_web_routes`）；接口：overview、archive、interests、run、memory、memory_search、personas、persona_refresh、share、share_note |
-| LLM 工具 | `life/life_tool.py` | `query_life_memory` 只查当前 persona 自己的档案 |
+| LLM 工具 | `life/life_tool.py` | `query_life_memory` 只查当前 persona 自己的档案；`query_life_status` 查询当天会话/快照/事件链/短记 |
 | ESM 适配 | `life/esm_adapter.py` | 缺失/方法缺失/信号非法时静默降级；`energy_gate`、`esm_scope_prefix` |
 | 测试基座 | `tests/` | unittest 全绿；真实网络冒烟需 `LIFE_SMOKE_NET=1` |
 
