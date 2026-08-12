@@ -105,6 +105,23 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         bad = await handlers["capsules_open"]()
         self.assertFalse(bad["ok"])
 
+    async def test_reviews_handlers(self):
+        self.db.upsert_review(
+            "shelly", "quarterly", "2026-04-01", "2026-06-30",
+            "第一版", confidence=0.7,
+        )
+        self.db.upsert_review(
+            "shelly", "quarterly", "2026-01-01", "2026-03-31",
+            "上一版", confidence=0.6,
+        )
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=None, config=self.config)
+        data = await handlers["reviews"]()
+        self.assertEqual(len(data["reviews"]), 2)
+        self.assertAlmostEqual(data["reviews"][0]["confidence"], 0.7)
+        missing = await handlers["reviews_diff"]()
+        self.assertFalse(missing["ok"])
+
     async def test_usage_handler(self):
         self.db.increment_llm_usage("shelly", "2026-08-12", calls=2, tokens=10)
         handlers = build_handlers(self.db, service=None, share_gate=None,
@@ -209,7 +226,9 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/astrbot_plugin_your_own_life/api/events", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/capsules", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/capsules_open", routes)
-        self.assertEqual(len(routes), 26)
+        self.assertIn("/astrbot_plugin_your_own_life/api/reviews", routes)
+        self.assertIn("/astrbot_plugin_your_own_life/api/reviews_diff", routes)
+        self.assertEqual(len(routes), 28)
 
 
 if __name__ == "__main__":

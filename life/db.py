@@ -276,6 +276,7 @@ CREATE TABLE IF NOT EXISTS reviews (
     generated_at TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'done',
     content TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 0.0,
     source_refs TEXT DEFAULT '[]',
     UNIQUE(persona_id, period, period_start)
 );
@@ -338,6 +339,7 @@ class LifeDB:
             self._ensure_column("daily_usage", "energy_used", "energy_used REAL NOT NULL DEFAULT 0")
             self._ensure_column("notes", "temperature", "temperature REAL NOT NULL DEFAULT 1.0")
             self._ensure_column("notes", "last_touched_at", "last_touched_at TEXT DEFAULT ''")
+            self._ensure_column("reviews", "confidence", "confidence REAL NOT NULL DEFAULT 0")
             self._conn.commit()
         self.recover_stale_runs()
 
@@ -1133,15 +1135,17 @@ class LifeDB:
         period_end: str,
         content: str,
         status: str = "done",
+        confidence: float = 0.0,
         source_refs: Optional[list] = None,
     ) -> int:
         cur = self._execute(
             "INSERT INTO reviews "
-            "(persona_id, period, period_start, period_end, generated_at, status, content, source_refs) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+            "(persona_id, period, period_start, period_end, generated_at, status, content, confidence, source_refs) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(persona_id, period, period_start) DO UPDATE SET "
             "generated_at = excluded.generated_at, status = excluded.status, "
-            "content = excluded.content, source_refs = excluded.source_refs",
+            "content = excluded.content, confidence = excluded.confidence, "
+            "source_refs = excluded.source_refs",
             (
                 persona_id,
                 period,
@@ -1150,6 +1154,7 @@ class LifeDB:
                 self._now(),
                 status,
                 content,
+                max(0.0, min(1.0, float(confidence))),
                 json.dumps(source_refs or [], ensure_ascii=False, default=str),
             ),
         )

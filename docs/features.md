@@ -306,11 +306,12 @@
 
 ### L2-07 季度自我评估
 
+- 状态：已实现（v0.5.6）。
 - 目标：基于兴趣与情绪轨迹生成长期人格总结。
 - 依赖：统一记忆库 + center state（方向）。
-- 模块：`life/browser.py`、`life/prompts.py`。
-- 配置：`quarterly_review_enabled`。
-- 验收：评估带来源与 confidence；owner 可在 WebUI 查看 diff。
+- 模块：`life/browser.py`（`run_quarterly_review`）、`life/prompts.py`（`build_quarterly_prompt`）、`life/db.py`（`reviews.confidence`）、`life/scheduler.py`（`review-quarterly` 槽位）、`life/webui.py` + `pages/life/index.html`（回顾 tab 与 diff）。
+- 配置：`quarterly_review_enabled`（默认 true）。
+- 验收：评估带来源与 confidence（已满足，`reviews.source_refs` + `confidence`，失败回退 0.5）；owner 可在 WebUI 查看 diff（已满足，`GET /reviews_diff` 与“对比上一期”）。
 
 ### L2-08 LLM 自主更改与自动回滚
 

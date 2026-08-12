@@ -2,6 +2,16 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L2-07 季度自我评估落地（v0.5.6）
+
+- 目标：基于兴趣与情绪轨迹生成带 confidence 的季度人格总结，owner 可在 WebUI 对比上一期。
+- 已确认决策：新增 `quarterly_review_enabled`（默认 true）；调度器在 1/4/7/10 月首日 09:15 播种 `review-quarterly` 固定任务；`_review_range` 支持季度区间；`run_quarterly_review` 聚合漫游/日记/兴趣/情绪分布，LLM 输出 `review_text` + `confidence`，失败回退确定性聚合（confidence 0.5）并标 fallback；`reviews` 表新增 `confidence` 列（含迁移）；WebUI 新增“回顾”tab：`GET /reviews` 列表 + `GET /reviews_diff`（difflib unified diff）对比上一期季度评估。
+- 改动：`life/config.py`、`_conf_schema.json`、`life/db.py`、`life/prompts.py`、`life/browser.py`、`life/scheduler.py`、`life/webui.py`、`pages/life/index.html`、`tests/test_db.py`、`tests/test_config.py`、`tests/test_scheduler.py`、`tests/test_browser.py`、`tests/test_webui.py`；版本 v0.5.5 → v0.5.6；README / CHANGELOG / features.md L2-07 / design.md / roadmap.md 同步。
+- 外部调研：本次 DuckDuckGo 检索两次均无输出（工具失败，疑似限流），未获得新来源；沿用 L2-04 memory reflection 检索标题，季度结构按设计文档与推测性借鉴落地，结论标注推测。
+- 验证：unittest 213 passed（skipped=1；季度评估生成/回退、confidence、调度槽位、WebUI 回顾与 diff）；JS 语法检查通过；Playwright 回顾 tab 桌面 1280x900 / 移动 390x844 渲染、diff 交互与无横向溢出通过。
+- 遗留：center state（未排期）落地后季度评估可接入人格中心态做漂移分析；当前 diff 为文本级 unified diff，非结构化观点对比。
+- 下一步：L2-08 LLM 自主更改与自动回滚（权限边界 + 变更账本回滚）。
+
 ## 2026-08-12 L2-06 分享沉默率落地（v0.5.5）
 
 - 目标：ShareGate 增加概率性“今天不想说”，避免每次都机械表达；沉默当天不写分享日志，日记能体现。

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import difflib
 import json
 import logging
 from typing import Any, Callable, Optional
@@ -161,6 +162,40 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
             "reply": (row or {}).get("reply") or "",
             "result": result,
         }
+
+    async def reviews():
+        args = await _query_args()
+        persona = str(args.get("persona") or _first_persona(config))
+        return {"reviews": db.list_reviews(persona, limit=200)}
+
+    async def reviews_diff():
+        args = await _query_args()
+        persona = str(args.get("persona") or _first_persona(config))
+        period = str(args.get("period") or "quarterly")
+        period_start = str(args.get("period_start") or "")
+        rows = db.list_reviews(persona, limit=1000)
+        target = next(
+            (row for row in rows
+             if row["period"] == period and row["period_start"] == period_start),
+            None,
+        )
+        if target is None:
+            return {"ok": False, "error": "review not found"}
+        previous = next(
+            (row for row in rows
+             if row["period"] == period and row["period_start"] < period_start),
+            None,
+        )
+        if previous is None:
+            return {"ok": True, "before": "", "after": target["content"],
+                    "diff": []}
+        diff = list(difflib.unified_diff(
+            (previous["content"] or "").splitlines(),
+            (target["content"] or "").splitlines(),
+            lineterm="",
+        ))
+        return {"ok": True, "before": previous["content"],
+                "after": target["content"], "diff": diff}
 
     async def entities():
         persona = await _persona_arg()
@@ -374,6 +409,8 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         "wishlist_action": wishlist_action,
         "capsules": capsules,
         "capsules_open": capsules_open,
+        "reviews": reviews,
+        "reviews_diff": reviews_diff,
         "entities": entities,
         "entity_appears_on": entity_appears_on,
     }
@@ -400,6 +437,8 @@ def register_api(context: Any, db: Any, service: Any, share_gate: Any,
         (f"{API_PREFIX}/memory_search", "memory_search", ["GET"], "Search life memory"),
         (f"{API_PREFIX}/capsules", "capsules", ["GET"], "Time capsules"),
         (f"{API_PREFIX}/capsules_open", "capsules_open", ["POST"], "Open a time capsule"),
+        (f"{API_PREFIX}/reviews", "reviews", ["GET"], "Generated reviews"),
+        (f"{API_PREFIX}/reviews_diff", "reviews_diff", ["GET"], "Review diff view"),
         (f"{API_PREFIX}/entities", "entities", ["GET"], "Life entity graph"),
         (f"{API_PREFIX}/entity_appears_on", "entity_appears_on", ["GET"], "Where an entity appears"),
         (f"{API_PREFIX}/usage", "usage", ["GET"], "Daily LLM usage"),

@@ -284,6 +284,38 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["skipped"], "budget_exhausted")
         self.assertEqual(self.db.list_reviews("shelly"), [])
 
+    async def test_quarterly_review_generates_with_confidence(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 10, 0)
+        self.db.add_diary(
+            "shelly", "2026-05-15", "五月日记", mood="curious", interest_top="ai"
+        )
+        self.service.llm = _FakeLLM(payload={
+            "review_text": "这个季度我在关注 AI，情绪偏好奇。",
+            "confidence": 0.8,
+            "highlights": ["关注 AI"],
+        })
+        result = await self.service.run_quarterly_review("shelly")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "done")
+        self.assertAlmostEqual(result["confidence"], 0.8)
+        rows = self.db.list_reviews("shelly")
+        self.assertEqual(rows[0]["period"], "quarterly")
+        self.assertEqual(rows[0]["period_start"], "2026-04-01")
+        events = self.db.list_events("shelly")
+        self.assertEqual(events[0]["kind"], "review")
+        self.assertIn("quarterly", events[0]["payload"])
+
+    async def test_quarterly_review_fallback(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 10, 0)
+        self.service.llm = _FakeLLM(error=LLMError("boom"))
+        result = await self.service.run_quarterly_review("shelly")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "fallback")
+        self.assertAlmostEqual(result["confidence"], 0.5)
+        rows = self.db.list_reviews("shelly")
+        self.assertEqual(rows[0]["status"], "fallback")
+        self.assertIn("这个季度", rows[0]["content"])
+
     async def test_capsules_auto_unlock_and_reply(self):
         self.service.now_fn = lambda: datetime(2026, 8, 12, 10, 0)
         note_id = self.db.add_note(

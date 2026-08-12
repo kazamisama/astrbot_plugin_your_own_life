@@ -94,6 +94,8 @@ class LifeScheduler:
         return slot
 
     def _review_due(self, day: Any, period: str) -> bool:
+        if period == "quarterly":
+            return bool(self.config.quarterly_review_enabled) and day.day == 1 and day.month % 3 == 1
         schedule = self.config.review_schedule or {}
         raw = schedule.get(period)
         if not raw:
@@ -130,6 +132,8 @@ class LifeScheduler:
             slots.append((datetime.combine(day, time(9, 0)), "review", "review-monthly"))
         if self._review_due(day, "yearly"):
             slots.append((datetime.combine(day, time(9, 30)), "review", "review-yearly"))
+        if self._review_due(day, "quarterly"):
+            slots.append((datetime.combine(day, time(9, 15)), "review", "review-quarterly"))
         return slots
 
     def _plan_datetime(self, row: dict) -> Optional[datetime]:
@@ -284,8 +288,12 @@ class LifeScheduler:
                         result = await self.service.run_peek(persona_id)
                         status, reason = self._plan_status_browse(result)
                     elif kind == "review":
-                        period = "yearly" if task_id == "review-yearly" else "monthly"
-                        result = await self.service.run_review(persona_id, period)
+                        if task_id == "review-yearly":
+                            result = await self.service.run_review(persona_id, "yearly")
+                        elif task_id == "review-quarterly":
+                            result = await self.service.run_quarterly_review(persona_id)
+                        else:
+                            result = await self.service.run_review(persona_id, "monthly")
                         status, reason = self._plan_status_review(result)
                     else:
                         result = await self.service.run_nightly_diary(persona_id)

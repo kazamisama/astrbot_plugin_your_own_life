@@ -293,6 +293,12 @@
     "hint": "每天第一次分享按此概率沉默；沉默当天不再分享、不写分享日志，状态快照会进夜间日记素材",
     "default": 0.15
   },
+  "quarterly_review_enabled": {
+    "type": "bool",
+    "description": "启用季度自我评估",
+    "hint": "季度首日（1/4/7/10 月 1 日）基于上季度兴趣与情绪轨迹生成长期人格总结；WebUI 回顾页可查看 diff",
+    "default": true
+  },
   "share_include_link": {
     "type": "bool",
     "description": "分享消息末尾附带源链接",

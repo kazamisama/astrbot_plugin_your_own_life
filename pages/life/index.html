@@ -229,6 +229,7 @@ select, input[type="date"], input[type="text"] {
     <button class="tab" data-tab="events">事件链</button>
     <button class="tab" data-tab="entities">实体图</button>
     <button class="tab" data-tab="capsules">时间胶囊</button>
+    <button class="tab" data-tab="reviews">回顾</button>
   </nav>
 
   <section id="tab-life">
@@ -379,6 +380,22 @@ select, input[type="date"], input[type="text"] {
       <div id="capsuleEmpty" class="empty" hidden>还没有时间胶囊。封存后会按 capsule_days 自动解锁。</div>
     </div>
   </section>
+
+  <section id="tab-reviews" hidden>
+    <div class="stats">
+      <div class="stat"><span class="label">回顾总数</span><span class="value" id="reviewTotal">-</span></div>
+      <div class="stat"><span class="label">季度评估</span><span class="value" id="reviewQuarterly">-</span></div>
+      <div class="stat"><span class="label">回退</span><span class="value" id="reviewFallback">-</span></div>
+    </div>
+    <div class="panel">
+      <ul class="note-list" id="reviewList"></ul>
+      <div id="reviewEmpty" class="empty" hidden>还没有生成回顾。</div>
+    </div>
+    <div class="panel" id="reviewDiffPanel" hidden>
+      <h2>与上一期对比</h2>
+      <pre id="reviewDiffText"></pre>
+    </div>
+  </section>
 </div>
 
 <script>
@@ -490,6 +507,7 @@ function switchTab(name) {
   document.getElementById("tab-events").hidden = name !== "events";
   document.getElementById("tab-entities").hidden = name !== "entities";
   document.getElementById("tab-capsules").hidden = name !== "capsules";
+  document.getElementById("tab-reviews").hidden = name !== "reviews";
   if (name === "memory") { loadMemory(); loadWishlist(); }
   if (name === "share") loadShare();
   if (name === "timeline") { renderTimelineFilters(); loadTimeline(true); }
@@ -497,6 +515,7 @@ function switchTab(name) {
   if (name === "events") { renderEventFilters(); loadEvents(true); }
   if (name === "entities") loadEntities();
   if (name === "capsules") loadCapsules();
+  if (name === "reviews") loadReviews();
 }
 
 function loadPersonas() {
@@ -1147,6 +1166,7 @@ function load() {
     if (state.tab === "events") { renderEventFilters(); loadEvents(true); }
     if (state.tab === "entities") loadEntities();
     if (state.tab === "capsules") loadCapsules();
+    if (state.tab === "reviews") loadReviews();
   });
 }
 
@@ -1213,6 +1233,73 @@ function openCapsule(capsuleId) {
   }).then(function (r) { return r.json(); })
     .then(function () { loadCapsules(); })
     .catch(function () { showError("打开胶囊失败。"); });
+}
+
+function loadReviews() {
+  var list = document.getElementById("reviewList");
+  fetch(API + "/reviews?" + qs({ persona: state.persona }),
+        { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var items = data.reviews || [];
+      document.getElementById("reviewTotal").textContent = items.length;
+      document.getElementById("reviewQuarterly").textContent =
+        items.filter(function (r) { return r.period === "quarterly"; }).length;
+      document.getElementById("reviewFallback").textContent =
+        items.filter(function (r) { return r.status === "fallback"; }).length;
+      document.getElementById("reviewEmpty").hidden = items.length > 0;
+      list.textContent = "";
+      items.forEach(function (r) {
+        var li = document.createElement("li");
+        var line = document.createElement("div");
+        var label = r.period === "quarterly" ? "季度评估"
+          : (r.period === "yearly" ? "年度回顾" : "月度回顾");
+        var title = document.createElement("strong");
+        title.textContent = label + " · " + r.period_start;
+        line.appendChild(title);
+        var chip = document.createElement("span");
+        chip.className = "chip";
+        chip.textContent = r.status === "fallback" ? "回退"
+          : (r.confidence ? ("置信度 " + Number(r.confidence).toFixed(2)) : "已生成");
+        line.appendChild(chip);
+        li.appendChild(line);
+        var meta = document.createElement("div");
+        meta.className = "empty";
+        meta.textContent = r.period_start + " 至 " + r.period_end;
+        li.appendChild(meta);
+        var content = document.createElement("p");
+        content.textContent = r.content;
+        li.appendChild(content);
+        if (r.period === "quarterly") {
+          var btn = document.createElement("button");
+          btn.className = "btn small";
+          btn.textContent = "对比上一期";
+          btn.addEventListener("click", function () {
+            showReviewDiff(r.period, r.period_start);
+          });
+          li.appendChild(btn);
+        }
+        list.appendChild(li);
+      });
+    })
+    .catch(function () { showError("回顾加载失败。"); });
+}
+
+function showReviewDiff(period, periodStart) {
+  fetch(API + "/reviews_diff?" +
+        qs({ persona: state.persona, period: period, period_start: periodStart }),
+        { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var panel = document.getElementById("reviewDiffPanel");
+      var text = document.getElementById("reviewDiffText");
+      if (!data.ok) { panel.hidden = true; return; }
+      text.textContent = data.diff && data.diff.length
+        ? data.diff.join("\n")
+        : "（上一期不存在，暂无 diff）";
+      panel.hidden = false;
+    })
+    .catch(function () { showError("diff 加载失败。"); });
 }
 
 function loadEntities() {

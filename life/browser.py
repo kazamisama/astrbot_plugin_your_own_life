@@ -25,6 +25,7 @@ from life.prompts import (
     build_capsule_reply_prompt,
     build_diary_prompt,
     build_plan_prompt,
+    build_quarterly_prompt,
     build_review_prompt,
     build_select_prompt,
     build_wishlist_eval_prompt,
@@ -866,6 +867,20 @@ class LifeService:
         if period == "yearly":
             start = datetime(now.year - 1, 1, 1)
             end = datetime(now.year - 1, 12, 31, 23, 59, 59)
+        elif period == "quarterly":
+            quarter_start_month = ((now.month - 1) // 3) * 3 + 1
+            if quarter_start_month == 1:
+                year = now.year - 1
+                start_month = 10
+            else:
+                year = now.year
+                start_month = quarter_start_month - 3
+            start = datetime(year, start_month, 1)
+            next_month = start_month + 3
+            if next_month > 12:
+                end = datetime(year + 1, next_month - 12, 1) - timedelta(days=1)
+            else:
+                end = datetime(year, next_month, 1) - timedelta(days=1)
         else:
             first_this_month = now.replace(day=1)
             end = first_this_month - timedelta(days=1)
@@ -947,7 +962,9 @@ class LifeService:
 
     @staticmethod
     def _fallback_review_text(stats: dict[str, Any]) -> str:
-        label = "这一年" if stats.get("period") == "yearly" else "这个月"
+        period = stats.get("period")
+        label = "这一年" if period == "yearly" else (
+            "这个季度" if period == "quarterly" else "这个月")
         interest_start = stats.get("interest_start") or "未记录"
         interest_end = stats.get("interest_end") or "未记录"
         lines = [
@@ -1049,6 +1066,131 @@ class LifeService:
             "period": period, "period_start": period_start,
             "period_end": period_end, "ok": True,
             "content": content, "status": status, "fallback": fallback,
+        }
+
+    # ----- quarterly self review -----
+
+    def _mood_distribution(
+        self, persona_id: str, period_start: str, period_end: str
+    ) -> list[dict[str, Any]]:
+        counts: dict[str, int] = {}
+        for diary in self.db.list_diaries(persona_id, limit=100000):
+            if period_start <= diary.get("date", "") <= period_end:
+                mood = diary.get("mood") or "unknown"
+                counts[mood] = counts.get(mood, 0) + 1
+        return [
+            {"mood": mood, "count": count}
+            for mood, count in sorted(
+                counts.items(), key=lambda item: (-item[1], item[0])
+            )
+        ]
+
+    async def run_quarterly_review(self, persona_id: str) -> dict[str, Any]:
+        if not self.config.quarterly_review_enabled:
+            return {"persona_id": persona_id, "ok": False,
+                    "skipped": "disabled"}
+        try:
+            persona = await self._resolve_persona(persona_id)
+        except PersonaUnavailable:
+            return {"persona_id": persona_id, "ok": False,
+                    "error": "persona_unavailable"}
+        now = local_now(self.config.timezone, self.now_fn())
+        period_start, period_end = self._review_range(now, "quarterly")
+        idem = f"review/quarterly/{period_start}"
+        existing = self.db.find_event(persona_id, idem)
+        if existing is not None:
+            rows = self.db.list_reviews(persona_id, limit=100)
+            row = next(
+                (r for r in rows
+                 if r["period"] == "quarterly"
+                 and r["period_start"] == period_start),
+                None,
+            )
+            return {
+                "period": "quarterly", "period_start": period_start,
+                "period_end": period_end, "ok": True,
+                "content": row["content"] if row else "",
+                "status": row["status"] if row else "done",
+                "confidence": float(row["confidence"] or 0) if row else 0.0,
+                "duplicate": True,
+            }
+        stats = self._review_stats(
+            persona_id, period_start, period_end, "quarterly"
+        )
+        stats["mood_distribution"] = self._mood_distribution(
+            persona_id, period_start, period_end
+        )
+        source_refs = self._review_source_refs(
+            persona_id, period_start, period_end
+        )
+        prompt = build_quarterly_prompt(
+            persona.system_prompt, persona_id, period_start,
+            period_end, stats, source_refs,
+        )
+        fallback = False
+        try:
+            payload = await self._llm_call(persona_id, prompt)
+            content = str(payload.get("review_text") or "").strip()
+            if not content:
+                raise LLMError("quarterly LLM 未返回评估正文")
+            try:
+                confidence = max(
+                    0.0, min(1.0, float(payload.get("confidence") or 0.0))
+                )
+            except (TypeError, ValueError):
+                confidence = 0.5
+            status = "done"
+        except BudgetExhausted as exc:
+            self.db.add_state_snapshot(
+                persona_id, "review_skipped", self.esm.get_energy(persona_id), "",
+                extra=json.dumps(
+                    {"reason": "budget_exhausted", "period": "quarterly"},
+                    ensure_ascii=False,
+                ),
+            )
+            return {
+                "period": "quarterly", "period_start": period_start,
+                "period_end": period_end, "ok": False,
+                "skipped": "budget_exhausted", "error": str(exc),
+            }
+        except LLMError as exc:
+            self.log.warning(
+                "quarterly review LLM failed for %s: %s", persona_id, exc
+            )
+            content = self._fallback_review_text(stats)
+            confidence = 0.5
+            status = "fallback"
+            fallback = True
+        self.db.upsert_review(
+            persona_id, "quarterly", period_start, period_end, content,
+            status=status, confidence=confidence, source_refs=source_refs,
+        )
+        self.db.append_event(
+            persona_id, "review",
+            {"period": "quarterly", "period_start": period_start,
+             "period_end": period_end, "status": status,
+             "confidence": confidence, "fallback": fallback,
+             "content": content[:500]},
+            source_refs, idem,
+        )
+        if self.memory is not None and self.config.memory_host:
+            try:
+                self.memory.store_event(
+                    persona_id, "internet-life", "", now.timestamp(), "review",
+                    {"period": "quarterly", "period_start": period_start,
+                     "period_end": period_end, "status": status,
+                     "confidence": confidence},
+                )
+            except MemoryHostError as exc:
+                self.log.warning(
+                    "quarterly review event mirror failed for %s: %s",
+                    persona_id, exc,
+                )
+        return {
+            "period": "quarterly", "period_start": period_start,
+            "period_end": period_end, "ok": True,
+            "content": content, "status": status,
+            "confidence": confidence, "fallback": fallback,
         }
 
     # ----- time capsules -----

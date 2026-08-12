@@ -118,6 +118,11 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(load_config({"share_silence_rate": "2"}).share_silence_rate, 1.0)
         self.assertEqual(load_config({"share_silence_rate": "-1"}).share_silence_rate, 0.0)
 
+    def test_quarterly_review_enabled_config(self):
+        self.assertTrue(load_config({}).quarterly_review_enabled)
+        self.assertFalse(load_config({"quarterly_review_enabled": False}).quarterly_review_enabled)
+        self.assertTrue(load_config({"quarterly_review_enabled": "yes"}).quarterly_review_enabled)
+
     def test_signature_enabled_default(self):
         self.assertTrue(load_config({}).signature_enabled)
         self.assertFalse(load_config({"signature_enabled": False}).signature_enabled)

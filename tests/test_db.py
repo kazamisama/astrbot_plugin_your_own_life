@@ -165,11 +165,15 @@ class LifeDBTest(unittest.TestCase):
             source_refs=[{"diary_date": "2026-07-31"}],
         )
         self.assertGreater(rid, 0)
-        self.db.upsert_review("shelly", "monthly", "2026-07-01", "2026-07-31", "第二版", status="fallback")
+        self.db.upsert_review(
+            "shelly", "monthly", "2026-07-01", "2026-07-31", "第二版",
+            status="fallback", confidence=0.6,
+        )
         rows = self.db.list_reviews("shelly")
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["content"], "第二版")
         self.assertEqual(rows[0]["status"], "fallback")
+        self.assertAlmostEqual(rows[0]["confidence"], 0.6)
 
     def test_time_capsules_lifecycle(self):
         note_id = self.db.add_note("shelly", None, "hn", "https://cap", "C", "s", url_hash="cap1")

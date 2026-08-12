@@ -2,6 +2,17 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.6] - 2026-08-12
+
+### Added
+
+- L2-07 季度自我评估：新增 `quarterly_review_enabled`（默认开）与 `review-quarterly` 调度槽位（1/4/7/10 月首日 09:15）；`run_quarterly_review` 聚合上季度漫游/日记/兴趣与情绪分布，LLM 生成带 confidence 的长期总结，失败回退确定性聚合（confidence 0.5）；`reviews` 新增 `confidence` 列；WebUI 新增“回顾”tab（`GET /reviews`、`GET /reviews_diff`）查看季度评估并对比上一期。
+
+### Notes
+
+- 测试：213 passed（skipped=1；新增季度评估生成/回退、confidence、调度槽位、WebUI 回顾与 diff 用例）；JS 语法检查与 Playwright 回顾 tab 桌面/移动无溢出、diff 交互通过。
+- 调研：本次 DuckDuckGo 检索未返回可引用结果（工具无输出，可能限流），沿用 L2-04 memory reflection 检索标题；季度自我评估结构按设计文档与推测性借鉴落地。
+
 ## [0.5.5] - 2026-08-12
 
 ### Added

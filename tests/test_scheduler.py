@@ -126,6 +126,27 @@ class SchedulerPlansTest(unittest.TestCase):
         self.assertEqual(target[2], "review")
         self.assertEqual(target[3], "review-monthly")
 
+    def test_quarterly_review_slot_on_quarter_start(self):
+        cfg = LifeConfig(
+            browse_times=["10:00"], diary_time="23:00",
+            browse_jitter_minutes=0, diary_jitter_minutes=0,
+            peek_times=[], life_personas=["shelly"],
+            review_schedule={"monthly": "12", "yearly": "07-01"},
+            quarterly_review_enabled=True,
+        )
+        scheduler = LifeScheduler(service=_FakeService(self.db), config=cfg)
+        self.assertTrue(scheduler._review_due(datetime(2026, 1, 1), "quarterly"))
+        self.assertFalse(scheduler._review_due(datetime(2026, 2, 1), "quarterly"))
+        count = scheduler.seed_plans(["shelly"], datetime(2026, 1, 1))
+        self.assertEqual(count, 3)
+        items = self.db.list_plans("shelly", "2026-01-01")
+        task_ids = {item["task_id"] for item in items}
+        self.assertIn("review-quarterly", task_ids)
+        self.assertNotIn("review-monthly", task_ids)
+        target = scheduler.next_target(datetime(2026, 1, 1, 8, 0), ["shelly"])
+        self.assertEqual(target[2], "review")
+        self.assertEqual(target[3], "review-quarterly")
+
     def test_next_target_includes_pending_optional_plan(self):
         self.scheduler.seed_plans(["shelly"], datetime(2026, 8, 12))
         self.db.add_optional_plan(

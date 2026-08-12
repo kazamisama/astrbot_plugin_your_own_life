@@ -280,7 +280,7 @@ class LifeConfig:
         default_factory=lambda: {"monthly": "1", "yearly": "01-01"}
     )
     capsule_days: int = 30
-    share_silence_rate: float = 0.15
+    quarterly_review_enabled: bool = True
 
 
 def load_config(cfg: Any) -> LifeConfig:
@@ -351,6 +351,7 @@ def load_config(cfg: Any) -> LifeConfig:
         share_daily_cap=_as_int(_get(cfg, "share_daily_cap"), 2),
         share_cooldown_minutes=_as_int(_get(cfg, "share_cooldown_minutes"), 360),
         share_silence_rate=max(0.0, min(1.0, _as_float(_get(cfg, "share_silence_rate"), 0.15))),
+        quarterly_review_enabled=_as_bool(_get(cfg, "quarterly_review_enabled"), True),
         share_include_link=_as_bool(_get(cfg, "share_include_link"), True),
         share_max_chars=_as_int(_get(cfg, "share_max_chars"), 200),
         share_sessions=_as_dict_of_lists(_get(cfg, "share_sessions")),
