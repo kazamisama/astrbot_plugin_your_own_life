@@ -2,6 +2,20 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.1] - 2026-08-12
+
+### Added
+
+- L2-02 实体与关系图（首版）：漫游成功后经 `LifeMemoryAdapter` 写入 `platform` / `url` 节点与 `appears_on` 边（`upsert_entity` / `link_entities`）；WebUI 新增“实体图”tab 与 `GET /entities`、`GET /entity_appears_on` 接口，按维度分列渲染，点击节点查询“我在哪见过 X”。
+
+### Fixed
+
+- 实体图节点点击命中：SVG 节点文字改为可命中，点击正确冒泡到实体节点。
+
+### Notes
+
+- 测试：188 passed（skipped=1；新增实体写入/边断言与 WebUI 实体接口用例）；Playwright 桌面 1280x900 / 移动 390x844 实体图渲染、点击查询与无横向溢出验证通过。
+
 ## [0.5.0] - 2026-08-12
 
 ### Added

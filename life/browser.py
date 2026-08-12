@@ -419,6 +419,35 @@ class LifeService:
                     self.log.warning(
                         "browse event mirror failed for %s: %s", persona_id, exc
                     )
+            if self.memory is not None and self.config.memory_host:
+                try:
+                    platform_ids: dict[str, str] = {}
+                    for note in notes:
+                        src = str(note.get("source") or "").strip()
+                        url = str(note.get("url") or "").strip()
+                        if src and src not in platform_ids:
+                            platform_ids[src] = self.memory.upsert_entity(
+                                persona_id,
+                                {"dimension": "platform", "entity_id": src,
+                                 "name": src, "canonical_url": ""},
+                            )
+                        if url:
+                            url_ent = self.memory.upsert_entity(
+                                persona_id,
+                                {"dimension": "url",
+                                 "entity_id": str(note.get("url_hash") or url),
+                                 "name": str(note.get("title") or "")[:120] or url,
+                                 "canonical_url": url},
+                            )
+                            if src and url_ent and platform_ids.get(src):
+                                self.memory.link_entities(
+                                    persona_id, url_ent, "appears_on",
+                                    platform_ids[src], weight=1.0,
+                                )
+                except MemoryHostError as exc:
+                    self.log.warning(
+                        "entity sync failed for %s: %s", persona_id, exc
+                    )
             _, energy_mode = self._consume_energy(
                 persona_id, ENERGY_COST_BROWSE, "internet_life:browse"
             )

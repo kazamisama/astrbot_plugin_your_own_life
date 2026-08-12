@@ -43,7 +43,7 @@ def _first_persona(config: Any) -> str:
 
 
 def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
-                   config: Any, memory: Any = None) -> dict[str, Callable]:
+                   config: Any, memory_adapter: Any = None) -> dict[str, Callable]:
     async def _persona_arg() -> str:
         args = await _query_args()
         return str(args.get("persona") or _first_persona(config))
@@ -109,9 +109,10 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         except (TypeError, ValueError):
             k = 10
         result = search_life_memory(db, persona, query, category, date, k)
-        if memory is not None and getattr(config, "memory_host", ""):
+        if memory_adapter is not None and getattr(config, "memory_host", ""):
             try:
-                host_items = memory.query_memory(persona, query=query or "", k=k)
+                host_items = memory_adapter.query_memory(
+                    persona, query=query or "", k=k)
             except MemoryHostError as exc:
                 result["error"] = f"memory_host: {exc}"
                 return result
@@ -131,6 +132,46 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
             result["items"] = unified + result["items"]
             result["count"] = len(result["items"])
         return result
+
+    async def entities():
+        persona = await _persona_arg()
+        if memory_adapter is None or not getattr(config, "memory_host", ""):
+            return {"entities": [], "links": []}
+        try:
+            return {
+                "entities": memory_adapter.list_entities(persona),
+                "links": memory_adapter.list_links(persona),
+            }
+        except MemoryHostError as exc:
+            return {"entities": [], "links": [],
+                    "error": f"memory_host: {exc}"}
+
+    async def entity_appears_on():
+        args = await _query_args()
+        persona = str(args.get("persona") or _first_persona(config))
+        entity_id = str(args.get("entity_id") or "")
+        if (memory_adapter is None
+                or not getattr(config, "memory_host", "") or not entity_id):
+            return {"platforms": []}
+        try:
+            entities = memory_adapter.list_entities(persona)
+            by_id = {e["id"]: e for e in entities}
+            src_ids = {
+                e["id"] for e in entities if e.get("entity_id") == entity_id
+            }
+            platforms = []
+            for link in memory_adapter.list_links(persona):
+                if (link["src_entity_id"] in src_ids
+                        and link["relation"] == "appears_on"):
+                    dst = by_id.get(link["dst_entity_id"], {})
+                    platforms.append({
+                        "name": dst.get("name") or dst.get("entity_id")
+                        or link["dst_entity_id"],
+                        "dimension": dst.get("dimension") or "",
+                    })
+            return {"platforms": platforms}
+        except MemoryHostError as exc:
+            return {"platforms": [], "error": f"memory_host: {exc}"}
 
     async def usage():
         persona = await _persona_arg()
@@ -302,18 +343,20 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         "share_note": share_note,
         "wishlist": wishlist,
         "wishlist_action": wishlist_action,
+        "entities": entities,
+        "entity_appears_on": entity_appears_on,
     }
 
 
 def register_api(context: Any, db: Any, service: Any, share_gate: Any,
                  personas: Any, config: Any,
-                 memory: Any = None,
+                 memory_adapter: Any = None,
                  logger: Optional[logging.Logger] = None) -> bool:
     register = getattr(context, "register_web_api", None)
     if register is None:
         return False
     handlers = build_handlers(db, service, share_gate, personas, config,
-                              memory=memory)
+                              memory_adapter=memory_adapter)
     routes = (
         (f"{API_PREFIX}/overview", "overview", ["GET"], "Life overview"),
         (f"{API_PREFIX}/status", "status", ["GET"], "Today status card"),
@@ -324,6 +367,8 @@ def register_api(context: Any, db: Any, service: Any, share_gate: Any,
         (f"{API_PREFIX}/run", "run", ["POST"], "Trigger a browse session"),
         (f"{API_PREFIX}/memory", "memory", ["GET"], "Memory categories overview"),
         (f"{API_PREFIX}/memory_search", "memory_search", ["GET"], "Search life memory"),
+        (f"{API_PREFIX}/entities", "entities", ["GET"], "Life entity graph"),
+        (f"{API_PREFIX}/entity_appears_on", "entity_appears_on", ["GET"], "Where an entity appears"),
         (f"{API_PREFIX}/usage", "usage", ["GET"], "Daily LLM usage"),
         (f"{API_PREFIX}/trash", "trash", ["GET"], "Trash list"),
         (f"{API_PREFIX}/trash_restore", "trash_restore", ["POST"], "Restore a trashed item"),

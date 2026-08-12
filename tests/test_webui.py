@@ -20,6 +20,26 @@ class _FakeContext:
         self.registrations.append((route, methods, desc))
 
 
+class _FakeMemory:
+    def __init__(self):
+        self.entities = [
+            {"id": "e1", "entity_id": "tokio-rs/tokio", "dimension": "project",
+             "name": "Tokio"},
+            {"id": "p1", "entity_id": "hacker-news", "dimension": "platform",
+             "name": "Hacker News"},
+        ]
+        self.links = [
+            {"src_entity_id": "e1", "dst_entity_id": "p1",
+             "relation": "appears_on", "seen_count": 2},
+        ]
+
+    def list_entities(self, persona_id, limit=500):
+        return self.entities
+
+    def list_links(self, persona_id, limit=1000):
+        return self.links
+
+
 class WebUITest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -45,6 +65,28 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         result = await handlers["memory_search"]()
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["items"][0]["title"], "AI story")
+
+    async def test_entities_handlers(self):
+        config = load_config({
+            "life_personas": ["shelly"],
+            "memory_host": "astrbot_plugin_engram_core",
+        })
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=None, config=config,
+                                  memory_adapter=_FakeMemory())
+        data = await handlers["entities"]()
+        self.assertEqual(len(data["entities"]), 2)
+        self.assertEqual(len(data["links"]), 1)
+        self.assertEqual(data["links"][0]["relation"], "appears_on")
+        empty = await handlers["entity_appears_on"]()
+        self.assertEqual(empty["platforms"], [])
+
+    async def test_entities_without_memory_returns_empty(self):
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=None, config=self.config)
+        data = await handlers["entities"]()
+        self.assertEqual(data["entities"], [])
+        self.assertEqual(data["links"], [])
 
     async def test_usage_handler(self):
         self.db.increment_llm_usage("shelly", "2026-08-12", calls=2, tokens=10)
@@ -148,7 +190,7 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/astrbot_plugin_your_own_life/api/injection_log", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/plans", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/events", routes)
-        self.assertEqual(len(routes), 22)
+        self.assertEqual(len(routes), 24)
 
 
 if __name__ == "__main__":

@@ -261,11 +261,12 @@
 
 ### L2-02 实体与关系图
 
+- 状态：已实现（v0.5.1；首版 platform/url + appears_on；语义维度 / entity_mentions / same_as owner 确认留待后续）。
 - 目标：`entities / entity_mentions / entity_links` 分层维度模型。
 - 依赖：统一记忆库（L2-01）。
-- 模块：`life/memory_adapter.py`、`life/webui.py`（实体图视图）。
-- 配置：封闭关系词表（`appears_on / author_of / member_of / related_to / same_as`）。
-- 验收：平台节点只能系统写入；`same_as` 需 owner 确认或 canonical URL 完全一致；查询“我在哪见过 X”可聚合平台。
+- 模块：`life/browser.py`（漫游实体写入）、`life/memory_adapter.py`、`life/webui.py` + `pages/life/index.html`（实体图视图）。
+- 配置：封闭关系词表（`appears_on / author_of / member_of / related_to / same_as`；当前落地 `appears_on`）。
+- 验收：platform/url 节点只能系统写入（已满足）；`same_as` 需 owner 确认或 canonical URL 完全一致（未实现，后续）；查询“我在哪见过 X”可聚合平台（已满足，`GET /entity_appears_on`）。
 
 ### L2-03 记忆温度
 

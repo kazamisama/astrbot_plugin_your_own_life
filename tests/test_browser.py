@@ -120,6 +120,8 @@ class _FakeMemory:
         self.notes = []
         self.diaries = []
         self.events = []
+        self.entities = []
+        self.links = []
         self.fail_note = fail_note
         self.fail_diary = fail_diary
 
@@ -139,6 +141,21 @@ class _FakeMemory:
                     payload=None, source="external"):
         self.events.append((persona_id, kind, payload or {}))
         return "e" + str(len(self.events))
+
+    def upsert_entity(self, persona_id, entity):
+        eid = "ent-" + str(len(self.entities) + 1)
+        self.entities.append({"id": eid, **entity})
+        return eid
+
+    def link_entities(self, persona_id, src_entity_id, relation,
+                      dst_entity_id, weight=1.0):
+        self.links.append({
+            "src_entity_id": src_entity_id,
+            "relation": relation,
+            "dst_entity_id": dst_entity_id,
+            "weight": weight,
+        })
+        return True
 
 
 class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
@@ -399,6 +416,15 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("observe", kinds)
         self.assertIn("change", kinds)
         self.assertEqual(len(self.db.list_notes("shelly")), 2)
+        self.assertEqual(len(memory.entities), 4)
+        self.assertEqual({e["dimension"] for e in memory.entities},
+                         {"platform", "url"})
+        self.assertTrue(
+            any(e["entity_id"] == "hacker-news" for e in memory.entities))
+        self.assertTrue(
+            any(e["entity_id"] == "github" for e in memory.entities))
+        self.assertEqual(len(memory.links), 2)
+        self.assertTrue(all(l["relation"] == "appears_on" for l in memory.links))
 
     async def test_diary_writes_to_memory(self):
         memory = _FakeMemory()

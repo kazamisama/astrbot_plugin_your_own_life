@@ -2,6 +2,15 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L2-02 实体与关系图落地（v0.5.1）
+
+- 目标：漫游成功后把信息来源固化为分层实体图（`platform / url` 节点 + `appears_on` 边），WebUI 提供按维度分列的实体图与“我在哪见过 X”查询。
+- 已确认决策：platform/url 节点只能由系统从漫游结果写入（经 `LifeMemoryAdapter.upsert_entity` / `link_entities`），URL 用 hash 作 `entity_id` 并带 `canonical_url`；`appears_on` 边 weight 1.0；宿主缺失时捕获 `MemoryHostError` 记 warning，不影响漫游主流程；WebUI 新增“实体图”tab 与 `GET /entities`、`GET /entity_appears_on`，节点点击查询聚合平台。
+- 改动：`life/browser.py`、`life/webui.py`、`pages/life/index.html`、`tests/test_browser.py`、`tests/test_webui.py`；版本 v0.5.0 → v0.5.1；README / CHANGELOG / features.md L2-02 / design.md / roadmap.md 同步。
+- 验证：unittest 188 passed（skipped=1；新增实体写入/边断言与 WebUI 实体接口用例）；Playwright 桌面 1280x900 / 移动 390x844 实体图渲染、点击查询与无横向溢出通过。
+- 遗留：语义维度（person/project/community/topic）、`entity_mentions` 共现、`same_as` owner 确认与印象摘要未实现，留待 L2 后续；实体写入仅在配置 `memory_host` 后生效。
+- 下一步：L2-03 记忆温度（`memory_temperature_decay` + 温度衰减/召回加权）。
+
 ## 2026-08-12 L2-01 统一记忆库落地（v0.5.0）
 
 - 目标：`store_event / add_note / store_diary / upsert_entity / link_entities / query_memory / search` 全部经 `LifeMemoryAdapter` 路由到统一记忆宿主；宿主缺失报 error，不再静默降级；本地 SQLite 降级为缓存。

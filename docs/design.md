@@ -60,9 +60,9 @@ Your Own Life 是一个观察者模式的 AstrBot 插件：Bot 不注册账号�
 - `life_leases`：同人格任务租约（多实例单写者，v1 本地兜底）。
 - `event_chain`：append-only 事件流，观察/表达/思考/更改/召回/回滚归位，支持幂等追加与只读重放。
 - `life_plans`：每日排期板运行时视图，任务带状态/原因/预算用量与 `fixed` 分层。
-- 未来新增表：`action_log`、`wishlist`、`center_state`、`thoughts`、`entities / entity_mentions / entity_links` 等，随对应功能落地（见 `docs/features.md` 与本文档方向章节）。
+- 未来新增表：`action_log`、`wishlist`、`center_state`、`thoughts` 等，随对应功能落地（见 `docs/features.md` 与本文档方向章节）；实体/关系表由统一记忆宿主持有（engram_core `life_entities` / `life_entity_links`，v0.5.1 已落地 platform/url + appears_on）。
 
-## 实体与维度模型（方向，已排期 L2）
+## 实体与维度模型（L2，v0.5.1 首版落地）
 
 关系感功能不采用“实体 + 平台字段”的平铺模型，而是把信息来源当作一个维度，按维度分层，并允许不同维度类型的实体互相关联。
 
@@ -102,7 +102,7 @@ entity_links(id, persona_id, src_entity_id, relation,
 - “某个主题最近关联了谁”= 走 `related_to` 反向聚合。
 - “跨平台印象一致性”= 同一实体在不同 `appears_on` 边上的时间序列对比。
 
-落地顺序（L2 内）：随统一记忆库先实现 `entities(dimension)` + `entity_links`，跑通 `platform` 维度与 `appears_on`；语义维度和共现关系第二版再加。
+落地顺序（L2 内）：随统一记忆库先实现 `life_entities(dimension)` + `life_entity_links`，跑通 `platform/url` 维度与 `appears_on`（v0.5.1 已落地，WebUI 实体图可查询“我在哪见过 X”）；语义维度、共现 `entity_mentions` 与 `same_as` owner 确认第二版再加。
 
 ## 意外波动模型（方向，未实现）
 

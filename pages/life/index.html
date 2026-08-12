@@ -82,6 +82,9 @@ select, input[type="date"], input[type="text"] {
   font-size: 13px;
 }
 .tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.entity-graph { border: 1px solid var(--line, #e2e8f0); border-radius: 6px; padding: 8px; overflow-x: auto; }
+.entity-node { cursor: pointer; pointer-events: all; }
+.entity-node text { pointer-events: all; }
 .stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -223,6 +226,7 @@ select, input[type="date"], input[type="text"] {
     <button class="tab" data-tab="timeline">时间轴</button>
     <button class="tab" data-tab="plans">排期</button>
     <button class="tab" data-tab="events">事件链</button>
+    <button class="tab" data-tab="entities">实体图</button>
   </nav>
 
   <section id="tab-life">
@@ -347,6 +351,20 @@ select, input[type="date"], input[type="text"] {
       <ul class="note-list" id="eventReplayList"></ul>
     </div>
   </section>
+
+  <section id="tab-entities" hidden>
+    <div class="stats">
+      <div class="stat"><span class="label">实体数</span><span class="value" id="entityCount">-</span></div>
+      <div class="stat"><span class="label">关系数</span><span class="value" id="linkCount">-</span></div>
+      <div class="stat"><span class="label">宿主</span><span class="value" id="entityHost">-</span></div>
+    </div>
+    <div class="panel">
+      <div id="entityGraph" class="entity-graph"></div>
+      <div id="entityEmpty" class="empty" hidden>实体图还没有记录，配置 memory_host 后漫游会自动写入。</div>
+      <h2>在哪见过</h2>
+      <ul class="note-list" id="entitySeenList"></ul>
+    </div>
+  </section>
 </div>
 
 <script>
@@ -456,11 +474,13 @@ function switchTab(name) {
   document.getElementById("tab-timeline").hidden = name !== "timeline";
   document.getElementById("tab-plans").hidden = name !== "plans";
   document.getElementById("tab-events").hidden = name !== "events";
+  document.getElementById("tab-entities").hidden = name !== "entities";
   if (name === "memory") { loadMemory(); loadWishlist(); }
   if (name === "share") loadShare();
   if (name === "timeline") { renderTimelineFilters(); loadTimeline(true); }
   if (name === "plans") { renderPlanFilters(); loadPlans(); }
   if (name === "events") { renderEventFilters(); loadEvents(true); }
+  if (name === "entities") loadEntities();
 }
 
 function loadPersonas() {
@@ -1109,7 +1129,118 @@ function load() {
     if (state.tab === "timeline") { renderTimelineFilters(); loadTimeline(true); }
     if (state.tab === "plans") { renderPlanFilters(); loadPlans(); }
     if (state.tab === "events") { renderEventFilters(); loadEvents(true); }
+    if (state.tab === "entities") loadEntities();
   });
+}
+
+function loadEntities() {
+  var box = document.getElementById("entityGraph");
+  var empty = document.getElementById("entityEmpty");
+  var seen = document.getElementById("entitySeenList");
+  fetch(API + "/entities?" + qs({ persona: state.persona }),
+        { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var entities = data.entities || [];
+      var links = data.links || [];
+      document.getElementById("entityCount").textContent = entities.length;
+      document.getElementById("linkCount").textContent = links.length;
+      document.getElementById("entityHost").textContent =
+        data.error ? "error" : "engram_core";
+      empty.hidden = entities.length > 0;
+      box.hidden = entities.length === 0;
+      seen.textContent = "";
+      renderEntityGraph(box, entities, links, seen);
+    })
+    .catch(function () {
+      document.getElementById("entityHost").textContent = "error";
+      empty.hidden = false;
+    });
+}
+
+function renderEntityGraph(box, entities, links, seen) {
+  if (!entities.length) return;
+  var width = 760, height = 260;
+  var dims = ["platform", "url", "person", "project", "community", "topic"];
+  var groups = {};
+  dims.forEach(function (d) { groups[d] = []; });
+  entities.forEach(function (e) {
+    (groups[e.dimension] || groups.topic).push(e);
+  });
+  var colors = { platform: "#3b82f6", url: "#10b981", person: "#f59e0b",
+                 project: "#8b5cf6", community: "#ec4899", topic: "#64748b" };
+  var pos = {};
+  var cx = 60;
+  dims.forEach(function (d) {
+    var list = groups[d] || [];
+    list.forEach(function (e, i) {
+      pos[e.id] = { x: cx, y: 40 + i * 42 };
+    });
+    cx += 110;
+  });
+  var svg = '<svg viewBox="0 0 ' + width + " " + height +
+    '" style="width:100%;height:auto">';
+  links.forEach(function (l) {
+    var a = pos[l.src_entity_id], b = pos[l.dst_entity_id];
+    if (!a || !b) return;
+    svg += '<line x1="' + a.x + '" y1="' + a.y + '" x2="' + b.x + '" y2="' +
+      b.y + '" stroke="#94a3b8" stroke-width="1"/>';
+  });
+  entities.forEach(function (e) {
+    var p = pos[e.id];
+    if (!p) return;
+    var color = colors[e.dimension] || "#64748b";
+    var label = String(e.name || e.entity_id || e.id);
+    if (label.length > 18) label = label.slice(0, 18) + "…";
+    svg += '<g class="entity-node" data-entity="' + e.entity_id +
+      '" data-id="' + e.id + '">';
+    svg += '<circle cx="' + p.x + '" cy="' + p.y + '" r="9" fill="' + color +
+      '"/>';
+    svg += '<text x="' + (p.x + 14) + '" y="' + (p.y + 4) +
+      '" font-size="11" fill="#334155">' + escHtml(label) + "</text>";
+    svg += "</g>";
+  });
+  svg += "</svg>";
+  box.innerHTML = svg;
+  box.querySelectorAll(".entity-node").forEach(function (g) {
+    g.addEventListener("click", function () {
+      var entityId = g.getAttribute("data-entity");
+      loadEntitySeen(seen, entityId);
+    });
+  });
+}
+
+function loadEntitySeen(seen, entityId) {
+  seen.textContent = "";
+  fetch(API + "/entity_appears_on?" +
+        qs({ persona: state.persona, entity_id: entityId }),
+        { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var platforms = data.platforms || [];
+      if (!platforms.length) {
+        var li = document.createElement("li");
+        li.textContent = "还没在哪个平台见过这条实体。";
+        seen.appendChild(li);
+        return;
+      }
+      platforms.forEach(function (p) {
+        var li = document.createElement("li");
+        li.textContent = p.name || p.dimension || "未知平台";
+        seen.appendChild(li);
+      });
+    })
+    .catch(function () {
+      var li = document.createElement("li");
+      li.textContent = "查询失败。";
+      seen.appendChild(li);
+    });
+}
+
+function escHtml(text) {
+  var div = document.createElement("div");
+  div.textContent = String(text == null ? "" : text);
+  return div.innerHTML;
 }
 
 document.querySelectorAll(".tab").forEach(function (btn) {
