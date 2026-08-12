@@ -2,6 +2,16 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L2-09 多实例租约接入 scheduler（v0.5.8）
+
+- 目标：配置统一记忆宿主后，同人格多实例任务经宿主租约串行化，保证事件链单写者。
+- 已确认决策：scheduler 新增 `_acquire_lease / _release_lease`；配置 `memory_host` 且有 memory adapter 时调用宿主 `claim_task / release_task`（TTL 用 `memory_lease_ttl_seconds`，holder 用实例 ID），claim 失败走既有 `skipped_duplicate` 跳过路径；未配置 host 时回退本地 SQLite `acquire_lease / release_lease`；释放统一走 helper，不重复记录。
+- 改动：`life/scheduler.py`、`tests/test_scheduler.py`；版本 v0.5.7 → v0.5.8；README / CHANGELOG / features.md L2-09 / design.md / roadmap.md 同步。
+- 外部调研（DuckDuckGo，2026-08-12，已验证检索可访问）：分布式租约/单写者相关文章标题（"AI Agent Distributed Locking: TTL Leases, Fencing Tokens, and Recovery"、"Designing a Correct Distributed Lease Service"、"Building Distributed Leases With Consensus, Heartbeats, and Fencing Tokens"）；采纳 claim/release + TTL 过期释放，未细读原文，结论按推测性借鉴标注。
+- 验证：unittest 220 passed（skipped=1；内存宿主租约 claim/release、拒绝跳过、本地回退）。
+- 遗留：长任务执行期间未做 `renew_task` 续约（当前任务通常短于 TTL）；宿主侧租约过期自动释放由 engram_core `TaskLeaseStore` 保证。
+- 下一步：L2-10 关注对象（`watchlist` 配置 + fetcher/browser 接入）。
+
 ## 2026-08-12 L2-08 LLM 自主更改与自动回滚落地（v0.5.7）
 
 - 目标：LLM 可改生活记忆/兴趣/计划，白名单外需 owner 确认，owner 可批准、拒绝、回滚任何改动。

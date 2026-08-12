@@ -324,11 +324,12 @@
 
 ### L2-09 多实例租约
 
+- 状态：已实现（v0.5.8）。
 - 目标：同人格多实例串行化，保证事件链单写者。
 - 依赖：统一记忆库宿主提供 `claim_task / renew_task / release_task`。
-- 模块：`life/memory_adapter.py`、`life/scheduler.py`。
+- 模块：`life/memory_adapter.py`（租约转发）、`life/scheduler.py`（`_acquire_lease / _release_lease`）。
 - 配置：`memory_lease_ttl_seconds`（默认 300；与 v1 本地 `lease_ttl_seconds` 区分）。
-- 验收：拿不到租约的实例跳过并记录 `skipped_duplicate`；租约过期自动释放。
+- 验收：拿不到租约的实例跳过并记录 `skipped_duplicate`（已满足，claim 失败走既有跳过路径）；租约过期自动释放（已满足，TTL 由宿主管理，本地 SQLite 保留过期清理）。
 
 ### L2-10 关注对象
 

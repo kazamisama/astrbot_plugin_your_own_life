@@ -2,6 +2,17 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.8] - 2026-08-12
+
+### Added
+
+- L2-09 多实例租约接入 scheduler：配置 `memory_host` 时调度器改用统一记忆宿主 `claim_task / release_task`（TTL 用 `memory_lease_ttl_seconds`），拿不到租约跳过并记录 `skipped_duplicate`；未配置 host 时回退本地 SQLite `acquire_lease / release_lease`。
+
+### Notes
+
+- 测试：220 passed（skipped=1；新增内存宿主租约 claim/release、拒绝跳过、本地回退用例）。
+- 调研：DuckDuckGo 检索（2026-08-12）分布式租约/单写者相关文章标题（如 "AI Agent Distributed Locking: TTL Leases, Fencing Tokens, and Recovery"、"Designing a Correct Distributed Lease Service"）；采纳 claim/release + TTL 过期释放，未细读原文，结论按推测性借鉴标注。
+
 ## [0.5.7] - 2026-08-12
 
 ### Added

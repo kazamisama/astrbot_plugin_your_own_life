@@ -224,6 +224,41 @@ class LifeScheduler:
 
         return float(max(0, _tokens(after) - _tokens(before)))
 
+    def _acquire_lease(self, persona_id: str, task_key: str, kind: str) -> bool:
+        memory = getattr(self.service, "memory", None) if self.service else None
+        if memory is not None and getattr(self.config, "memory_host", ""):
+            try:
+                return bool(memory.claim_task(
+                    persona_id, task_key, holder=self._instance_id,
+                    ttl_seconds=self.config.memory_lease_ttl_seconds,
+                ))
+            except Exception as exc:
+                self.log.warning(
+                    "memory lease claim failed for %s %s: %s",
+                    persona_id, task_key, exc,
+                )
+                return False
+        if self.db is not None:
+            return self.db.acquire_lease(
+                persona_id, task_key, self._instance_id,
+                self.config.lease_ttl_seconds,
+            )
+        return True
+
+    def _release_lease(self, persona_id: str, task_key: str) -> None:
+        memory = getattr(self.service, "memory", None) if self.service else None
+        if memory is not None and getattr(self.config, "memory_host", ""):
+            try:
+                memory.release_task(persona_id, task_key, holder=self._instance_id)
+            except Exception as exc:
+                self.log.warning(
+                    "memory lease release failed for %s %s: %s",
+                    persona_id, task_key, exc,
+                )
+            return
+        if self.db is not None:
+            self.db.release_lease(persona_id, task_key, self._instance_id)
+
     async def _run(self) -> None:
         personas = list(self.config.life_personas or [])
         while not self._stop.is_set():
@@ -252,9 +287,7 @@ class LifeScheduler:
             if key in self._done_keys:
                 continue
             plan_date = slot.strftime("%Y-%m-%d")
-            if self.db is not None and not self.db.acquire_lease(
-                persona_id, key, self._instance_id, self.config.lease_ttl_seconds
-            ):
+            if not self._acquire_lease(persona_id, key, kind):
                 self.log.warning(
                     "lease for %s %s held by another instance, skipping", persona_id, key
                 )
@@ -305,8 +338,8 @@ class LifeScheduler:
                     status, reason = "failed", repr(exc)
                 finally:
                     self._done_keys.add(key)
+                    self._release_lease(persona_id, key)
                     if self.db is not None:
-                        self.db.release_lease(persona_id, key, self._instance_id)
                         usage_after = self.db.get_daily_usage(persona_id, plan_date)
                         self.db.update_plan(
                             persona_id, plan_date, task_id, status,

@@ -78,6 +78,27 @@ class _FakeService:
         self.db = db
 
 
+class _FakeMemoryLease:
+    def __init__(self, claimed=True):
+        self.claimed = claimed
+        self.claims = []
+        self.releases = []
+
+    def claim_task(self, persona_id, task_kind, holder=None, ttl_seconds=300):
+        self.claims.append((persona_id, task_kind, holder, ttl_seconds))
+        return self.claimed
+
+    def release_task(self, persona_id, task_kind, holder=None):
+        self.releases.append((persona_id, task_kind, holder))
+        return True
+
+
+class _FakeServiceWithMemory:
+    def __init__(self, db, memory):
+        self.db = db
+        self.memory = memory
+
+
 class SchedulerPlansTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -146,6 +167,39 @@ class SchedulerPlansTest(unittest.TestCase):
         target = scheduler.next_target(datetime(2026, 1, 1, 8, 0), ["shelly"])
         self.assertEqual(target[2], "review")
         self.assertEqual(target[3], "review-quarterly")
+
+    def test_lease_uses_memory_host_when_configured(self):
+        memory = _FakeMemoryLease()
+        service = _FakeServiceWithMemory(self.db, memory)
+        cfg = LifeConfig(
+            memory_host="astrbot_plugin_engram_core",
+            memory_lease_ttl_seconds=120,
+        )
+        scheduler = LifeScheduler(service=service, config=cfg)
+        self.assertTrue(scheduler._acquire_lease("shelly", "key-1", "browse"))
+        self.assertEqual(
+            memory.claims,
+            [("shelly", "key-1", scheduler._instance_id, 120)],
+        )
+        scheduler._release_lease("shelly", "key-1")
+        self.assertEqual(
+            memory.releases,
+            [("shelly", "key-1", scheduler._instance_id)],
+        )
+        denied = _FakeMemoryLease(claimed=False)
+        scheduler2 = LifeScheduler(
+            service=_FakeServiceWithMemory(self.db, denied), config=cfg
+        )
+        self.assertFalse(scheduler2._acquire_lease("shelly", "key-2", "browse"))
+
+    def test_lease_falls_back_to_local_sqlite(self):
+        service = _FakeService(self.db)
+        cfg = LifeConfig(lease_ttl_seconds=60)
+        scheduler = LifeScheduler(service=service, config=cfg)
+        self.assertTrue(scheduler._acquire_lease("shelly", "local-key", "browse"))
+        scheduler._release_lease("shelly", "local-key")
+        self.assertTrue(scheduler._acquire_lease("shelly", "local-key", "browse"))
+        scheduler._release_lease("shelly", "local-key")
 
     def test_next_target_includes_pending_optional_plan(self):
         self.scheduler.seed_plans(["shelly"], datetime(2026, 8, 12))
