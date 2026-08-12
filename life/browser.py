@@ -22,6 +22,7 @@ from life.persona import PersonaService, PersonaUnavailable
 from life.prompts import (
     MEMORY_CATEGORIES,
     PLAN_ACTION_VOCABULARY,
+    build_capsule_reply_prompt,
     build_diary_prompt,
     build_plan_prompt,
     build_review_prompt,
@@ -145,6 +146,8 @@ class LifeService:
             self.db.add_state_snapshot(persona_id, "browse_skipped", extra=extra)
         elif kind == "review":
             self.db.add_state_snapshot(persona_id, "review_skipped", extra=extra)
+        elif kind == "capsules":
+            self.db.add_state_snapshot(persona_id, "capsules_skipped", extra=extra)
         else:
             self.db.add_state_snapshot(persona_id, "diary_skipped", extra=extra)
         slot_key = slot.strftime("%Y-%m-%d %H:%M") if slot else None
@@ -841,10 +844,13 @@ class LifeService:
                     )
             self.interests.daily_decay(persona_id)
             wishlist_eval = await self._evaluate_wishlist(persona_id, persona.system_prompt)
+            capsule_result = await self.run_capsules(persona_id)
             return {"date": date, "notes": len(notes), "fallback": False,
                     "revisit_day": revisit_day, "revisit_notes": len(raw_revisit_notes),
                     "wishlist_promoted": wishlist_eval["promoted"],
-                    "wishlist_discarded": wishlist_eval["discarded"]}
+                    "wishlist_discarded": wishlist_eval["discarded"],
+                    "capsules_opened": capsule_result["opened"],
+                    "capsules_replied": capsule_result["replied"]}
         except Exception as exc:
             self.log.exception("nightly diary failed for %s", persona_id)
             self.db.discard_staged(persona_id, None, repr(exc))
@@ -1043,6 +1049,107 @@ class LifeService:
             "period": period, "period_start": period_start,
             "period_end": period_end, "ok": True,
             "content": content, "status": status, "fallback": fallback,
+        }
+
+    # ----- time capsules -----
+
+    def _capsule_unlock_at(self, sealed_at: str, days: int) -> str:
+        try:
+            sealed = datetime.strptime(sealed_at, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            sealed = datetime.now()
+        return (sealed + timedelta(days=max(1, int(days)))).strftime("%Y-%m-%d %H:%M:%S")
+
+    def seal_capsule_for_note(
+        self,
+        persona_id: str,
+        note: dict,
+        sealed_at: Optional[str] = None,
+    ) -> Optional[int]:
+        sealed = sealed_at or local_now(
+            self.config.timezone, self.now_fn()
+        ).strftime("%Y-%m-%d %H:%M:%S")
+        unlock_at = self._capsule_unlock_at(sealed, self.config.capsule_days)
+        return self.db.seal_capsule(
+            persona_id,
+            int(note["id"]),
+            unlock_at,
+            sealed_at=sealed,
+            source_refs=[{"note_id": note["id"], "url": note.get("url") or ""}],
+        )
+
+    async def run_capsules(self, persona_id: str) -> dict[str, Any]:
+        try:
+            persona = await self._resolve_persona(persona_id)
+        except PersonaUnavailable:
+            return {"persona_id": persona_id, "ok": False,
+                    "error": "persona_unavailable"}
+        now = local_now(self.config.timezone, self.now_fn())
+        due = self.db.capsules_due(
+            persona_id, now.strftime("%Y-%m-%d %H:%M:%S")
+        )
+        opened = 0
+        replied = 0
+        failed = 0
+        for capsule in due:
+            self.db.unlock_capsule(
+                persona_id, capsule["id"],
+                now_str=now.strftime("%Y-%m-%d %H:%M:%S"),
+            )
+            opened += 1
+            note = self.db.get_note(capsule["note_id"])
+            if not note:
+                continue
+            prompt = build_capsule_reply_prompt(
+                persona.system_prompt, persona_id, note,
+                capsule["sealed_at"], capsule["unlock_at"],
+            )
+            try:
+                payload = await self._llm_call(persona_id, prompt)
+                reply = str(payload.get("reply_text") or "").strip()
+                if not reply:
+                    raise LLMError("capsule LLM 未返回回信")
+                self.db.save_capsule_reply(persona_id, capsule["id"], reply)
+                replied += 1
+                self.db.append_event(
+                    persona_id, "capsule",
+                    {"capsule_id": capsule["id"], "note_id": capsule["note_id"],
+                     "status": "replied", "reply": reply[:500],
+                     "sealed_at": capsule["sealed_at"],
+                     "unlock_at": capsule["unlock_at"]},
+                    [{"note_id": note["id"], "url": note.get("url") or ""}],
+                    f"capsule/{capsule['id']}/reply",
+                )
+            except BudgetExhausted as exc:
+                failed += 1
+                self.db.append_event(
+                    persona_id, "capsule",
+                    {"capsule_id": capsule["id"], "note_id": capsule["note_id"],
+                     "status": "reply_failed", "reason": "budget_exhausted"},
+                    [{"note_id": capsule["note_id"]}],
+                    f"capsule/{capsule['id']}/reply_failed",
+                )
+                self.db.add_state_snapshot(
+                    persona_id, "capsules_skipped", self.esm.get_energy(persona_id), "",
+                    extra=json.dumps(
+                        {"reason": "budget_exhausted", "capsule_id": capsule["id"]},
+                        ensure_ascii=False,
+                    ),
+                )
+                break
+            except LLMError as exc:
+                failed += 1
+                self.log.warning("capsule reply failed for %s: %s", persona_id, exc)
+                self.db.append_event(
+                    persona_id, "capsule",
+                    {"capsule_id": capsule["id"], "note_id": capsule["note_id"],
+                     "status": "reply_failed", "reason": str(exc)},
+                    [{"note_id": capsule["note_id"]}],
+                    f"capsule/{capsule['id']}/reply_failed",
+                )
+        return {
+            "persona_id": persona_id, "ok": True,
+            "opened": opened, "replied": replied, "failed": failed,
         }
 
     # ----- plan -----

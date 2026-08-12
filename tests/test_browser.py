@@ -284,6 +284,46 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["skipped"], "budget_exhausted")
         self.assertEqual(self.db.list_reviews("shelly"), [])
 
+    async def test_capsules_auto_unlock_and_reply(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 10, 0)
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://cap", "Capsule note", "s", url_hash="cb1"
+        )
+        self.db.seal_capsule(
+            "shelly", note_id, "2026-08-12 09:00:00",
+            sealed_at="2026-07-13 09:00:00",
+        )
+        self.service.llm = _FakeLLM(payload={
+            "reply_text": "当时的我：记下这件事；现在的我：还是在意。",
+            "mood": "calm",
+        })
+        result = await self.service.run_capsules("shelly")
+        self.assertEqual(result["opened"], 1)
+        self.assertEqual(result["replied"], 1)
+        rows = self.db.list_capsules("shelly")
+        self.assertEqual(rows[0]["status"], "replied")
+        self.assertIn("当时的我", rows[0]["reply"])
+        events = self.db.list_events("shelly")
+        self.assertEqual(events[0]["kind"], "capsule")
+
+    async def test_capsules_llm_failure_marks_unlocked(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 10, 0)
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://cap", "Capsule note", "s", url_hash="cb2"
+        )
+        self.db.seal_capsule(
+            "shelly", note_id, "2026-08-12 09:00:00",
+            sealed_at="2026-07-13 09:00:00",
+        )
+        self.service.llm = _FakeLLM(error=LLMError("boom"))
+        result = await self.service.run_capsules("shelly")
+        self.assertEqual(result["opened"], 1)
+        self.assertEqual(result["failed"], 1)
+        rows = self.db.list_capsules("shelly")
+        self.assertEqual(rows[0]["status"], "unlocked")
+        events = self.db.list_events("shelly")
+        self.assertEqual(json.loads(events[0]["payload"])["status"], "reply_failed")
+
     async def test_diary_revisits_old_note(self):
         self.service.now_fn = lambda: datetime(2026, 8, 12, 23, 0)
         old_id = self.db.add_note(

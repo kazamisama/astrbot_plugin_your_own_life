@@ -107,6 +107,11 @@ class ConfigTest(unittest.TestCase):
         invalid = load_config({"review_schedule": {"monthly": "0", "yearly": "bad"}})
         self.assertEqual(invalid.review_schedule, {"monthly": "1", "yearly": "01-01"})
 
+    def test_capsule_days_config(self):
+        self.assertEqual(load_config({}).capsule_days, 30)
+        self.assertEqual(load_config({"capsule_days": "7"}).capsule_days, 7)
+        self.assertEqual(load_config({"capsule_days": "0"}).capsule_days, 1)
+
     def test_signature_enabled_default(self):
         self.assertTrue(load_config({}).signature_enabled)
         self.assertFalse(load_config({"signature_enabled": False}).signature_enabled)

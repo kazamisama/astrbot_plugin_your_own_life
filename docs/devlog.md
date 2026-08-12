@@ -2,6 +2,16 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-12 L2-05 时间胶囊落地（v0.5.4）
+
+- 目标：封存一条短记，到期自动解锁并让 LLM 以“当时的我 / 现在的我”回信，owner 可在 WebUI 提前打开。
+- 已确认决策：新增 `time_capsules` 表（`UNIQUE(persona_id, note_id)`，状态 sealed/unlocked/replied）与 `capsule_days`（默认 30，最小 1）；`run_capsules` 在夜间复盘内自动执行，到期/已手动打开的胶囊先 `unlock_capsule` 再经 `build_capsule_reply_prompt` 生成回信；成功写 `capsule` 事件（幂等键 `capsule/{id}/reply`），LLM 失败保留 unlocked 并写 `reply_failed` 事件，预算耗尽停止并记录快照；WebUI 新增时间胶囊 tab（`GET /capsules`、`POST /capsules_open`）；`.tabs` 加 `flex-wrap: wrap` 修复移动端溢出。
+- 改动：`life/config.py`、`_conf_schema.json`、`life/db.py`、`life/prompts.py`、`life/browser.py`、`life/webui.py`、`pages/life/index.html`、`tests/test_db.py`、`tests/test_config.py`、`tests/test_browser.py`、`tests/test_webui.py`；版本 v0.5.3 → v0.5.4；README / CHANGELOG / features.md L2-05 / design.md / roadmap.md 同步。
+- 外部调研（DuckDuckGo，2026-08-12，已验证检索可访问）：time capsule / future self letter 站点（TimeCapsule、FutureSelf AI、Send To The Future 等标题）；采纳“封存 → 到期解锁 → 以过去素材回信”结构，未细读原文，结论按推测性借鉴标注。
+- 验证：unittest 204 passed（skipped=1；胶囊生命周期、自动解锁回信、LLM 失败、WebUI 接口/路由）；JS 语法检查通过；Playwright 实体图与时间胶囊 tab 桌面 1280x900 / 移动 390x844 渲染、点击、无横向溢出通过。
+- 遗留：封存入口目前由未来功能（如 L2-10/11）调用 `seal_capsule_for_note`；尚无独立“封存这条短记”的命令/按钮；回信失败后不会自动重试。
+- 下一步：L2-06 分享沉默率（`share_silence_rate` 默认 0.15，ShareGate 概率“今天不想说”）。
+
 ## 2026-08-12 L2-04 月度/年度回顾落地（v0.5.3）
 
 - 目标：按 `review_schedule` 自动生成月度/年度回顾，带来源引用、失败回退，回顾本身入事件链。

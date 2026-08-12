@@ -89,6 +89,22 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["entities"], [])
         self.assertEqual(data["links"], [])
 
+    async def test_capsules_handler(self):
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://cap", "Cap", "s", url_hash="cu1"
+        )
+        self.db.seal_capsule(
+            "shelly", note_id, "2099-01-01 00:00:00",
+            sealed_at="2026-08-01 00:00:00",
+        )
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=None, config=self.config)
+        data = await handlers["capsules"]()
+        self.assertEqual(len(data["capsules"]), 1)
+        self.assertEqual(data["capsules"][0]["title"], "Cap")
+        bad = await handlers["capsules_open"]()
+        self.assertFalse(bad["ok"])
+
     async def test_usage_handler(self):
         self.db.increment_llm_usage("shelly", "2026-08-12", calls=2, tokens=10)
         handlers = build_handlers(self.db, service=None, share_gate=None,
@@ -191,7 +207,9 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/astrbot_plugin_your_own_life/api/injection_log", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/plans", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/events", routes)
-        self.assertEqual(len(routes), 24)
+        self.assertIn("/astrbot_plugin_your_own_life/api/capsules", routes)
+        self.assertIn("/astrbot_plugin_your_own_life/api/capsules_open", routes)
+        self.assertEqual(len(routes), 26)
 
 
 if __name__ == "__main__":

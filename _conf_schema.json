@@ -353,6 +353,12 @@
       "yearly": "01-01"
     }
   },
+  "capsule_days": {
+    "type": "int",
+    "description": "时间胶囊封存天数",
+    "hint": "短记封存该天数后自动解锁，LLM 以当时人格回信；WebUI 可手动提前打开",
+    "default": 30
+  },
   "life_tool_enabled": {
     "type": "bool",
     "description": "向 LLM 注册 query_life_memory 自查询工具",

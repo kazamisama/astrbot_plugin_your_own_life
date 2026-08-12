@@ -171,6 +171,27 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(rows[0]["content"], "第二版")
         self.assertEqual(rows[0]["status"], "fallback")
 
+    def test_time_capsules_lifecycle(self):
+        note_id = self.db.add_note("shelly", None, "hn", "https://cap", "C", "s", url_hash="cap1")
+        cid = self.db.seal_capsule(
+            "shelly", note_id, "2026-09-01 09:00:00",
+            sealed_at="2026-08-01 09:00:00",
+        )
+        self.assertIsNotNone(cid)
+        self.assertIsNone(self.db.seal_capsule(
+            "shelly", note_id, "2026-10-01 09:00:00",
+            sealed_at="2026-08-01 09:00:00",
+        ))
+        self.assertEqual(len(self.db.capsules_due("shelly", "2026-08-31 23:59:59")), 0)
+        due = self.db.capsules_due("shelly", "2026-09-01 09:00:00")
+        self.assertEqual(len(due), 1)
+        self.assertTrue(self.db.unlock_capsule("shelly", cid, now_str="2026-09-01 09:00:00"))
+        self.assertTrue(self.db.save_capsule_reply("shelly", cid, "当时的我…现在的我…"))
+        row = self.db.get_capsule("shelly", cid)
+        self.assertEqual(row["status"], "replied")
+        self.assertEqual(row["reply"], "当时的我…现在的我…")
+        self.assertEqual(len(self.db.capsules_due("shelly", "2026-12-01")), 0)
+
     def test_diary_upsert_per_persona(self):
         self.db.add_diary("shelly", "2026-08-10", "first", mood="curious", energy=0.6)
         self.db.add_diary("shelly", "2026-08-10", "second", mood="calm", energy=0.5)

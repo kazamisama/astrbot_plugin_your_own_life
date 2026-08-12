@@ -120,6 +120,48 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
             result["count"] = len(result["items"])
         return result
 
+    async def capsules():
+        args = await _query_args()
+        persona = str(args.get("persona") or _first_persona(config))
+        rows = db.list_capsules(persona, limit=200)
+        notes = {
+            note["id"]: note
+            for note in db.list_notes(persona, limit=100000)
+        }
+        items = []
+        for row in rows:
+            note = notes.get(row["note_id"]) or {}
+            items.append({
+                **row,
+                "title": note.get("title") or "",
+                "summary": note.get("summary") or "",
+                "url": note.get("url") or "",
+            })
+        return {"capsules": items}
+
+    async def capsules_open():
+        args = await _json_body()
+        persona = str(args.get("persona") or _first_persona(config))
+        try:
+            capsule_id = int(args.get("capsule_id") or 0)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "capsule_id required"}
+        capsule = db.get_capsule(persona, capsule_id)
+        if capsule is None:
+            return {"ok": False, "error": "capsule not found"}
+        db.open_capsule_now(persona, capsule_id)
+        if service is None:
+            return {"ok": True, "capsule_id": capsule_id,
+                    "status": "unlocked", "reply": ""}
+        result = await service.run_capsules(persona)
+        row = db.get_capsule(persona, capsule_id)
+        return {
+            "ok": True, "capsule_id": capsule_id,
+            "status": (row or {}).get("status") or "unlocked",
+            "reply": (row or {}).get("reply") or "",
+            "result": result,
+        }
+
     async def entities():
         persona = await _persona_arg()
         if memory_adapter is None or not getattr(config, "memory_host", ""):
@@ -330,6 +372,8 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         "share_note": share_note,
         "wishlist": wishlist,
         "wishlist_action": wishlist_action,
+        "capsules": capsules,
+        "capsules_open": capsules_open,
         "entities": entities,
         "entity_appears_on": entity_appears_on,
     }
@@ -354,6 +398,8 @@ def register_api(context: Any, db: Any, service: Any, share_gate: Any,
         (f"{API_PREFIX}/run", "run", ["POST"], "Trigger a browse session"),
         (f"{API_PREFIX}/memory", "memory", ["GET"], "Memory categories overview"),
         (f"{API_PREFIX}/memory_search", "memory_search", ["GET"], "Search life memory"),
+        (f"{API_PREFIX}/capsules", "capsules", ["GET"], "Time capsules"),
+        (f"{API_PREFIX}/capsules_open", "capsules_open", ["POST"], "Open a time capsule"),
         (f"{API_PREFIX}/entities", "entities", ["GET"], "Life entity graph"),
         (f"{API_PREFIX}/entity_appears_on", "entity_appears_on", ["GET"], "Where an entity appears"),
         (f"{API_PREFIX}/usage", "usage", ["GET"], "Daily LLM usage"),

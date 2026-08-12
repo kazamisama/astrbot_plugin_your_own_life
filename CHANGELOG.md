@@ -2,6 +2,21 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.4] - 2026-08-12
+
+### Added
+
+- L2-05 时间胶囊：新增 `capsule_days`（默认 30）与 `time_capsules` 表；夜间复盘自动解锁到期胶囊，LLM 按封存短记写“当时的我 / 现在的我”回信并写 `capsule` 事件；WebUI 新增“时间胶囊”tab（`GET /capsules`）与手动提前打开（`POST /capsules_open`）。
+
+### Fixed
+
+- WebUI 移动端 tab 栏换行：`.tabs` 增加 `flex-wrap: wrap`，修复多 tab 时 390px 视口横向溢出。
+
+### Notes
+
+- 测试：204 passed（skipped=1；新增胶囊生命周期、自动解锁回信、LLM 失败、WebUI 接口与路由用例）；Playwright 实体图/时间胶囊桌面与移动视口无横向溢出、渲染与点击通过。
+- 调研：DuckDuckGo 检索（2026-08-12）time capsule / future self letter 相关站点（如 TimeCapsule、FutureSelf AI、Send To The Future）；采纳“封存 → 到期解锁 → 以过去素材回信”结构，未引入新依赖。
+
 ## [0.5.3] - 2026-08-12
 
 ### Added

@@ -278,6 +278,7 @@ class LifeConfig:
     review_schedule: dict[str, str] = field(
         default_factory=lambda: {"monthly": "1", "yearly": "01-01"}
     )
+    capsule_days: int = 30
 
 
 def load_config(cfg: Any) -> LifeConfig:
@@ -322,6 +323,7 @@ def load_config(cfg: Any) -> LifeConfig:
         memory_lease_ttl_seconds=max(1, _as_int(_get(cfg, "memory_lease_ttl_seconds"), 300)),
         memory_temperature_decay=max(0.5, min(1.0, _as_float(_get(cfg, "memory_temperature_decay"), 0.99))),
         review_schedule=_parse_review_schedule(_get(cfg, "review_schedule")),
+        capsule_days=max(1, _as_int(_get(cfg, "capsule_days"), 30)),
         source_timeout=_as_float(_get(cfg, "source_timeout"), 10.0),
         notes_min=notes_min,
         notes_max=notes_max,

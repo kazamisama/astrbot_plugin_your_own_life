@@ -279,6 +279,18 @@ CREATE TABLE IF NOT EXISTS reviews (
     source_refs TEXT DEFAULT '[]',
     UNIQUE(persona_id, period, period_start)
 );
+CREATE TABLE IF NOT EXISTS time_capsules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    persona_id TEXT NOT NULL DEFAULT 'default',
+    note_id INTEGER NOT NULL,
+    sealed_at TEXT NOT NULL,
+    unlock_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'sealed',
+    reply TEXT DEFAULT '',
+    replied_at TEXT DEFAULT '',
+    source_refs TEXT DEFAULT '[]',
+    UNIQUE(persona_id, note_id)
+);
 CREATE INDEX IF NOT EXISTS idx_notes_persona_fetched ON notes(persona_id, fetched_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_persona_started ON browse_sessions(persona_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_snapshots_persona_ts ON state_snapshots(persona_id, ts);
@@ -1169,6 +1181,88 @@ class LifeDB:
             "GROUP BY category ORDER BY n DESC",
             (persona_id, start, end),
         )
+
+    # ----- time capsules -----
+
+    def seal_capsule(
+        self,
+        persona_id: str,
+        note_id: int,
+        unlock_at: str,
+        sealed_at: Optional[str] = None,
+        source_refs: Optional[list] = None,
+    ) -> Optional[int]:
+        cur = self._execute(
+            "INSERT OR IGNORE INTO time_capsules "
+            "(persona_id, note_id, sealed_at, unlock_at, status, reply, replied_at, source_refs) "
+            "VALUES (?, ?, ?, ?, 'sealed', '', '', ?)",
+            (persona_id, note_id, sealed_at or self._now(), unlock_at,
+             json.dumps(source_refs or [], ensure_ascii=False, default=str)),
+        )
+        if cur.rowcount == 0:
+            return None
+        return int(cur.lastrowid)
+
+    def list_capsules(
+        self, persona_id: str, status: Optional[str] = None, limit: int = 100
+    ) -> list[dict]:
+        if status:
+            return self._rows(
+                "SELECT * FROM time_capsules WHERE persona_id = ? AND status = ? "
+                "ORDER BY sealed_at DESC LIMIT ?",
+                (persona_id, status, limit),
+            )
+        return self._rows(
+            "SELECT * FROM time_capsules WHERE persona_id = ? "
+            "ORDER BY sealed_at DESC LIMIT ?",
+            (persona_id, limit),
+        )
+
+    def get_capsule(self, persona_id: str, capsule_id: int) -> Optional[dict]:
+        return self._one(
+            "SELECT * FROM time_capsules WHERE persona_id = ? AND id = ?",
+            (persona_id, capsule_id),
+        )
+
+    def capsules_due(
+        self, persona_id: str, now_str: Optional[str] = None
+    ) -> list[dict]:
+        return self._rows(
+            "SELECT * FROM time_capsules WHERE persona_id = ? "
+            "AND status IN ('sealed', 'unlocked') AND reply = '' "
+            "AND unlock_at <= ? ORDER BY unlock_at ASC",
+            (persona_id, now_str or self._now()),
+        )
+
+    def unlock_capsule(
+        self,
+        persona_id: str,
+        capsule_id: int,
+        now_str: Optional[str] = None,
+    ) -> bool:
+        cur = self._execute(
+            "UPDATE time_capsules SET status = 'unlocked', unlock_at = ? "
+            "WHERE persona_id = ? AND id = ?",
+            (now_str or self._now(), persona_id, capsule_id),
+        )
+        return cur.rowcount > 0
+
+    def open_capsule_now(self, persona_id: str, capsule_id: int) -> bool:
+        return self.unlock_capsule(persona_id, capsule_id)
+
+    def save_capsule_reply(
+        self,
+        persona_id: str,
+        capsule_id: int,
+        reply: str,
+        replied_at: Optional[str] = None,
+    ) -> bool:
+        cur = self._execute(
+            "UPDATE time_capsules SET status = 'replied', reply = ?, replied_at = ? "
+            "WHERE persona_id = ? AND id = ?",
+            (reply, replied_at or self._now(), persona_id, capsule_id),
+        )
+        return cur.rowcount > 0
 
     # ----- task leases -----
 
@@ -2100,6 +2194,7 @@ class LifeDB:
                 "life_leases",
                 "wishlist",
                 "reviews",
+                "time_capsules",
                 "staging_notes",
                 "staging_diary",
                 "staging_snapshots",

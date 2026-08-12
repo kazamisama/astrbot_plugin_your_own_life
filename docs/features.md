@@ -288,11 +288,12 @@
 
 ### L2-05 时间胶囊
 
+- 状态：已实现（v0.5.4）。
 - 目标：封存一条短记，30 天后解锁并让 LLM 以当时人格回信。
 - 依赖：统一记忆库。
-- 模块：`life/browser.py`、`life/db.py`、`life/webui.py`。
-- 配置：`capsule_days`（默认 30）。
-- 验收：到期自动解锁；回信标注“当时的我/现在的我”；可手动提前打开。
+- 模块：`life/browser.py`（`run_capsules` 解锁/回信）、`life/db.py`（`time_capsules` 表）、`life/prompts.py`（`build_capsule_reply_prompt`）、`life/webui.py` + `pages/life/index.html`（胶囊 tab 与手动打开）。
+- 配置：`capsule_days`（默认 30，最小 1）。
+- 验收：到期自动解锁（已满足，夜间复盘调用 `run_capsules` 检查到期胶囊）；回信标注“当时的我/现在的我”（已满足，prompt 强制两部分结构）；可手动提前打开（已满足，WebUI `POST /capsules_open`）。
 
 ### L2-06 分享沉默率
 

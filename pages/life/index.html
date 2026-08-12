@@ -68,6 +68,7 @@ select, input[type="date"], input[type="text"] {
 .tabs {
   display: flex;
   gap: 6px;
+  flex-wrap: wrap;
   margin-bottom: 14px;
   border-bottom: 1px solid var(--line);
   padding-bottom: 10px;
@@ -227,6 +228,7 @@ select, input[type="date"], input[type="text"] {
     <button class="tab" data-tab="plans">排期</button>
     <button class="tab" data-tab="events">事件链</button>
     <button class="tab" data-tab="entities">实体图</button>
+    <button class="tab" data-tab="capsules">时间胶囊</button>
   </nav>
 
   <section id="tab-life">
@@ -365,6 +367,18 @@ select, input[type="date"], input[type="text"] {
       <ul class="note-list" id="entitySeenList"></ul>
     </div>
   </section>
+
+  <section id="tab-capsules" hidden>
+    <div class="stats">
+      <div class="stat"><span class="label">封存中</span><span class="value" id="capsuleSealed">-</span></div>
+      <div class="stat"><span class="label">待回信</span><span class="value" id="capsuleUnlocked">-</span></div>
+      <div class="stat"><span class="label">已回信</span><span class="value" id="capsuleReplied">-</span></div>
+    </div>
+    <div class="panel">
+      <ul class="note-list" id="capsuleList"></ul>
+      <div id="capsuleEmpty" class="empty" hidden>还没有时间胶囊。封存后会按 capsule_days 自动解锁。</div>
+    </div>
+  </section>
 </div>
 
 <script>
@@ -475,12 +489,14 @@ function switchTab(name) {
   document.getElementById("tab-plans").hidden = name !== "plans";
   document.getElementById("tab-events").hidden = name !== "events";
   document.getElementById("tab-entities").hidden = name !== "entities";
+  document.getElementById("tab-capsules").hidden = name !== "capsules";
   if (name === "memory") { loadMemory(); loadWishlist(); }
   if (name === "share") loadShare();
   if (name === "timeline") { renderTimelineFilters(); loadTimeline(true); }
   if (name === "plans") { renderPlanFilters(); loadPlans(); }
   if (name === "events") { renderEventFilters(); loadEvents(true); }
   if (name === "entities") loadEntities();
+  if (name === "capsules") loadCapsules();
 }
 
 function loadPersonas() {
@@ -1130,7 +1146,73 @@ function load() {
     if (state.tab === "plans") { renderPlanFilters(); loadPlans(); }
     if (state.tab === "events") { renderEventFilters(); loadEvents(true); }
     if (state.tab === "entities") loadEntities();
+    if (state.tab === "capsules") loadCapsules();
   });
+}
+
+function loadCapsules() {
+  var list = document.getElementById("capsuleList");
+  fetch(API + "/capsules?" + qs({ persona: state.persona }),
+        { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var items = data.capsules || [];
+      document.getElementById("capsuleSealed").textContent =
+        items.filter(function (c) { return c.status === "sealed"; }).length;
+      document.getElementById("capsuleUnlocked").textContent =
+        items.filter(function (c) { return c.status === "unlocked"; }).length;
+      document.getElementById("capsuleReplied").textContent =
+        items.filter(function (c) { return c.status === "replied"; }).length;
+      document.getElementById("capsuleEmpty").hidden = items.length > 0;
+      list.textContent = "";
+      items.forEach(function (c) {
+        var li = document.createElement("li");
+        var line = document.createElement("div");
+        var title = document.createElement("strong");
+        title.textContent = c.title || ("短记 #" + c.note_id);
+        line.appendChild(title);
+        var chip = document.createElement("span");
+        chip.className = "chip";
+        chip.textContent = c.status === "replied" ? "已回信"
+          : (c.status === "unlocked" ? "待回信" : "封存中");
+        line.appendChild(chip);
+        li.appendChild(line);
+        var meta = document.createElement("div");
+        meta.className = "empty";
+        meta.textContent = "封存于 " + (c.sealed_at || "") +
+          "，解锁于 " + (c.unlock_at || "");
+        li.appendChild(meta);
+        if (c.summary) {
+          var summary = document.createElement("div");
+          summary.textContent = c.summary;
+          li.appendChild(summary);
+        }
+        if (c.reply) {
+          var reply = document.createElement("p");
+          reply.textContent = c.reply;
+          li.appendChild(reply);
+        }
+        if (c.status !== "replied") {
+          var btn = document.createElement("button");
+          btn.className = "btn small";
+          btn.textContent = "提前打开";
+          btn.addEventListener("click", function () { openCapsule(c.id); });
+          li.appendChild(btn);
+        }
+        list.appendChild(li);
+      });
+    })
+    .catch(function () { showError("时间胶囊加载失败。"); });
+}
+
+function openCapsule(capsuleId) {
+  fetch(API + "/capsules_open", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ persona: state.persona, capsule_id: capsuleId }),
+  }).then(function (r) { return r.json(); })
+    .then(function () { loadCapsules(); })
+    .catch(function () { showError("打开胶囊失败。"); });
 }
 
 function loadEntities() {
