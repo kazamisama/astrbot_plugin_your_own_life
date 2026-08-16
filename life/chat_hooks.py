@@ -158,6 +158,7 @@ async def handle_llm_request(
         },
         [],
         _event_key("in", persona_id, session, text, now),
+        ts=now.strftime("%Y-%m-%d %H:%M:%S"),
     )
     extra_set = getattr(event, "set_extra", None)
     if callable(extra_set):
@@ -216,6 +217,7 @@ async def handle_llm_response(
         },
         [],
         _event_key("out", persona_id, session, text, now),
+        ts=now.strftime("%Y-%m-%d %H:%M:%S"),
     )
     extra_set = getattr(event, "set_extra", None)
     if callable(extra_set):

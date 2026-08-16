@@ -19,7 +19,7 @@ kazamisama 仓库下的 AstrBot 插件是一整个需要互操作的家庭，任
 - 不吝啬改动：兼容不等于冻结；允许对家族内任一插件做架构级重构、新增共享层或改公开契约，只要通过版本化契约与适配层保证互操作，并整族协调发版。
 - 兼容矩阵：见下文「兼容矩阵（2026-08-12 快照）」，作为升级检查表；每次跨插件改动前先复核快照。
 
-### 兼容矩阵（2026-08-12 快照）
+### 兼容矩阵（2026-08-12 快照，本插件行已更新至 v0.5.17）
 
 数据来自各仓库 `metadata.yaml` / `CHANGELOG.md` / `_PUBLIC_API.md` / `git remote` / `git log`（读取时间 2026-08-12，subagent 只读调研 + 主 agent 抽查核对）。升级前以对应仓库最新 commit 复核。
 
@@ -34,7 +34,7 @@ kazamisama 仓库下的 AstrBot 插件是一整个需要互操作的家庭，任
 | astrbot_plugin_private_proactive_reply | v0.11.2 | 无 | kazamisama/astrbot_plugin_private_proactive_reply | 方向：主动社交行为层（复用人格/记忆/工具链） |
 | astrbot_plugin_engram_core | 1.76.0 | `_PUBLIC_API.md`（Public API · v1；v1.75 日记/召回/租约，v1.76 事件/短记/实体图） | kazamisama/astrbot-plugin-engram-core | v2 硬依赖：统一记忆库/日记写入/召回/实体图/租约，经 `LifeMemoryAdapter` |
 | astrbot-plugin-media-warden | 1.8.1 | 无 | kazamisama/astrbot-plugin-media-warden | 方向：素材采集/记忆原料，未见显式契约 |
-| astrbot_plugin_your_own_life（本插件） | v0.5.13 | 无独立 `_PUBLIC_API.md`；跨插件调用全部经适配层 | kazamisama/astrbot_plugin_your_own_life | 本插件（L1/L1.5 已交付，L2-01 至 L2-11 全部已落地，v0.5.0-v0.5.13） |
+| astrbot_plugin_your_own_life（本插件） | v0.5.17 | 无独立 `_PUBLIC_API.md`；跨插件调用全部经适配层 | kazamisama/astrbot_plugin_your_own_life | 本插件（L1/L1.5 已交付，L2-01 至 L2-11 全部已落地，v0.5.0-v0.5.17） |
 
 升级检查表：
 

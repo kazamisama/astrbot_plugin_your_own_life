@@ -2,6 +2,14 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-16 review/debug：聊天事件时间戳与日期敏感测试（v0.5.17）
+- 目标：review 当前仓库并 debug；修复 `test_chat_hooks` 依赖真实日期导致的失败，以及测试失败后 SQLite 临时文件在 Windows 上的清理锁。
+- 已确认决策：`event_chain.ts` 必须使用调用方注入的 persona 本地时钟（`now_fn`），与 payload 内的 `ts` 保持一致；`message_in` / `reply_out` / `conversation_end` 三个聊天事件统一补 `ts=`。
+- 改动：`life/chat_hooks.py`、`life/presence.py`、`tests/test_chat_hooks.py`、`tests/test_presence.py`、`README.md`、`docs/requirements.md`、`CHANGELOG.md`、`metadata.yaml`、`life/__init__.py`；版本 v0.5.16 → v0.5.17。
+- 验证：test-kit venv 全量 `unittest discover -s tests -v` 273 passed（skipped=1）；`compileall` OK；`git diff --check` clean。
+- 遗留：README/兼容矩阵的版本漂移本次已同步；真实 AstrBot 生产 hook 行为与多时区部署仍待实测。
+- 下一步：提交 `chore(release): v0.5.17 ...` 并推送 origin main。
+
 ## 2026-08-13 review 修复与测试基线稳定（v0.5.16）
 - 目标：修复 review 发现的时区、分享预算、兴趣 staged 累加、夜间复盘后置动作、WebUI 非法输入和 persona 缓存时区问题；先稳定日期敏感的测试基线。
 - 已确认决策：

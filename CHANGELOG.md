@@ -2,6 +2,18 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.17] - 2026-08-16
+
+### Fixed
+
+- 聊天事件与对话结束事件的 `event_chain.ts` 现在使用传入的 persona 本地时钟（`now_fn`），不再回落到数据库墙钟时间；修复时区测试依赖真实日期导致的日期敏感失败。
+- 时区回归测试中的第二个 SQLite 连接改为 `try/finally` 关闭，断言失败时不会在 Windows 上因文件占用再抛清理错误。
+- 同步 README 与兼容矩阵中的插件版本到 v0.5.17。
+
+### Notes
+
+- 测试：273 passed（skipped=1）。
+
 ## [0.5.16] - 2026-08-13
 
 ### Fixed

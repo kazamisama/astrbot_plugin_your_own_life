@@ -108,6 +108,7 @@ class LifePresence:
                     [],
                     f"chat/{persona_id}/conversation_end/"
                     f"{int(until.timestamp())}",
+                    ts=now.strftime("%Y-%m-%d %H:%M:%S"),
                 )
         return closed
 

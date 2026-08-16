@@ -54,6 +54,7 @@ class LifePresenceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(closed[0]["reason"], "timeout")
         events = self.db.list_events("shelly")
         self.assertEqual(events[0]["kind"], "conversation_end")
+        self.assertEqual(events[0]["ts"], "2026-08-12 12:06:00")
         self.assertFalse(presence.conversation_active("shelly", now))
 
 

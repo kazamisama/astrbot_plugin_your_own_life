@@ -171,22 +171,46 @@ class ChatHooksTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_request_event_uses_passed_local_now(self):
         tz_db = LifeDB(Path(self.tmp.name) / "tz_life.db", timezone="America/New_York")
-        tz_config = LifeConfig(
-            life_personas=["shelly"],
-            life_presence_enabled=True,
-            conversation_wait_minutes=5,
-            busy_reply_max_wait_minutes=1,
-            timezone="America/New_York",
-        )
-        request = _FakeRequest()
-        ok = await handle_llm_request(
-            self.context, self.presence, tz_db, tz_config, _FakeEvent(), request,
-            now_fn=lambda: local_now("America/New_York", datetime(2026, 8, 12, 12, 0)),
-        )
-        self.assertTrue(ok)
-        events = tz_db.list_events("shelly")
-        self.assertTrue(events[0]["ts"].startswith("2026-08-12"))
-        tz_db.close()
+        try:
+            tz_config = LifeConfig(
+                life_personas=["shelly"],
+                life_presence_enabled=True,
+                conversation_wait_minutes=5,
+                busy_reply_max_wait_minutes=1,
+                timezone="America/New_York",
+            )
+            request = _FakeRequest()
+            ok = await handle_llm_request(
+                self.context, self.presence, tz_db, tz_config, _FakeEvent(), request,
+                now_fn=lambda: local_now("America/New_York", datetime(2026, 8, 12, 12, 0)),
+            )
+            self.assertTrue(ok)
+            events = tz_db.list_events("shelly")
+            self.assertTrue(events[0]["ts"].startswith("2026-08-12"))
+        finally:
+            tz_db.close()
+
+    async def test_response_event_uses_passed_local_now(self):
+        tz_db = LifeDB(Path(self.tmp.name) / "tz_reply_life.db", timezone="America/New_York")
+        try:
+            tz_config = LifeConfig(
+                life_personas=["shelly"],
+                life_presence_enabled=True,
+                conversation_wait_minutes=5,
+                busy_reply_max_wait_minutes=1,
+                timezone="America/New_York",
+            )
+            ok = await handle_llm_response(
+                self.context, self.presence, tz_db, tz_config,
+                _FakeEvent(), _FakeResponse(),
+                now_fn=lambda: local_now("America/New_York", datetime(2026, 8, 12, 12, 0)),
+            )
+            self.assertTrue(ok)
+            events = tz_db.list_events("shelly")
+            self.assertEqual(events[0]["kind"], "reply_out")
+            self.assertTrue(events[0]["ts"].startswith("2026-08-12"))
+        finally:
+            tz_db.close()
 
     def test_build_presence_block_uses_tags(self):
         block = build_presence_block({"sessions": [], "notes": [], "events": []})
