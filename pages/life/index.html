@@ -445,6 +445,31 @@ select, input[type="date"], input[type="text"] {
 
 <script>
 var API = "/api/plug/astrbot_plugin_your_own_life/api";
+
+// AstrBot v4.25+ 的插件页运行在受保护 iframe 中：裸 fetch 不带 dashboard 凭证，
+// 会被 /api/plug 的鉴权中间件 401 拦截。优先走官方插件桥
+// （window.AstrBotPluginPage，由父页面携带 JWT 代理请求）；桥不可用时回退裸
+// fetch，兼容旧的直接访问方式。桥由 AstrBot 在 </body> 前注入，运行时再取。
+function bridge() { return window.AstrBotPluginPage || null; }
+
+function apiGet(path, params) {
+  var b = bridge();
+  if (b) return b.apiGet("api/" + path, params || {});
+  return fetch(API + "/" + path + "?" + qs(params || {}),
+    { headers: { "Accept": "application/json" } })
+    .then(function (r) { return r.json(); });
+}
+
+function apiPost(path, body) {
+  var b = bridge();
+  if (b) return b.apiPost("api/" + path, body || {});
+  return fetch(API + "/" + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    body: JSON.stringify(body || {})
+  }).then(function (r) { return r.json(); });
+}
+
 var state = {
   persona: "",
   tab: "life",
@@ -570,8 +595,7 @@ function switchTab(name) {
 }
 
 function loadPersonas() {
-  return fetch(API + "/personas", { headers: { "Accept": "application/json" } })
-    .then(function (r) { return r.json(); })
+  return apiGet("personas")
     .then(function (data) {
       var whitelist = data.whitelist || [];
       if (!whitelist.length) whitelist = ["default"];
@@ -612,11 +636,8 @@ function renderPersonas(rows) {
     btn.className = "btn small";
     btn.textContent = "刷新";
     btn.addEventListener("click", function () {
-      fetch(API + "/persona_refresh", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ persona: row.persona_id })
-      }).then(function () { return loadPersonas(); });
+      apiPost("persona_refresh", { persona: row.persona_id })
+        .then(function () { return loadPersonas(); });
     });
     li.appendChild(name);
     li.appendChild(pill);
@@ -756,8 +777,7 @@ function loadLife() {
   var meta = document.getElementById("meta");
   meta.textContent = "互联网生活档案 · " + state.persona + " · " + date + "（加载中）";
   showError("");
-  fetch(API + "/overview?" + qs({ persona: state.persona, date: date }), { headers: { "Accept": "application/json" } })
-    .then(function (r) { return r.json(); })
+  apiGet("overview", { persona: state.persona, date: date })
     .then(function (data) {
       renderStats(data);
       renderDiary(data);
@@ -770,12 +790,10 @@ function loadLife() {
       meta.textContent = "档案加载失败";
       showError("生活档案加载失败，请确认插件已启用后重试。");
     });
-  fetch(API + "/status?" + qs({ persona: state.persona }), { headers: { "Accept": "application/json" } })
-    .then(function (r) { return r.json(); })
+  apiGet("status", { persona: state.persona })
     .then(renderStatus)
     .catch(function () {});
-  fetch(API + "/timeline/heatmap?" + qs({ persona: state.persona, month: date.slice(0, 7) }), { headers: { "Accept": "application/json" } })
-    .then(function (r) { return r.json(); })
+  apiGet("timeline/heatmap", { persona: state.persona, month: date.slice(0, 7) })
     .then(renderHeatmap)
     .catch(function () {});
 }
@@ -820,8 +838,7 @@ function loadTimeline(reset) {
   if (reset) state.timelineOffset = 0;
   var params = { persona: state.persona, limit: 50, offset: state.timelineOffset };
   if (state.timelineTypes) params.types = state.timelineTypes;
-  fetch(API + "/timeline?" + qs(params), { headers: { "Accept": "application/json" } })
-    .then(function (r) { return r.json(); })
+  apiGet("timeline", params)
     .then(function (data) {
       var ul = document.getElementById("timelineList");
       if (reset) ul.innerHTML = "";
@@ -878,8 +895,7 @@ function renderPlanFilters() {
 function loadPlans() {
   var params = { persona: state.persona, date: dateInput.value || today() };
   if (state.planStatus) params.status = state.planStatus;
-  fetch(API + "/plans?" + qs(params), { headers: { "Accept": "application/json" } })
-    .then(function (r) { return r.json(); })
+  apiGet("plans", params)
     .then(function (data) {
       var summary = data.summary || {};
       document.getElementById("planTotal").textContent = summary.total || 0;
@@ -955,8 +971,7 @@ function loadEvents(reset) {
   if (reset) state.eventOffset = 0;
   var params = { persona: state.persona, limit: 50, offset: state.eventOffset };
   if (state.eventKinds) params.kinds = state.eventKinds;
-  fetch(API + "/events?" + qs(params), { headers: { "Accept": "application/json" } })
-    .then(function (r) { return r.json(); })
+  apiGet("events", params)
     .then(function (data) {
       var labels = {
         observe: "观察", express: "表达", think: "思考",
@@ -1033,8 +1048,7 @@ function loadEvents(reset) {
 }
 
 function loadWishlist() {
-  fetch(API + "/wishlist?" + qs({ persona: state.persona }), { headers: { "Accept": "application/json" } })
-    .then(function (r) { return r.json(); })
+  apiGet("wishlist", { persona: state.persona })
     .then(function (data) {
       var items = data.items || [];
       var ul = document.getElementById("wishlistList");
@@ -1063,22 +1077,16 @@ function loadWishlist() {
           promoteBtn.className = "btn small primary";
           promoteBtn.textContent = "升级";
           promoteBtn.addEventListener("click", function () {
-            fetch(API + "/wishlist_action", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ persona: state.persona, id: item.id, action: "promote", interest_key: item.interest_key || "wishlist" })
-            }).then(function () { loadWishlist(); });
+            apiPost("wishlist_action", { persona: state.persona, id: item.id, action: "promote", interest_key: item.interest_key || "wishlist" })
+              .then(function () { loadWishlist(); });
           });
           li.appendChild(promoteBtn);
           var discardBtn = document.createElement("button");
           discardBtn.className = "btn small";
           discardBtn.textContent = "丢弃";
           discardBtn.addEventListener("click", function () {
-            fetch(API + "/wishlist_action", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ persona: state.persona, id: item.id, action: "discard", reason: "owner" })
-            }).then(function () { loadWishlist(); });
+            apiPost("wishlist_action", { persona: state.persona, id: item.id, action: "discard", reason: "owner" })
+              .then(function () { loadWishlist(); });
           });
           li.appendChild(discardBtn);
         }
@@ -1089,8 +1097,7 @@ function loadWishlist() {
 }
 
 function loadMemory() {
-  fetch(API + "/memory?" + qs({ persona: state.persona }), { headers: { "Accept": "application/json" } })
-    .then(function (r) { return r.json(); })
+  apiGet("memory", { persona: state.persona })
     .then(function (data) {
       document.getElementById("memTotal").textContent = data.total_notes || 0;
       document.getElementById("memDiary").textContent = data.diary_count || 0;
@@ -1100,8 +1107,7 @@ function loadMemory() {
     .catch(function () { showError("记忆概览加载失败。"); });
   var query = document.getElementById("memoryQuery").value;
   var date = document.getElementById("memoryDate").value;
-  fetch(API + "/memory_search?" + qs({ persona: state.persona, query: query, category: state.category, date: date, k: 20 }), { headers: { "Accept": "application/json" } })
-    .then(function (r) { return r.json(); })
+  apiGet("memory_search", { persona: state.persona, query: query, category: state.category, date: date, k: 20 })
     .then(function (data) {
       document.getElementById("memResults").textContent = data.count || 0;
       var ul = document.getElementById("memoryResults");
@@ -1144,8 +1150,7 @@ function loadMemory() {
 
 function loadShare() {
   var date = dateInput.value || today();
-  fetch(API + "/share?" + qs({ persona: state.persona, date: date }), { headers: { "Accept": "application/json" } })
-    .then(function (r) { return r.json(); })
+  apiGet("share", { persona: state.persona, date: date })
     .then(function (data) {
       var logs = data.logs || [];
       var pending = data.pending || [];
@@ -1172,11 +1177,8 @@ function loadShare() {
         btn.className = "btn small primary";
         btn.textContent = "手动分享";
         btn.addEventListener("click", function () {
-          fetch(API + "/share_note", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ persona: state.persona, note_id: note.id })
-          }).then(function () { loadShare(); });
+          apiPost("share_note", { persona: state.persona, note_id: note.id })
+            .then(function () { loadShare(); });
         });
         li.appendChild(btn);
         ul.appendChild(li);
@@ -1226,9 +1228,7 @@ function load() {
 
 function loadCapsules() {
   var list = document.getElementById("capsuleList");
-  fetch(API + "/capsules?" + qs({ persona: state.persona }),
-        { headers: { "Accept": "application/json" } })
-    .then(function (r) { return r.json(); })
+  apiGet("capsules", { persona: state.persona })
     .then(function (data) {
       var items = data.capsules || [];
       document.getElementById("capsuleSealed").textContent =
@@ -1280,20 +1280,14 @@ function loadCapsules() {
 }
 
 function openCapsule(capsuleId) {
-  fetch(API + "/capsules_open", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ persona: state.persona, capsule_id: capsuleId }),
-  }).then(function (r) { return r.json(); })
+  apiPost("capsules_open", { persona: state.persona, capsule_id: capsuleId })
     .then(function () { loadCapsules(); })
     .catch(function () { showError("打开胶囊失败。"); });
 }
 
 function loadReviews() {
   var list = document.getElementById("reviewList");
-  fetch(API + "/reviews?" + qs({ persona: state.persona }),
-        { headers: { "Accept": "application/json" } })
-    .then(function (r) { return r.json(); })
+  apiGet("reviews", { persona: state.persona })
     .then(function (data) {
       var items = data.reviews || [];
       document.getElementById("reviewTotal").textContent = items.length;
@@ -1340,10 +1334,7 @@ function loadReviews() {
 }
 
 function showReviewDiff(period, periodStart) {
-  fetch(API + "/reviews_diff?" +
-        qs({ persona: state.persona, period: period, period_start: periodStart }),
-        { headers: { "Accept": "application/json" } })
-    .then(function (r) { return r.json(); })
+  apiGet("reviews_diff", { persona: state.persona, period: period, period_start: periodStart })
     .then(function (data) {
       var panel = document.getElementById("reviewDiffPanel");
       var text = document.getElementById("reviewDiffText");
@@ -1358,9 +1349,7 @@ function showReviewDiff(period, periodStart) {
 
 function loadLifeEdits() {
   var list = document.getElementById("editList");
-  fetch(API + "/life_edits?" + qs({ persona: state.persona }),
-        { headers: { "Accept": "application/json" } })
-    .then(function (r) { return r.json(); })
+  apiGet("life_edits", { persona: state.persona })
     .then(function (data) {
       var items = data.edits || [];
       document.getElementById("editPending").textContent =
@@ -1417,20 +1406,14 @@ function loadLifeEdits() {
 }
 
 function lifeEditAction(action, logId) {
-  fetch(API + "/life_edits_" + action, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ persona: state.persona, log_id: logId }),
-  }).then(function (r) { return r.json(); })
+  apiPost("life_edits_" + action, { persona: state.persona, log_id: logId })
     .then(function () { loadLifeEdits(); })
     .catch(function () { showError("改动操作失败。"); });
 }
 
 function loadWatchlist() {
   var list = document.getElementById("watchList");
-  fetch(API + "/watchlist?" + qs({ persona: state.persona }),
-        { headers: { "Accept": "application/json" } })
-    .then(function (r) { return r.json(); })
+  apiGet("watchlist", { persona: state.persona })
     .then(function (data) {
       var watched = data.watchlist || [];
       var notes = data.notes || [];
@@ -1482,9 +1465,7 @@ function loadWatchlist() {
 
 function loadRevisits() {
   var list = document.getElementById("revisitList");
-  fetch(API + "/revisit_chains?" + qs({ persona: state.persona }),
-        { headers: { "Accept": "application/json" } })
-    .then(function (r) { return r.json(); })
+  apiGet("revisit_chains", { persona: state.persona })
     .then(function (data) {
       var chains = data.chains || [];
       var followUps = 0;
@@ -1552,9 +1533,7 @@ function loadEntities() {
   var box = document.getElementById("entityGraph");
   var empty = document.getElementById("entityEmpty");
   var seen = document.getElementById("entitySeenList");
-  fetch(API + "/entities?" + qs({ persona: state.persona }),
-        { headers: { "Accept": "application/json" } })
-    .then(function (r) { return r.json(); })
+  apiGet("entities", { persona: state.persona })
     .then(function (data) {
       var entities = data.entities || [];
       var links = data.links || [];
@@ -1627,10 +1606,7 @@ function renderEntityGraph(box, entities, links, seen) {
 
 function loadEntitySeen(seen, entityId) {
   seen.textContent = "";
-  fetch(API + "/entity_appears_on?" +
-        qs({ persona: state.persona, entity_id: entityId }),
-        { headers: { "Accept": "application/json" } })
-    .then(function (r) { return r.json(); })
+  apiGet("entity_appears_on", { persona: state.persona, entity_id: entityId })
     .then(function (data) {
       var platforms = data.platforms || [];
       if (!platforms.length) {
@@ -1674,11 +1650,8 @@ document.getElementById("personaSelect").addEventListener("change", function () 
   load();
 });
 document.getElementById("runBtn").addEventListener("click", function () {
-  fetch(API + "/run", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ persona: state.persona })
-  }).then(function () { setTimeout(load, 3000); });
+  apiPost("run", { persona: state.persona })
+    .then(function () { setTimeout(load, 3000); });
 });
 document.getElementById("memorySearchBtn").addEventListener("click", loadMemory);
 document.getElementById("memoryQuery").addEventListener("keydown", function (e) {

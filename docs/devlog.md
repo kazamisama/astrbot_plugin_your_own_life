@@ -2,6 +2,17 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-19 修复 Dashboard 全面「XXX加载失败」：接入插件页桥鉴权（v0.5.18）
+- 目标：修复 WebUI Dashboard 所有面板均显示「XXX加载失败」的问题。
+- 已确认决策：
+  - 根因：`pages/life/index.html` 用裸 `fetch("/api/plug/astrbot_plugin_your_own_life/api/...")` 调后端，不带 dashboard JWT；AstrBot（v4.25.5，`C:\application\AstrBot`）的 `auth_middleware` 对非白名单 `/api/...` 无 JWT 一律 401，插件页是受保护 iframe（cookie 为 httponly+samesite=Strict），裸 fetch 拿不到凭据。生产实测 `http://127.0.0.1:6185/api/plug/.../personas` 返回 401 确认。
+  - 修复方案：接入官方插件页桥 `window.AstrBotPluginPage.apiGet/apiPost`（dashboard 注入 bridge-sdk.js，父页面带 JWT 代理），桥不可用时回退裸 fetch（开发/独立打开场景）。响应解包遵循桥语义 `data.data ?? data`（本插件 webui.py 返回体无顶层 `data` 键，透传安全）。与 engram_core 家族插件同模式。
+  - 端点参数化：26 个 fetch 调用点统一为 `apiGet("xxx", {...})` / `apiPost("xxx", {...})`，助手内拼 `"api/" + path`。
+- 改动：`pages/life/index.html`（全部 27 处经 safe_edit）、`life/__init__.py`、`metadata.yaml`、`CHANGELOG.md`、`README.md`、`docs/requirements.md`；版本 v0.5.17 → v0.5.18。
+- 验证：test-kit venv 全量 `unittest discover -s tests -v` 273 passed（skipped=1）；提取页面内嵌脚本 `node --check` SYNTAX OK；Playwright 模拟桥加载真实页面：personas/overview/status/heatmap 四调用经桥、渲染正确、无错误横幅；11 个 tab 全部经桥取数、无 pageerror（验证脚本 tmp/verify_bridge/ 已删除）。
+- 遗留：真实生产 AstrBot dashboard 内打开页面未实测（需用户刷新插件页确认）；桥不可用的裸 fetch 回退路径未单独测试。
+- 下一步：提交 `chore(release): v0.5.18 ...` 并推送 origin main。
+
 ## 2026-08-16 review/debug：聊天事件时间戳与日期敏感测试（v0.5.17）
 - 目标：review 当前仓库并 debug；修复 `test_chat_hooks` 依赖真实日期导致的失败，以及测试失败后 SQLite 临时文件在 Windows 上的清理锁。
 - 已确认决策：`event_chain.ts` 必须使用调用方注入的 persona 本地时钟（`now_fn`），与 payload 内的 `ts` 保持一致；`message_in` / `reply_out` / `conversation_end` 三个聊天事件统一补 `ts=`。

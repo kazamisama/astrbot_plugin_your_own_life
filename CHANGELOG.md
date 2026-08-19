@@ -2,6 +2,16 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.18] - 2026-08-19
+
+### Fixed
+
+- 修复 WebUI 全部面板显示"加载失败"：`pages/life/index.html` 用裸 `fetch("/api/plug/...")` 调用后端，不带 dashboard 凭证，在 AstrBot v4.25+ 的插件页体系（受保护 iframe + 鉴权中间件）下所有请求被 401 拦截。改为优先走官方插件桥 `window.AstrBotPluginPage.apiGet/apiPost`（由父页面携带 JWT 代理请求，与 engram_core 同模式），桥不可用时回退裸 fetch 兼容旧的直接访问方式。
+
+### Notes
+
+- 验证：Playwright 模拟插件桥加载真实页面，默认 tab 四个接口（personas/overview/status/heatmap）经桥渲染成功，11 个 tab 全部经桥取数且无页面错误；`node --check` 语法通过。
+
 ## [0.5.17] - 2026-08-16
 
 ### Fixed
