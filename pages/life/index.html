@@ -449,8 +449,27 @@ var API = "/api/plug/astrbot_plugin_your_own_life/api";
 // AstrBot v4.25+ 的插件页运行在受保护 iframe 中：裸 fetch 不带 dashboard 凭证，
 // 会被 /api/plug 的鉴权中间件 401 拦截。优先走官方插件桥
 // （window.AstrBotPluginPage，由父页面携带 JWT 代理请求）；桥不可用时回退裸
-// fetch，兼容旧的直接访问方式。桥由 AstrBot 在 </body> 前注入，运行时再取。
+// fetch，兼容旧的直接访问方式。桥 SDK 由 AstrBot 注入在页面尾部，晚于本脚本执行，
+// 因此首次 load 前要等待桥出现（等不到则走裸 fetch 兜底）。
+// 注意：JS 注释/字符串里不得再出现字面量 body/html 闭合标签，AstrBot 按首个
+// 匹配位置注入桥脚本，注释里的闭合标签会让注入点错位并提前截断本脚本。
 function bridge() { return window.AstrBotPluginPage || null; }
+
+function waitForBridge(timeoutMs) {
+  return new Promise(function (resolve) {
+    if (bridge()) return resolve(true);
+    var deadline = Date.now() + timeoutMs;
+    var timer = setInterval(function () {
+      if (bridge()) {
+        clearInterval(timer);
+        resolve(true);
+      } else if (Date.now() > deadline) {
+        clearInterval(timer);
+        resolve(false);
+      }
+    }, 50);
+  });
+}
 
 function apiGet(path, params) {
   var b = bridge();
@@ -1661,7 +1680,7 @@ document.getElementById("timelineMore").addEventListener("click", function () { 
 document.getElementById("eventMore").addEventListener("click", function () { loadEvents(false); });
 
 dateInput.value = today();
-load();
+waitForBridge(3000).then(load);
 </script>
 </body>
 </html>

@@ -2,6 +2,12 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.19] - 2026-08-19
+
+### Fixed
+
+- 修复 v0.5.18 桥接改造后插件页整体卡死：页面 JS 注释中的字面量 `</body>` 命中 AstrBot 注入桥脚本的朴素字符串替换（取首个匹配位置），导致桥 `<script>` 标签（含 `</script>`）被注入进注释，提前截断页面主脚本，全部功能失效。已移除注释中的闭合标签字面量并补充警示注释；同时首次 `load()` 改为经 `waitForBridge(3000)` 等待桥注入后再执行，等不到则回退裸 fetch。已在真实生产 dashboard（v4.25.5）用 Playwright 实测：桥加载成功，personas/overview/status/heatmap 均 200，页面正常渲染。
+
 ## [0.5.18] - 2026-08-19
 
 ### Fixed

@@ -2,6 +2,17 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-08-19 修复 v0.5.18 后插件页整体卡死：桥注入点被注释里的闭合标签截获（v0.5.19）
+- 目标：用户反馈 v0.5.18 后 Dashboard 插件页"直接卡住了"，定位并修复。
+- 已确认决策：
+  - 根因：`pages/life/index.html` 第 452 行 JS 注释含字面量 `</body>`。AstrBot 注入桥脚本用朴素 `replace("</body>", bridge_tag, 1)`（`dashboard/routes/plugin.py` `_rewrite_plugin_page_html`），取首个匹配位置——命中了注释而非真正的闭合标签。注入的桥标签含 `</script>`，落在 `<script>` raw text 里把页面主脚本提前截断，453 行之后的全部 JS 被当成 HTML 解析（console 里大量 SVG 属性报错即证据），页面功能全灭，呈现"卡住"。
+  - 生产实证：用 cmd_config.json 的 jwt_secret 自签 dashboard JWT，Playwright 走真实 SPA（hash 路由 `/#/plugin-page/<plugin>/<page>`）复现：注入点错位确认；修复后重跑，bridge-sdk.js 200、`hasBridge: true`、personas/overview/status/heatmap 全 200、errorBanner 为空、截图渲染正常。
+  - 修复：移除注释中的闭合标签字面量并加警示注释（JS 注释/字符串内禁止再出现 body/html 闭合标签字面量）；首次 `load()` 改为 `waitForBridge(3000).then(load)`（桥注入在本内联脚本之后，解析期拿不到桥）。
+- 改动：`pages/life/index.html`、`life/__init__.py`、`metadata.yaml`、`CHANGELOG.md`、`README.md`、`docs/requirements.md`；版本 v0.5.18 → v0.5.19。
+- 验证：生产真实 dashboard Playwright 端到端通过（见上）；全量单测与 UTF-8 读回校验在本次提交前执行。
+- 遗留：桥不可用的裸 fetch 回退路径（直接访问场景）未单独实测；AstrBot 上游注入逻辑对注释/字符串内闭合标签的误判属上游行为，本仓库只能规避。
+- 下一步：提交 `chore(release): v0.5.19 ...` 并推送 origin main。
+
 ## 2026-08-19 修复 Dashboard 全面「XXX加载失败」：接入插件页桥鉴权（v0.5.18）
 - 目标：修复 WebUI Dashboard 所有面板均显示「XXX加载失败」的问题。
 - 已确认决策：
