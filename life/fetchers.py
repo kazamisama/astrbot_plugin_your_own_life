@@ -340,10 +340,13 @@ async def fetch_all(config: Any, client: httpx.AsyncClient,
     tasks: list[asyncio.Task] = []
     first_query = queries[0] if queries else None
 
-    if config.hn_enabled:
-        tasks.append(asyncio.create_task(_safe(fetch_hn(client, first_query))))
-    if config.github_enabled:
-        tasks.append(asyncio.create_task(_safe(fetch_github(client, first_query))))
+    # 每个话题都检索一次；只取 queries[0] 会让 pick_topics(count=3) 的另外两个话题
+    # 完全不出现在漫游候选里。
+    for query in queries or [None]:
+        if config.hn_enabled:
+            tasks.append(asyncio.create_task(_safe(fetch_hn(client, query))))
+        if config.github_enabled:
+            tasks.append(asyncio.create_task(_safe(fetch_github(client, query))))
     if config.reddit_enabled and config.reddit_subreddits:
         tasks.append(asyncio.create_task(_safe(fetch_reddit(client, config.reddit_subreddits))))
     for feed in config.rss_feeds:

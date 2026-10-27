@@ -2,6 +2,23 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.21] - 2026-10-27
+
+### Fixed
+
+- 多实例并发：`ensure_plan` / `add_optional_plan` 改为 `INSERT OR IGNORE` 后回查，两个实例同时排同一计划不再抛 `IntegrityError`；笔记唯一约束迁移在删旧表后立即重建 `idx_notes_persona_url` / `idx_notes_persona_fetched`，迁移当次进程不再全表扫描 notes。
+- 变更与事件一致性：软删/恢复/计划 defer/skip/LLM 编辑的事件幂等键加入变更 id 或时间，二次删除→恢复→再删除不再被静默吞掉；owner 批准/拒绝/回滚补写事件链；`purge_trash` 清空 `change_log` 中已删短记/日记的正文快照。
+- 记忆编辑：兴趣 weight=0.0 不再被回滚成 0.5，编辑重量也不再顺带 `seen_count + 1`；`_valid_share` 正确解析字符串 "false"；wishlist 转正保留已有兴趣的权重/次数/显示名并写变更账本。
+- 提交后副作用：浏览/日记的短记与日记已入库后，能量记账、事件写入或兴趣衰减失败不再把整个任务标为 error；WebUI `/run` 增加单飞与异常日志，重复点击返回 `already running`。
+- 工具边界：`edit_life_plan` 的 add/defer 现在遵守睡眠窗、过去时间、每日动作上限与 diary 依赖，并严格校验日期与 reorder 位置；LLM 不能再经工具通道绕过 `plan_daily_action_cap` 等硬约束。
+- 统计与检索：overview/status/query_life_status 的计数改为 SQL COUNT，不再被列表 limit 截断；`query_life_status` 历史日期事件按 `ts` 查询；watchlist 字符串 `type:url` 不再被切坏；漫游对每个话题都检索，探索位真正进入最终选题；`notes_min` 未达成时用确定性候选补齐。
+- LLM/人格缓存：provider 首次解析失败后允许重试，不再永久无 provider；LLM 调用加 120 秒超时；persona 刷新失败只标状态，不再清空仍可用的缓存 prompt。
+
+### Notes
+
+- 测试：300 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 未修：统一记忆宿主先写、本地 commit 失败的孤儿数据无补偿接口（engram_core 无删除 API）；工具通道的 add 仍未做精力 gate（工具未注入 ESM）。
+
 ## [0.5.20] - 2026-10-27
 
 ### Fixed

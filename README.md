@@ -6,7 +6,7 @@
 
 当前 v1 仅 owner 侧档案，不进入群聊主动表达；跨平台社交交互为后续方向。
 
-当前版本：v0.5.20。
+当前版本：v0.5.21。
 
 ## 功能
 
@@ -41,6 +41,7 @@
 - 平台对话感知（v0.5.15）：`life_presence_enabled` 开启后，生活任务进行中收到的平台消息会等到任务结束再回复，并注入当天经历；回复后进入 `conversation_wait_minutes` 等待窗，窗口内暂停该 persona 定时事件，用户消息/bot 回复/会话结束写入事件链。
 - 工程修复（v0.5.16-v0.5.17）：v0.5.16 修复平台对话/presence 时区、ShareGate 受管 LLM 预算、兴趣同批累加、夜间复盘后置动作原子性与 WebUI `share_note` 非法输入；v0.5.17 统一 `message_in` / `reply_out` / `conversation_end` 事件时间戳到 persona 本地注入时钟并稳定时区测试。
 - 审计修复（v0.5.20）：时间胶囊恢复自动封存（夜间每日从当日短记封一条），WebUI 新增「回收站」tab 与 `POST /trash_add`，删除短记时级联清理胶囊；`/life_reset` 补齐计划/事件链/人格缓存；调度器异常后自愈、次日槽位先播种、当日错过的 pending 计划补做、等待期被 skip 的计划不再执行；`edit_life_plan` 与计划窗口严格校验 `HH:MM`。
+- 审计修复（v0.5.21）：计划播种并发改 `INSERT OR IGNORE`、唯一约束迁移后重建索引；软删/恢复/defer/skip/LLM 编辑事件键带变更 id，owner 批准/拒绝/回滚补事件链，回收站清除正文快照；兴趣 weight=0.0 与 seen_count 不再被改写、分享字符串 "false" 正确解析、wishlist 转正保留原兴趣；浏览/日记提交后副作用失败不再报 error，WebUI `/run` 单飞；工具 add/defer 遵守睡眠窗、过去时间、每日上限与 diary 依赖；overview/status 计数不再截断，watchlist、多话题、探索位、notes_min 修正；LLM provider 可重试、调用 120s 超时、persona 刷新失败保留缓存。
 - 摘要优先：只持久化摘要、观点与链接，不保存网页原文。
 - 生态联动：可选接入 ESM 读取精力/情绪、施加信号；v0.4.4 起精力消费缺失时显式记录本地估算，不再默认静默降级；配置 `memory_host` 后统一记忆宿主为硬依赖。
 

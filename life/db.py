@@ -382,6 +382,8 @@ class LifeDB:
             f"INSERT INTO notes ({col_sql}) SELECT {col_sql} FROM notes_migrate_old"
         )
         self._conn.execute("DROP TABLE notes_migrate_old")
+        # 旧索引随旧表删除；executescript 会跳过同名 IF NOT EXISTS，必须补建。
+        self._conn.executescript(_SCHEMA)
         self._conn.execute("PRAGMA foreign_keys = ON")
 
     def _now(self) -> str:
@@ -537,6 +539,31 @@ class LifeDB:
             "WHERE persona_id = ? AND kind = ? AND started_at LIKE ?",
             (persona_id, kind, date + "%"),
         )
+        return int(row["n"] or 0) if row else 0
+
+    def count_sessions(
+        self,
+        persona_id: str,
+        date: Optional[str] = None,
+        *,
+        exclude_kind: str = "",
+        status: Optional[str] = None,
+    ) -> int:
+        sql = "SELECT COUNT(*) AS n FROM browse_sessions WHERE persona_id = ?"
+        params: list[Any] = [persona_id]
+        if date:
+            sql += " AND started_at LIKE ?"
+            params.append(date + "%")
+        if exclude_kind:
+            sql += " AND kind != ?"
+            params.append(exclude_kind)
+        if status is not None:
+            if status.endswith("%"):
+                sql += " AND status LIKE ?"
+            else:
+                sql += " AND status = ?"
+            params.append(status)
+        row = self._one(sql, tuple(params))
         return int(row["n"] or 0) if row else 0
 
     # ----- notes -----
@@ -1608,6 +1635,12 @@ class LifeDB:
             "WHERE persona_id = ? AND id = ? AND status = 'pending_owner'",
             (persona_id, log_id),
         )
+        if cur.rowcount > 0:
+            self.append_event(
+                persona_id, "change",
+                {"entity": "memory", "action": "reject", "change_id": log_id},
+                [], f"change/{log_id}/rejected",
+            )
         return cur.rowcount > 0
 
     def _apply_change_payload(
@@ -1626,11 +1659,20 @@ class LifeDB:
         if entity == "interest":
             key = str(payload.get("key") or entity_id or "")
             name = str(payload.get("name") or key)
+            raw_weight = payload.get("weight")
             try:
-                weight = max(0.0, min(1.0, float(payload.get("weight") or 0.5)))
+                weight = 0.5 if raw_weight is None else float(raw_weight)
             except (TypeError, ValueError):
                 weight = 0.5
-            self.upsert_interest(persona_id, key, name, weight)
+            weight = max(0.0, min(1.0, weight))
+            current = self._one(
+                "SELECT seen_count FROM interests WHERE persona_id = ? AND key = ?",
+                (persona_id, key),
+            )
+            self.upsert_interest(
+                persona_id, key, name, weight,
+                seen_count=int(current["seen_count"]) if current else None,
+            )
             return True
         return False
 
@@ -1648,6 +1690,12 @@ class LifeDB:
             return None
         self._execute(
             "UPDATE change_log SET status = 'applied' WHERE id = ?", (log_id,)
+        )
+        self.append_event(
+            persona_id, "change",
+            {"entity": "memory", "action": "apply", "change_id": log_id,
+             "target": row["entity"], "target_id": row["entity_id"]},
+            [], f"change/{log_id}/applied",
         )
         return self.get_change_log_entry(persona_id, log_id)
 
@@ -1668,7 +1716,7 @@ class LifeDB:
         self._execute(
             "UPDATE change_log SET status = 'rolled_back' WHERE id = ?", (log_id,)
         )
-        self.log_change(
+        audit_id = self.log_change(
             persona_id,
             row["entity"],
             row["entity_id"],
@@ -1677,6 +1725,13 @@ class LifeDB:
             actor=actor,
             reason=f"rollback_of:{log_id}",
             status="rolled_back",
+        )
+        self.append_event(
+            persona_id, "rollback",
+            {"entity": "memory", "action": "rollback", "change_id": log_id,
+             "audit_id": audit_id, "target": row["entity"],
+             "target_id": row["entity_id"]},
+            [], f"change/{log_id}/rollback/{audit_id}",
         )
         return self.get_change_log_entry(persona_id, log_id)
 
@@ -1817,18 +1872,19 @@ class LifeDB:
         scheduled_at: str = "",
         fixed: bool = False,
     ) -> int:
+        cur = self._execute(
+            "INSERT OR IGNORE INTO life_plans "
+            "(persona_id, plan_date, task_id, kind, fixed, scheduled_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (persona_id, plan_date, task_id, kind, 1 if fixed else 0, scheduled_at or ""),
+        )
+        if cur.rowcount > 0:
+            return int(cur.lastrowid)
         row = self._one(
             "SELECT id FROM life_plans WHERE persona_id = ? AND plan_date = ? AND task_id = ?",
             (persona_id, plan_date, task_id),
         )
-        if row is not None:
-            return int(row["id"])
-        cur = self._execute(
-            "INSERT INTO life_plans (persona_id, plan_date, task_id, kind, fixed, scheduled_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (persona_id, plan_date, task_id, kind, 1 if fixed else 0, scheduled_at or ""),
-        )
-        return int(cur.lastrowid)
+        return int(row["id"]) if row else 0
 
     def update_plan(
         self,
@@ -1909,18 +1965,14 @@ class LifeDB:
         scheduled_at: str,
         reason: str = "",
     ) -> Optional[int]:
-        existing = self._one(
-            "SELECT id FROM life_plans WHERE persona_id = ? AND plan_date = ? AND task_id = ?",
-            (persona_id, plan_date, task_id),
-        )
-        if existing is not None:
-            return None
         cur = self._execute(
-            "INSERT INTO life_plans "
+            "INSERT OR IGNORE INTO life_plans "
             "(persona_id, plan_date, task_id, kind, status, fixed, reason, scheduled_at) "
             "VALUES (?, ?, ?, ?, 'pending', 0, ?, ?)",
             (persona_id, plan_date, task_id, kind, reason or "", scheduled_at or ""),
         )
+        if cur.rowcount == 0:
+            return None
         plan_id = int(cur.lastrowid)
         self.append_event(
             persona_id,
@@ -2001,7 +2053,7 @@ class LifeDB:
             {"entity": "plan", "action": "defer", "plan_date": plan_date,
              "task_id": task_id, "scheduled_at": scheduled_at, "reason": reason},
             [{"entity": "plan", "plan_date": plan_date, "task_id": task_id}],
-            f"plan/{plan_date}/{task_id}/defer",
+            f"plan/{plan_date}/{task_id}/defer/{scheduled_at}",
         )
         return True
 
@@ -2032,7 +2084,7 @@ class LifeDB:
             {"entity": "plan", "action": "skip", "plan_date": plan_date,
              "task_id": task_id, "reason": reason},
             [{"entity": "plan", "plan_date": plan_date, "task_id": task_id}],
-            f"plan/{plan_date}/{task_id}/skip",
+            f"plan/{plan_date}/{task_id}/skip/{now}",
         )
         return True
 
@@ -2049,7 +2101,7 @@ class LifeDB:
             "UPDATE notes SET deleted_at = ? WHERE id = ? AND persona_id = ?",
             (now, note_id, persona_id),
         )
-        self.log_change(
+        log_id = self.log_change(
             persona_id, "note", note_id,
             json.dumps(note, ensure_ascii=False, default=str),
             json.dumps({"deleted_at": now}, ensure_ascii=False),
@@ -2059,9 +2111,9 @@ class LifeDB:
             persona_id,
             "change",
             {"entity": "note", "note_id": note_id, "action": "soft_delete",
-             "reason": reason},
+             "reason": reason, "change_id": log_id},
             [{"note_id": note_id, "url": note.get("url") or ""}],
-            f"note/{note_id}/soft-delete",
+            f"note/{note_id}/soft-delete/{log_id}",
             ts=now,
         )
         return True
@@ -2078,7 +2130,7 @@ class LifeDB:
             "UPDATE notes SET deleted_at = '' WHERE id = ? AND persona_id = ?",
             (note_id, persona_id),
         )
-        self.log_change(
+        log_id = self.log_change(
             persona_id, "note", note_id,
             json.dumps({"deleted_at": note["deleted_at"]}, ensure_ascii=False),
             json.dumps({"deleted_at": ""}, ensure_ascii=False),
@@ -2088,9 +2140,9 @@ class LifeDB:
             persona_id,
             "rollback",
             {"entity": "note", "note_id": note_id, "action": "restore",
-             "reason": reason},
+             "reason": reason, "change_id": log_id},
             [{"note_id": note_id, "url": note.get("url") or ""}],
-            f"note/{note_id}/restore",
+            f"note/{note_id}/restore/{log_id}",
         )
         return True
 
@@ -2108,7 +2160,7 @@ class LifeDB:
             "UPDATE diary_entries SET deleted_at = ? WHERE persona_id = ? AND date = ?",
             (now, persona_id, date),
         )
-        self.log_change(
+        log_id = self.log_change(
             persona_id, "diary", date,
             json.dumps(diary, ensure_ascii=False, default=str),
             json.dumps({"deleted_at": now}, ensure_ascii=False),
@@ -2118,9 +2170,9 @@ class LifeDB:
             persona_id,
             "change",
             {"entity": "diary", "date": date, "action": "soft_delete",
-             "reason": reason},
+             "reason": reason, "change_id": log_id},
             [{"entity": "diary", "date": date}],
-            f"diary/{date}/soft-delete",
+            f"diary/{date}/soft-delete/{log_id}",
             ts=now,
         )
         return True
@@ -2138,7 +2190,7 @@ class LifeDB:
             "UPDATE diary_entries SET deleted_at = '' WHERE persona_id = ? AND date = ?",
             (persona_id, date),
         )
-        self.log_change(
+        log_id = self.log_change(
             persona_id, "diary", date,
             json.dumps({"deleted_at": diary["deleted_at"]}, ensure_ascii=False),
             json.dumps({"deleted_at": ""}, ensure_ascii=False),
@@ -2148,9 +2200,9 @@ class LifeDB:
             persona_id,
             "rollback",
             {"entity": "diary", "date": date, "action": "restore",
-             "reason": reason},
+             "reason": reason, "change_id": log_id},
             [{"entity": "diary", "date": date}],
-            f"diary/{date}/restore",
+            f"diary/{date}/restore/{log_id}",
         )
         return True
 
@@ -2183,12 +2235,23 @@ class LifeDB:
                 (persona_id, cutoff),
             ).fetchall()
             for row in note_rows:
+                note_id = int(row["id"])
                 self._conn.execute(
                     "DELETE FROM time_capsules WHERE persona_id = ? AND note_id = ?",
-                    (persona_id, int(row["id"])),
+                    (persona_id, note_id),
                 )
-                self._conn.execute("DELETE FROM notes WHERE id = ?", (int(row["id"]),))
+                self._conn.execute(
+                    "UPDATE change_log SET old_value = '', new_value = '' "
+                    "WHERE persona_id = ? AND entity = 'note' AND entity_id = ?",
+                    (persona_id, str(note_id)),
+                )
+                self._conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
             for row in diary_rows:
+                self._conn.execute(
+                    "UPDATE change_log SET old_value = '', new_value = '' "
+                    "WHERE persona_id = ? AND entity = 'diary' AND entity_id = ?",
+                    (persona_id, str(row["date"])),
+                )
                 self._conn.execute(
                     "DELETE FROM diary_entries WHERE persona_id = ? AND date = ?",
                     (persona_id, row["date"]),
@@ -2223,6 +2286,44 @@ class LifeDB:
     def list_persona_prompts(self) -> list[dict]:
         return self._rows("SELECT * FROM persona_prompts ORDER BY persona_id")
 
+    def count_notes(self, persona_id: str, date: Optional[str] = None) -> int:
+        sql = (
+            "SELECT COUNT(*) AS n FROM notes "
+            "WHERE persona_id = ? AND deleted_at = ''"
+        )
+        params: list[Any] = [persona_id]
+        if date:
+            sql += " AND fetched_at LIKE ?"
+            params.append(date + "%")
+        row = self._one(sql, tuple(params))
+        return int(row["n"] or 0) if row else 0
+
+    def count_share_log(
+        self,
+        persona_id: str,
+        date: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> int:
+        sql = "SELECT COUNT(*) AS n FROM share_log WHERE persona_id = ?"
+        params: list[Any] = [persona_id]
+        if date:
+            sql += " AND attempted_at LIKE ?"
+            params.append(date + "%")
+        if status:
+            sql += " AND status = ?"
+            params.append(status)
+        row = self._one(sql, tuple(params))
+        return int(row["n"] or 0) if row else 0
+
+    def list_events_on_date(
+        self, persona_id: str, date: str, limit: int = 50
+    ) -> list[dict]:
+        return self._rows(
+            "SELECT * FROM event_chain WHERE persona_id = ? AND ts LIKE ? "
+            "ORDER BY ts DESC, id DESC LIMIT ?",
+            (persona_id, date + "%", max(1, int(limit))),
+        )
+
     # ----- queries used by commands / webui -----
 
     def get_overview(self, persona_id: str, date: Optional[str] = None) -> dict[str, Any]:
@@ -2233,7 +2334,6 @@ class LifeDB:
         interests = self.get_interests(persona_id, limit=8)
         snapshots = self.list_state_snapshots(persona_id, since_date=date, limit=100)
         share_logs = self.list_share_log(persona_id, date, limit=50)
-        browse_sessions = [s for s in sessions if s.get("kind") != "peek"]
         return {
             "persona_id": persona_id,
             "date": date,
@@ -2244,13 +2344,26 @@ class LifeDB:
             "snapshots": snapshots,
             "share_logs": share_logs,
             "stats": {
-                "sessions": len(browse_sessions),
-                "notes": len(notes),
-                "completed": sum(1 for s in browse_sessions if s["status"] == "completed"),
-                "skipped": sum(1 for s in browse_sessions if s["status"].startswith("skipped")),
-                "errors": sum(1 for s in browse_sessions if s["status"] in ("error", "failed")),
-                "shares_sent": sum(1 for s in share_logs if s["status"] == "sent"),
-                "shares_blocked": sum(1 for s in share_logs if s["status"] == "blocked"),
+                "sessions": self.count_sessions(
+                    persona_id, date, exclude_kind="peek"
+                ),
+                "notes": self.count_notes(persona_id, date),
+                "completed": self.count_sessions(
+                    persona_id, date, exclude_kind="peek", status="completed"
+                ),
+                "skipped": self.count_sessions(
+                    persona_id, date, exclude_kind="peek", status="skipped%"
+                ),
+                "errors": (
+                    self.count_sessions(
+                        persona_id, date, exclude_kind="peek", status="error"
+                    )
+                    + self.count_sessions(
+                        persona_id, date, exclude_kind="peek", status="failed"
+                    )
+                ),
+                "shares_sent": self.count_share_log(persona_id, date, "sent"),
+                "shares_blocked": self.count_share_log(persona_id, date, "blocked"),
             },
         }
 
@@ -2261,9 +2374,6 @@ class LifeDB:
         diary = self.get_diary(persona_id, date)
         snapshots = self.list_state_snapshots(persona_id, since_date=date, limit=5)
         latest = snapshots[0] if snapshots else {}
-        completed = sum(
-            1 for s in sessions if s["status"] == "completed" and s.get("kind") != "peek"
-        )
         return {
             "persona_id": persona_id,
             "date": date,
@@ -2271,8 +2381,10 @@ class LifeDB:
             "energy": latest.get("energy")
             if latest.get("energy") is not None
             else (diary.get("energy") if diary else None),
-            "browse_count": completed,
-            "notes_count": len(notes),
+            "browse_count": self.count_sessions(
+                persona_id, date, exclude_kind="peek", status="completed"
+            ),
+            "notes_count": self.count_notes(persona_id, date),
             "recent_notes": [
                 {"id": n["id"], "title": n["title"]} for n in notes[:5]
             ],

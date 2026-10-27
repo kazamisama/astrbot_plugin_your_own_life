@@ -3,10 +3,12 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from life.config import LifeConfig, SleepWindow
 from life.db import LifeDB
 from life.life_tool import (
     LifeEditTool,
@@ -15,6 +17,7 @@ from life.life_tool import (
     LifePlansTool,
     LifeStatusTool,
     edit_life_memory,
+    edit_life_plan,
     query_life_status,
     recall_life_memory,
     search_life_memory,
@@ -290,6 +293,55 @@ class LifeToolTest(unittest.IsolatedAsyncioTestCase):
         events = self.db.list_events("shelly")
         self.assertEqual(events[0]["kind"], "recall")
         self.assertEqual(json.loads(events[0]["payload"])["query"], "life_status")
+
+    def test_add_plan_enforces_config_constraints(self):
+        from datetime import time as day_time
+
+        tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        day_after = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
+        config = LifeConfig(
+            life_personas=["shelly"],
+            plan_daily_action_cap=1,
+            sleep_window=SleepWindow(day_time(23, 0), day_time(7, 0)),
+        )
+        sleep = edit_life_plan(
+            self.db, "shelly", "add", "sleep-plan", date=tomorrow,
+            kind="peek", time="23:30", config=config,
+        )
+        self.assertEqual(sleep["error"], "sleep_window")
+        first = edit_life_plan(
+            self.db, "shelly", "add", "first-plan", date=tomorrow,
+            kind="peek", time="09:00", config=config,
+        )
+        self.assertTrue(first["ok"])
+        capped = edit_life_plan(
+            self.db, "shelly", "add", "second-plan", date=tomorrow,
+            kind="peek", time="10:00", config=config,
+        )
+        self.assertEqual(capped["error"], "daily_action_cap")
+        diary = edit_life_plan(
+            self.db, "shelly", "add", "diary-plan", date=day_after,
+            kind="diary", time="12:00", config=config,
+        )
+        self.assertEqual(diary["error"], "dependency_not_met")
+        past = edit_life_plan(
+            self.db, "shelly", "add", "past-plan", date="2020-01-01",
+            kind="peek", time="12:00", config=config,
+        )
+        self.assertEqual(past["error"], "past_window")
+
+    def test_status_tool_reads_events_for_historical_date(self):
+        self.db.append_event(
+            "shelly", "observe", {"entity": "past"},
+            [], "past/2026-08-11", ts="2026-08-11 09:00:00",
+        )
+        self.db.append_event(
+            "shelly", "observe", {"entity": "today"},
+            [], "today/2026-08-12", ts="2026-08-12 09:00:00",
+        )
+        data = query_life_status(self.db, "shelly", date="2026-08-11")
+        self.assertEqual(len(data["events"]), 1)
+        self.assertEqual(data["events"][0]["kind"], "observe")
 
     async def test_status_tool_refuses_without_persona(self):
         tool = LifeStatusTool(self.db, _FakePersonas())

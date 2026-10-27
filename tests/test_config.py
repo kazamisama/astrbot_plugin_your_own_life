@@ -45,6 +45,22 @@ def _load_real_astrbot_config() -> type:
 
 
 class ConfigTest(unittest.TestCase):
+    def test_watchlist_string_forms(self):
+        cfg = load_config({"watchlist": [
+            "blog:https://example.com/blog",
+            "github_repo:tokio-rs/tokio",
+            "rss:myid:https://example.com/feed",
+        ]})
+        self.assertEqual(cfg.watchlist[0], {
+            "type": "blog", "id": "", "url": "https://example.com/blog",
+        })
+        self.assertEqual(cfg.watchlist[1], {
+            "type": "github_repo", "id": "tokio-rs/tokio", "url": "",
+        })
+        self.assertEqual(cfg.watchlist[2], {
+            "type": "rss", "id": "myid", "url": "https://example.com/feed",
+        })
+
     def test_conf_schema_object_nodes_define_items(self):
         schema_path = Path(__file__).resolve().parent.parent / "_conf_schema.json"
         schema = json.loads(schema_path.read_text(encoding="utf-8"))

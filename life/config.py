@@ -77,14 +77,20 @@ def _parse_watchlist(value: Any) -> list[dict[str, str]]:
                 "url": str(raw.get("url") or "").strip(),
             }
         elif isinstance(raw, str):
-            parts = [part.strip() for part in raw.split(":", 2)]
-            if len(parts) < 2:
+            text = raw.strip()
+            sep = text.find(":")
+            if sep <= 0:
                 continue
-            item = {
-                "type": parts[0].lower(),
-                "id": parts[1],
-                "url": parts[2] if len(parts) > 2 else "",
-            }
+            kind = text[:sep].strip().lower()
+            rest = text[sep + 1:].strip()
+            if rest.startswith(("http://", "https://")):
+                item = {"type": kind, "id": "", "url": rest}
+            elif ":" in rest:
+                item_id, url = rest.split(":", 1)
+                item = {"type": kind, "id": item_id.strip(),
+                        "url": url.strip()}
+            else:
+                item = {"type": kind, "id": rest, "url": ""}
         else:
             continue
         if item["type"] and (item["id"] or item["url"]):

@@ -4,10 +4,14 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from types import SimpleNamespace
+from unittest.mock import patch
+
 from life.fetchers import (
     _html_description,
     _html_title,
     clean_text,
+    fetch_all,
     parse_github_payload,
     parse_hn_payload,
     parse_reddit_payload,
@@ -85,6 +89,41 @@ class FetchersTest(unittest.TestCase):
         items = parse_rss_text(atom)
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].title, "Two")
+
+
+class FetchAllTest(unittest.IsolatedAsyncioTestCase):
+    async def test_fetch_all_queries_every_topic(self):
+        calls = []
+
+        async def fake_hn(client, query):
+            calls.append(("hn", query))
+            return []
+
+        async def fake_github(client, query):
+            calls.append(("github", query))
+            return []
+
+        config = SimpleNamespace(
+            hn_enabled=True,
+            github_enabled=True,
+            reddit_enabled=False,
+            reddit_subreddits=[],
+            rss_feeds=[],
+            watchlist=[],
+            tavily_api_key="",
+        )
+        with patch("life.fetchers.fetch_hn", fake_hn), patch(
+            "life.fetchers.fetch_github", fake_github
+        ):
+            await fetch_all(config, object(), ["alpha", "beta"])
+        self.assertEqual(
+            [call for call in calls if call[0] == "hn"],
+            [("hn", "alpha"), ("hn", "beta")],
+        )
+        self.assertEqual(
+            [call for call in calls if call[0] == "github"],
+            [("github", "alpha"), ("github", "beta")],
+        )
 
 
 if __name__ == "__main__":

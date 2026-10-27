@@ -8,7 +8,7 @@ from typing import Any, Optional
 from life.db import LifeDB
 from life.memory_adapter import MemoryHostError
 from life.persona import PersonaService
-from life.timeutil import DEFAULT_TIMEZONE, local_today
+from life.timeutil import DEFAULT_TIMEZONE, local_now, local_today
 
 try:
     from astrbot.core.agent.run_context import ContextWrapper
@@ -370,11 +370,25 @@ def query_life_status(
         persona_id, since_date=plan_date, limit=limit
     )
     notes = db.list_notes(persona_id, plan_date, limit=limit)
-    events = db.list_events(persona_id, limit=max(limit * 5, 50))
-    events = [
-        e for e in events if str(e.get("ts") or "").startswith(plan_date)
-    ][:limit]
-    browse = [s for s in sessions if s.get("kind") != "peek"]
+    events = db.list_events_on_date(persona_id, plan_date, limit=limit)
+    stats = {
+        "sessions": db.count_sessions(persona_id, plan_date, exclude_kind="peek"),
+        "notes": db.count_notes(persona_id, plan_date),
+        "completed": db.count_sessions(
+            persona_id, plan_date, exclude_kind="peek", status="completed"
+        ),
+        "skipped": db.count_sessions(
+            persona_id, plan_date, exclude_kind="peek", status="skipped%"
+        ),
+        "errors": (
+            db.count_sessions(
+                persona_id, plan_date, exclude_kind="peek", status="error"
+            )
+            + db.count_sessions(
+                persona_id, plan_date, exclude_kind="peek", status="failed"
+            )
+        ),
+    }
     return {
         "persona_id": persona_id,
         "date": plan_date,
@@ -385,20 +399,7 @@ def query_life_status(
             (s.get("energy") for s in snapshots if s.get("energy") is not None),
             None,
         ),
-        "stats": {
-            "sessions": len(browse),
-            "notes": len(notes),
-            "completed": sum(
-                1 for s in browse if s.get("status") == "completed"
-            ),
-            "skipped": sum(
-                1 for s in browse
-                if str(s.get("status") or "").startswith("skipped")
-            ),
-            "errors": sum(
-                1 for s in browse if s.get("status") in ("error", "failed")
-            ),
-        },
+        "stats": stats,
         "sessions": [
             {
                 "started_at": s.get("started_at") or "",
@@ -514,12 +515,33 @@ def edit_life_plan(
     time: str = "",
     position: int = 1,
     reason: str = "",
+    config: Optional[Any] = None,
 ) -> dict[str, Any]:
     plan_date = date or local_today(getattr(db, "timezone", DEFAULT_TIMEZONE))
+    try:
+        datetime.strptime(plan_date, "%Y-%m-%d")
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "date must be YYYY-MM-DD"}
     task_id = str(task_id or "").strip()[:80]
     reason = str(reason or "").strip()[:200]
     if not task_id:
         return {"ok": False, "error": "task_id required"}
+
+    def slot_error(scheduled_at: str) -> str:
+        if config is None:
+            return ""
+        try:
+            slot_dt = datetime.strptime(scheduled_at, "%Y-%m-%d %H:%M:%S")
+        except (TypeError, ValueError):
+            return "invalid_time"
+        tz = getattr(config, "timezone", DEFAULT_TIMEZONE)
+        if slot_dt <= local_now(tz):
+            return "past_window"
+        window = getattr(config, "sleep_window", None)
+        if window is not None and window.contains(slot_dt):
+            return "sleep_window"
+        return ""
+
     if action == "add":
         kind = str(kind or "").strip().lower()[:20]
         if kind not in ("browse", "peek", "diary"):
@@ -527,6 +549,19 @@ def edit_life_plan(
         scheduled_at = _plan_time(plan_date, str(time or ""))
         if scheduled_at is None:
             return {"ok": False, "error": "time must be HH:MM within the day"}
+        invalid = slot_error(scheduled_at)
+        if invalid:
+            return {"ok": False, "error": invalid}
+        if config is not None:
+            cap = int(getattr(config, "plan_daily_action_cap", 0) or 0)
+            optional = [
+                row for row in db.list_plans(persona_id, plan_date)
+                if not row.get("fixed")
+            ]
+            if cap > 0 and len(optional) >= cap:
+                return {"ok": False, "error": "daily_action_cap"}
+            if kind == "diary" and not db.list_notes(persona_id, plan_date, limit=1):
+                return {"ok": False, "error": "dependency_not_met"}
         plan_id = db.add_optional_plan(
             persona_id, plan_date, task_id, kind, scheduled_at, reason=reason,
         )
@@ -535,7 +570,11 @@ def edit_life_plan(
         return {"ok": True, "action": action, "plan_id": plan_id,
                 "plan_date": plan_date, "task_id": task_id, "scheduled_at": scheduled_at}
     if action == "reorder":
-        ok = db.reorder_plan(persona_id, plan_date, task_id, int(position or 1))
+        try:
+            new_position = int(position or 1)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "position must be an integer"}
+        ok = db.reorder_plan(persona_id, plan_date, task_id, new_position)
         return {"ok": ok, "action": action, "plan_date": plan_date,
                 "task_id": task_id,
                 "error": "" if ok else "cannot reorder fixed or missing task"}
@@ -543,6 +582,9 @@ def edit_life_plan(
         scheduled_at = _plan_time(plan_date, str(time or ""))
         if scheduled_at is None:
             return {"ok": False, "error": "time must be HH:MM within the day"}
+        invalid = slot_error(scheduled_at)
+        if invalid:
+            return {"ok": False, "error": invalid}
         ok = db.defer_plan(persona_id, plan_date, task_id, scheduled_at, reason=reason)
         return {"ok": ok, "action": action, "plan_date": plan_date,
                 "task_id": task_id, "scheduled_at": scheduled_at,
@@ -574,6 +616,7 @@ async def _execute_edit_plan_tool(
     data = edit_life_plan(
         tool.db, persona_id, action, task_id, date=date, kind=kind,
         time=time, position=position, reason=reason,
+        config=getattr(tool.personas, "config", None),
     )
     return json.dumps(data, ensure_ascii=False)
 
@@ -738,7 +781,7 @@ async def _execute_edit_memory_tool(
             {"entity": "memory", "action": action, "status": status,
              "detail": data},
             [],
-            f"llm_edit/{change_id}",
+            f"llm_edit/{action}/{change_id}/{status}",
         )
     return json.dumps(data, ensure_ascii=False)
 

@@ -13,6 +13,7 @@ from life.timeutil import DEFAULT_TIMEZONE, local_today
 
 PLUGIN_NAME = "astrbot_plugin_your_own_life"
 API_PREFIX = f"/{PLUGIN_NAME}/api"
+logger = logging.getLogger("your_own_life.webui")
 
 
 async def _query_args() -> dict:
@@ -89,10 +90,26 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         persona = await _persona_arg()
         return {"interests": db.get_interests(persona)}
 
+    running: dict[str, asyncio.Task] = {}
+
+    async def _run_browse_task(persona: str) -> None:
+        try:
+            await service.run_browse_session(persona, "manual", force=True)
+        except Exception:
+            logger.exception("manual browse failed for %s", persona)
+        finally:
+            running.pop(persona, None)
+
     async def run():
         args = await _json_body()
         persona = str(args.get("persona") or _first_persona(config))
-        asyncio.create_task(service.run_browse_session(persona, "manual", force=True))
+        if service is None:
+            return {"started": False, "persona_id": persona,
+                    "error": "service unavailable"}
+        if persona in running:
+            return {"started": False, "persona_id": persona,
+                    "error": "already running"}
+        running[persona] = asyncio.create_task(_run_browse_task(persona))
         return {"started": True, "persona_id": persona}
 
     async def memory():
@@ -455,7 +472,27 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
             interest_key=key, interest_name=name,
         )
         if ok and status == "promoted":
-            db.upsert_interest(persona, key, name or key, 0.5, seen_count=0)
+            existing = next(
+                (row for row in db.get_interests(persona) if row["key"] == key),
+                None,
+            )
+            if existing:
+                # 转正只补不覆盖：已有兴趣保留权重/次数/显示名。
+                db.upsert_interest(
+                    persona, key,
+                    existing["name"] or name or key,
+                    float(existing["weight"]),
+                    seen_count=int(existing["seen_count"]),
+                )
+            else:
+                db.upsert_interest(persona, key, name or key, 0.5, seen_count=0)
+            db.log_change(
+                persona, "interest", key,
+                json.dumps(existing or {}, ensure_ascii=False, default=str),
+                json.dumps({"action": "wishlist_promote", "key": key,
+                            "name": name or key}, ensure_ascii=False),
+                actor="owner", reason="wishlist_promote", status="applied",
+            )
         return {"ok": ok, "persona_id": persona, "item_id": item_id, "status": status}
 
     async def share():

@@ -86,6 +86,35 @@ class LLMClientTest(unittest.IsolatedAsyncioTestCase):
         result = await client.chat_json("prompt")
         self.assertEqual(result, {"ok": True})
 
+    async def test_resolve_retries_after_provider_appears(self):
+        provider = _FakeProvider('{"ok": true}')
+        state = {"calls": 0}
+
+        class Ctx:
+            def get_using_provider(self):
+                state["calls"] += 1
+                return provider if state["calls"] > 1 else None
+
+        client = LLMClient(Ctx())
+        self.assertIsNone(client._resolve())
+        self.assertIs(client._resolve(), provider)
+
+    async def test_chat_json_times_out(self):
+        class SlowProvider:
+            async def text_chat(self, prompt, contexts=None, image_urls=None):
+                import asyncio
+
+                await asyncio.sleep(1.2)
+                return _FakeResponse('{"ok": true}')
+
+        context = type("Ctx", (), {
+            "get_provider_by_id": lambda self, pid: SlowProvider(),
+            "get_using_provider": lambda self: None,
+        })()
+        client = LLMClient(context, provider_id="p1", timeout_seconds=1.0)
+        with self.assertRaises(LLMError):
+            await client.chat_json("prompt", retries=0)
+
     async def test_no_provider_raises(self):
         context = type("Ctx", (), {
             "get_provider_by_id": lambda self, pid: None,

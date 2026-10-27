@@ -73,22 +73,26 @@ def extract_json(text: str) -> Optional[Any]:
 class LLMClient:
     """Resolves a provider once per process and exposes chat_json()."""
 
-    def __init__(self, context: Any, provider_id: str = ""):
+    def __init__(
+        self, context: Any, provider_id: str = "",
+        timeout_seconds: float = 120.0,
+    ):
         self.context = context
         self.provider_id = provider_id or ""
+        self.timeout_seconds = max(1.0, float(timeout_seconds or 120.0))
         self._provider: Any = None
         self._resolved = False
 
     def _resolve(self) -> Any:
-        if self._resolved:
+        if self._provider is not None:
             return self._provider
-        self._resolved = True
         getter = getattr(self.context, "get_provider_by_id", None)
         if getter and self.provider_id:
             try:
                 provider = getter(self.provider_id)
                 if provider:
                     self._provider = provider
+                    self._resolved = True
                     return provider
             except Exception as exc:
                 logger.debug("get_provider_by_id(%s) failed: %s", self.provider_id, exc)
@@ -98,12 +102,16 @@ class LLMClient:
                 provider = get_using()
                 if provider:
                     self._provider = provider
+                    self._resolved = True
                     return provider
             except Exception as exc:
                 logger.debug("get_using_provider failed: %s", exc)
         if getter:
             try:
-                self._provider = getter(self.provider_id)
+                provider = getter(self.provider_id)
+                if provider:
+                    self._provider = provider
+                    self._resolved = True
             except Exception as exc:
                 logger.debug("fallback get_provider_by_id failed: %s", exc)
         return self._provider
@@ -129,7 +137,12 @@ class LLMClient:
             if can_call is not None:
                 can_call()
             try:
-                resp = await provider.text_chat(prompt=prompt, contexts=[], image_urls=[])
+                resp = await asyncio.wait_for(
+                    provider.text_chat(
+                        prompt=prompt, contexts=[], image_urls=[]
+                    ),
+                    timeout=self.timeout_seconds,
+                )
                 if on_usage is not None:
                     on_usage(extract_usage_tokens(resp))
                 content = getattr(resp, "completion_text", None)

@@ -2,6 +2,20 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-27 审计后的第二批修复：数据一致性、工具边界与健壮性（v0.5.21）
+- 目标：继续按审计报告修 batch 2 —— 并发/迁移索引、事件幂等、记忆编辑与回滚、提交后副作用、工具通道绕过计划硬约束、watchlist/多话题/探索位、LLM 与 persona 缓存的健壮性。
+- 已确认决策：
+  - 并发用数据库写冲突兜底：`ensure_plan` / `add_optional_plan` 改 `INSERT OR IGNORE` 后回查；不引入全局锁。
+  - 事件幂等键必须携带"这一次变更的身份"：软删/恢复带 change_log id，defer 带 scheduled_at，skip 带 now，LLM 编辑带 action/status；owner 批准/拒绝/回滚也补写事件链，避免事件链只剩工具侧一半。
+  - 已提交（commit_staged）的浏览/日记不再因为能量记账、事件写入、兴趣衰减失败而返回 error，后置副作用失败只记 warning；LLM 通道的 add/defer 必须先过 config 提供的睡眠窗、过去时间、每日上限与 diary 依赖。
+  - `notes_min` 用确定性候选补齐而不是反复重试 LLM；探索位必须进入最终选题，不能再被 `[:count]` 切掉；fetch_all 对每个话题都检索（tavily 暂仍只用首话题）。
+  - 回收站删除后把 `change_log` 中的正文快照清空；`wishlist` 转正不重置已有兴趣的 weight/seen_count/名字，并补一条 change_log。
+  - 统一记忆宿主没有删除接口，宿主先写、本地 commit 失败的孤儿无法补偿；本次只记录为已知限制，不引入半吊子删除。
+- 改动：`life/db.py`、`life/browser.py`、`life/life_tool.py`、`life/webui.py`、`life/config.py`、`life/interests.py`、`life/fetchers.py`、`life/persona.py`、`life/llm.py`、`tests/test_db.py`、`tests/test_browser.py`、`tests/test_life_tool.py`、`tests/test_config.py`、`tests/test_interests.py`、`tests/test_fetchers.py`、`tests/test_llm.py`、`tests/test_persona.py`、`tests/test_webui.py`、`README.md`、`CHANGELOG.md`、`metadata.yaml`、`life/__init__.py`；版本 v0.5.20 → v0.5.21。
+- 验证：单文件全绿（db 64、browser 58、life_tool 15、config 27、interests 6、fetchers 8、llm 13、persona 4、webui 21）；全量 `unittest discover -s tests` 300 条，仅 `test_config` 与生产 AstrBot 混装的已知 ImportError，skipped=1；页面本批未改，提交前仍跑 `node --check` 与 `compileall`。
+- 遗留：`memory_host` 孤儿数据无补偿；`chat_hooks` 事件键仍含 timestamp（真正去重依赖 event extra `yol_message_in_recorded`，未改以免动真实事件链）；工具通道 add 仍未做精力 gate（工具未注入 ESM）；WebUI memory search 页面传 k=20 仍被后端压到 10；审计 batch 3（死代码/重复实现/词表与提示词字段未消费/测试补齐）未动。
+- 下一步：提交 `chore(release): v0.5.21 ...`，随后开始 batch 3。
+
 ## 2026-10-27 完备性/冗余性审计后的第一批修复：断链与调度器（v0.5.20）
 - 目标：对仓库做完备性与冗余性审计后，按批次修复真实断链与状态机缺陷；本批为 batch 1（胶囊自动封存、回收站视图、reset 完整性、调度器状态机、计划时间校验）。
 - 已确认决策：
@@ -10,7 +24,7 @@
   - 调度器 `_run` 包成 supervisor（异常 5s 后重启），原循环改名 `_run_loop`；目标次日先 `ensure_plan` 播种；当日错过槽位补做；等待期结束重读计划状态，非 pending 则跳过；`update_plan` 增加 `only_if_status`，租约冲突/收尾只改 pending。
   - 计划时间一律严格 `HH:MM`（`datetime.strptime`），非法直接拒绝；窗口结束支持 `24:00`。
   - 胶囊/回收站修复只做"可达 + 幂等"，不改变 `change_log` 语义与权限模型（留待 batch 2/3）。
-- 改动：`life/db.py`、`life/browser.py`、`life/scheduler.py`、`life/life_tool.py`、`life/webui.py`、`pages/life/index.html`、`tests/test_db.py`、`tests/test_browser.py`、`tests/test_scheduler.py`、`tests/test_life_tool.py`、`tests/test_webui.py`、`test_scheduler.py`；版本 v0.5.19 → v0.5.20。
+- 改动：`life/db.py`、`life/browser.py`、`life/scheduler.py`、`life/life_tool.py`、`life/webui.py`、`pages/life/index.html`、`tests/test_db.py`、`tests/test_browser.py`、`tests/test_scheduler.py`、`tests/test_life_tool.py`、`tests/test_webui.py`；版本 v0.5.19 → v0.5.20。
 - 验证：受影响 5 个测试文件全绿（db 59、browser 54、webui 20、life_tool 13、scheduler 27）；全量 `unittest discover -s tests` 282 条，仅 `test_config` 与生产 AstrBot 混装的已知环境错误（单独跑通过）；页面内联脚本 `node --check` 通过；`compileall` 通过。
 - 遗留：审计 batch 2（宿主/本地写入顺序、commit 后异常仍报 error、`weight=0.0` 回滚、事件幂等键、工具通道绕过计划硬约束、watchlist 解析、多话题丢失等）与 batch 3（死代码/重复实现/词表与提示词字段未消费、测试补齐）未动；仓库根 `astrbot_test_kit_runs/` 仍未纳入 `.gitignore`。
 - 下一步：提交 `chore(release): v0.5.20 ...`，随后按审计报告继续 batch 2。

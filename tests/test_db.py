@@ -293,6 +293,75 @@ class LifeDBTest(unittest.TestCase):
         self.assertTrue(self.db.soft_delete_note("shelly", note_id))
         self.assertEqual(self.db.purge_trash("shelly", 0), 1)
         self.assertEqual(self.db.list_capsules("shelly"), [])
+        logs = self.db.list_change_log("shelly")
+        self.assertTrue(logs)
+        self.assertTrue(all(row["old_value"] == "" for row in logs))
+
+    def test_delete_restore_delete_keeps_distinct_events(self):
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://cycle", "Cycle", "s",
+            url_hash="cycle",
+        )
+        self.assertTrue(self.db.soft_delete_note("shelly", note_id))
+        self.assertTrue(self.db.restore_note("shelly", note_id))
+        self.assertTrue(self.db.soft_delete_note("shelly", note_id))
+        rows = self.db.list_events("shelly")
+        keys = [row["idempotency_key"] for row in rows]
+        self.assertEqual(len(keys), 3)
+        self.assertEqual(len(set(keys)), 3)
+
+    def test_change_apply_and_rollback_emit_events(self):
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://audit", "Audit", "Old",
+            url_hash="audit",
+        )
+        log_id = self.db.log_change(
+            "shelly", "note", note_id,
+            json.dumps({"field": "summary", "value": "Old"}),
+            json.dumps({"field": "summary", "value": "New"}),
+            actor="llm", status="pending_owner",
+        )
+        self.assertIsNotNone(self.db.apply_change("shelly", log_id))
+        self.assertIsNotNone(self.db.rollback_change("shelly", log_id, actor="owner"))
+        kinds = [row["kind"] for row in self.db.list_events("shelly")]
+        self.assertEqual(sorted(kinds), ["change", "rollback"])
+        keys = [row["idempotency_key"] for row in self.db.list_events("shelly")]
+        self.assertEqual(len(set(keys)), 2)
+
+    def test_interest_weight_zero_is_restored_and_keeps_seen_count(self):
+        self.db.upsert_interest("shelly", "ai", "AI", 0.8, seen_count=5)
+        log_id = self.db.log_change(
+            "shelly", "interest", "ai",
+            json.dumps({"name": "AI", "key": "ai", "weight": 0.8}),
+            json.dumps({"name": "AI", "key": "ai", "weight": 0.0}),
+            actor="llm", status="pending_owner",
+        )
+        self.assertIsNotNone(self.db.apply_change("shelly", log_id))
+        row = self.db.get_interests("shelly")[0]
+        self.assertEqual(row["weight"], 0.0)
+        self.assertEqual(row["seen_count"], 5)
+        self.assertIsNotNone(self.db.rollback_change("shelly", log_id, actor="owner"))
+        row = self.db.get_interests("shelly")[0]
+        self.assertAlmostEqual(row["weight"], 0.8)
+        self.assertEqual(row["seen_count"], 5)
+
+    def test_overview_and_status_counts_are_not_truncated(self):
+        date = datetime.now().strftime("%Y-%m-%d")
+        for index in range(25):
+            self.db.add_note(
+                "shelly", None, "hn", f"https://n{index}", f"N{index}", "s",
+                url_hash=f"n{index}",
+            )
+        for _ in range(22):
+            sid = self.db.start_browse_session("shelly", "scheduled")
+            self.db.finish_browse_session(sid, "completed", notes_count=0)
+        overview = self.db.get_overview("shelly", date)
+        self.assertEqual(overview["stats"]["notes"], 25)
+        self.assertEqual(overview["stats"]["sessions"], 22)
+        self.assertEqual(overview["stats"]["completed"], 22)
+        status = self.db.get_status("shelly", date)
+        self.assertEqual(status["notes_count"], 25)
+        self.assertEqual(status["browse_count"], 22)
 
     def test_llm_edit_apply_and_rollback(self):
         note_id = self.db.add_note(
@@ -396,6 +465,43 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(len(notes), 1)
         self.assertEqual(notes[0]["title"], "Old")
         self.assertEqual(db.get_interests("default")[0]["key"], "ai")
+        indexes = {row["name"] for row in db._rows("PRAGMA index_list('notes')")}
+        self.assertIn("idx_notes_persona_url", indexes)
+        self.assertIn("idx_notes_persona_fetched", indexes)
+        db.close()
+
+    def test_unique_notes_migration_rebuilds_indexes(self):
+        path = Path(self.tmp.name) / "unique.db"
+        conn = sqlite3.connect(str(path))
+        conn.executescript(
+            """
+            CREATE TABLE notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                persona_id TEXT NOT NULL DEFAULT '',
+                session_id INTEGER,
+                fetched_at TEXT NOT NULL,
+                source TEXT NOT NULL,
+                url TEXT NOT NULL,
+                title TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                url_hash TEXT NOT NULL,
+                UNIQUE(persona_id, url_hash)
+            );
+            CREATE INDEX idx_notes_persona_url ON notes(persona_id, url_hash);
+            CREATE INDEX idx_notes_persona_fetched ON notes(persona_id, fetched_at);
+            """
+        )
+        conn.execute(
+            "INSERT INTO notes (persona_id, fetched_at, source, url, title, summary, url_hash) "
+            "VALUES ('shelly', '2026-08-10 10:00:00', 'hn', 'https://old', 'Old', 's', 'h1')"
+        )
+        conn.commit()
+        conn.close()
+        db = LifeDB(path)
+        indexes = {row["name"] for row in db._rows("PRAGMA index_list('notes')")}
+        self.assertIn("idx_notes_persona_url", indexes)
+        self.assertIn("idx_notes_persona_fetched", indexes)
+        self.assertEqual(len(db.list_notes("shelly")), 1)
         db.close()
 
     def test_timezone_normalization(self):
@@ -704,10 +810,12 @@ class LifeDBTest(unittest.TestCase):
         self.assertTrue(self.db.restore_note("shelly", note_id, reason="undo"))
         events = self.db.list_events("shelly")
         self.assertEqual([e["kind"] for e in events], ["rollback", "change"])
-        self.assertEqual(
-            self.db.find_event("shelly", f"note/{note_id}/restore")["kind"],
-            "rollback",
+        restore = next(
+            event for event in events
+            if json.loads(event["payload"]).get("action") == "restore"
         )
+        self.assertEqual(restore["kind"], "rollback")
+        self.assertIn(f"note/{note_id}/restore/", restore["idempotency_key"])
 
     def test_soft_delete_and_restore_diary_emit_events(self):
         self.db.add_diary("shelly", "2026-08-12", "d", mood="calm")

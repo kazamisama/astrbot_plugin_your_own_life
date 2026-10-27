@@ -81,7 +81,15 @@ class PersonaService:
         )
 
     def mark_error(self, persona_id: str, error: str) -> None:
-        self.db.upsert_persona_prompt(persona_id, "", "", "error", str(error))
+        # 刷新失败只标状态，别把仍可用的旧 prompt 一起清空。
+        row = self.db.get_persona_prompt(persona_id) or {}
+        self.db.upsert_persona_prompt(
+            persona_id,
+            str(row.get("system_prompt") or ""),
+            str(row.get("source") or ""),
+            "error",
+            str(error),
+        )
 
     def get_cached(self, persona_id: str) -> Optional[dict]:
         return self.db.get_persona_prompt(persona_id)

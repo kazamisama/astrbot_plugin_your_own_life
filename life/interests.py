@@ -49,10 +49,14 @@ class InterestStore:
         items = self.db.get_interests(persona_id)
         names = [row["name"] or row["key"] for row in items]
         picked = names[: max(1, count)]
-        if items and rng.random() < explore_probability:
-            pool = [name for name in names if name not in picked]
+        if len(names) > count and rng.random() < explore_probability:
+            # 探索位必须挤进结果，否则 append 后又被 [:count] 切掉。
+            pool = names[count:]
             if pool:
-                picked.append(rng.choice(pool))
+                if count > 1:
+                    picked = names[:count - 1] + [rng.choice(pool)]
+                else:
+                    picked = [rng.choice(pool)]
         return picked[:count]
 
     def apply_note(

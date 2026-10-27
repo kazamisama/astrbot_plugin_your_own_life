@@ -224,6 +224,88 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(diary["content"], "今天看到了一些有趣的东西。")
         self.assertEqual(diary["signature"], "今天有风")
 
+    def test_valid_share_coerces_string_flags(self):
+        self.assertFalse(
+            self.service._valid_share({"should_share": "false"})["should_share"]
+        )
+        self.assertTrue(
+            self.service._valid_share({"should_share": "true"})["should_share"]
+        )
+        self.assertFalse(
+            self.service._valid_share({"should_share": 0})["should_share"]
+        )
+
+    async def test_browse_pads_selection_to_notes_min(self):
+        async def three_items(config, client, queries):
+            return [
+                FetchedItem(source="hacker-news", url=f"https://pad/{i}",
+                            title=f"Pad {i}", summary=f"summary {i}")
+                for i in range(3)
+            ]
+
+        cfg = load_config({
+            "sleep_window": "00:00-00:01",
+            "rest_probability": 0,
+            "notes_min": 2,
+            "notes_max": 3,
+        })
+        service = LifeService(
+            cfg, self.db, self.interests, self.esm,
+            _FakeLLM(payload={
+                "selected": [{"index": 0, "summary": "only", "interest_level": 0.6,
+                              "interest_key": "ai"}],
+                "session_mood": "calm",
+            }),
+            self.personas, share_gate=self.share_gate,
+            fetcher_fn=three_items, now_fn=datetime.now,
+        )
+        result = await service.run_browse_session("shelly", "scheduled")
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(result.notes_count, 2)
+        self.assertEqual(len(self.db.list_notes("shelly")), 2)
+
+    async def test_browse_energy_failure_does_not_flip_status(self):
+        payload = {
+            "selected": [{"index": 0, "summary": "s0", "interest_level": 0.6,
+                          "interest_key": "ai"}],
+            "session_mood": "calm",
+        }
+        self.service.llm = _FakeLLM(payload=payload)
+        self.config.notes_min = 1
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("energy boom")
+
+        self.service._consume_energy = boom
+        result = await self.service.run_browse_session("shelly", "scheduled")
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(result.notes_count, 1)
+        self.assertEqual(len(self.db.list_notes("shelly")), 1)
+
+    async def test_diary_energy_failure_does_not_flip_status(self):
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://denergy", "D", "s",
+            url_hash="denergy",
+        )
+        self.db._execute(
+            "UPDATE notes SET fetched_at = ? WHERE id = ?",
+            (datetime.now().strftime("%Y-%m-%d 10:00:00"), note_id),
+        )
+        self.service.llm = _FakeLLM(payload={
+            "diary_text": "今天还行。", "mood": "calm",
+            "signature": "", "interest_updates": {},
+        })
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("energy boom")
+
+        self.service._consume_energy = boom
+        result = await self.service.run_nightly_diary("shelly")
+        self.assertNotIn("error", result)
+        self.assertIsNotNone(
+            self.db.get_diary("shelly", datetime.now().strftime("%Y-%m-%d"))
+        )
+
     async def test_diary_without_notes_has_no_signature(self):
         result = await self.service.run_nightly_diary("shelly")
         self.assertFalse(result["fallback"])
@@ -1019,6 +1101,7 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(manual.status, "skipped")
     async def test_browse_emits_observe_and_change_events(self):
         self.service.now_fn = lambda: datetime(2026, 8, 12, 9, 0)
+        self.config.notes_min = 1
         self.service.llm = _FakeLLM(payload={
             "selected": [{
                 "index": 0, "summary": "s", "opinion": "o", "mood": "curious",

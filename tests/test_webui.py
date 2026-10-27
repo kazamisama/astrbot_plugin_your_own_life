@@ -1,8 +1,10 @@
+import asyncio
 import os
 import sys
 import tempfile
 import unittest
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from pathlib import Path
 
@@ -57,6 +59,26 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         result = await handlers["overview"]()
         self.assertEqual(result["persona_id"], "shelly")
         self.assertIn("stats", result)
+
+    async def test_run_is_single_flight(self):
+        gate = asyncio.Event()
+        started = []
+
+        async def slow_browse(persona, trigger, force=False):
+            started.append(persona)
+            await gate.wait()
+
+        service = SimpleNamespace(run_browse_session=slow_browse)
+        handlers = build_handlers(self.db, service=service, share_gate=None,
+                                   personas=None, config=self.config)
+        first = await handlers["run"]()
+        second = await handlers["run"]()
+        self.assertTrue(first["started"])
+        self.assertFalse(second["started"])
+        self.assertEqual(second["error"], "already running")
+        gate.set()
+        await asyncio.sleep(0)
+        self.assertEqual(started, ["shelly"])
 
     async def test_memory_search_handler(self):
         self.db.add_note("shelly", None, "hn", "https://x", "AI story", "s",

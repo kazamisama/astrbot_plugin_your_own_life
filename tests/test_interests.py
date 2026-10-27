@@ -34,6 +34,19 @@ class InterestsTest(unittest.TestCase):
                                    rng=random.Random(1))
         self.assertEqual(topics, ["人工智能", "科技"])
 
+    def test_explore_replaces_one_ranked_topic(self):
+        store = InterestStore(
+            self.db, [("a", "A"), ("b", "B"), ("c", "C"), ("d", "D")]
+        )
+        store.seed(self.persona)
+        topics = store.pick_topics(
+            self.persona, count=3, explore_probability=1.0,
+            rng=random.Random(0),
+        )
+        self.assertEqual(len(topics), 3)
+        self.assertEqual(len(set(topics)), 3)
+        self.assertIn("D", topics)
+
     def test_apply_note_and_updates(self):
         store = InterestStore(self.db, [("ai", "人工智能")])
         store.seed(self.persona)

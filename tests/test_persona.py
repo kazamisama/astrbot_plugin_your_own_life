@@ -60,6 +60,18 @@ class PersonaServiceTest(unittest.IsolatedAsyncioTestCase):
         await service.ensure_fresh("shelly")
         self.assertEqual(service.get_cached("shelly")["status"], "ok")
 
+    async def test_mark_error_preserves_cached_prompt(self):
+        context = _FakeContext(_FakePersonaManager(persona=_Persona("我是雪莉")))
+        service = PersonaService(context, self.db, self.config)
+        await service.refresh("shelly")
+        service.mark_error("shelly", "refresh boom")
+        row = service.get_cached("shelly")
+        self.assertEqual(row["status"], "error")
+        self.assertIn("refresh boom", row["error"])
+        self.assertEqual(row["system_prompt"], "我是雪莉")
+        resolved = await service.resolve("shelly")
+        self.assertEqual(resolved.system_prompt, "我是雪莉")
+
     async def test_unavailable_and_mark_error(self):
         context = _FakeContext(_FakePersonaManager(persona=None, default=None))
         service = PersonaService(context, self.db, self.config)
