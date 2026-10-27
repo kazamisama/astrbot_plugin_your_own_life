@@ -252,20 +252,13 @@ class LifeScheduler:
             return "skipped", str(result["skipped"])
         return "done", ""
 
-    def _plan_status_review(self, result: Any) -> tuple[str, str]:
-        if isinstance(result, dict) and result.get("error"):
-            return "failed", str(result["error"])
-        if isinstance(result, dict) and result.get("skipped"):
-            return "skipped", str(result["skipped"])
-        return "done", ""
-
     def _budget_delta(self, before: Optional[dict], after: Optional[dict]) -> float:
         def _tokens(row: Optional[dict]) -> int:
             return int(row["tokens"] or 0) if row else 0
 
         return float(max(0, _tokens(after) - _tokens(before)))
 
-    def _acquire_lease(self, persona_id: str, task_key: str, kind: str) -> bool:
+    def _acquire_lease(self, persona_id: str, task_key: str) -> bool:
         memory = getattr(self.service, "memory", None) if self.service else None
         if memory is not None and getattr(self.config, "memory_host", ""):
             try:
@@ -300,18 +293,18 @@ class LifeScheduler:
         if self.db is not None:
             self.db.release_lease(persona_id, task_key, self._instance_id)
 
-    def _lease_ttl(self, kind: str) -> int:
+    def _lease_ttl(self) -> int:
         memory = getattr(self.service, "memory", None) if self.service else None
         if memory is not None and getattr(self.config, "memory_host", ""):
             return int(self.config.memory_lease_ttl_seconds or 300)
         return int(self.config.lease_ttl_seconds or 300)
 
-    def _renew_interval(self, kind: str) -> float:
-        return max(1.0, float(self._lease_ttl(kind)) / 2.0)
+    def _renew_interval(self) -> float:
+        return max(1.0, float(self._lease_ttl()) / 2.0)
 
-    def _renew_lease(self, persona_id: str, task_key: str, kind: str) -> bool:
+    def _renew_lease(self, persona_id: str, task_key: str) -> bool:
         memory = getattr(self.service, "memory", None) if self.service else None
-        ttl = self._lease_ttl(kind)
+        ttl = self._lease_ttl()
         if memory is not None and getattr(self.config, "memory_host", ""):
             try:
                 return bool(memory.renew_task(
@@ -376,6 +369,11 @@ class LifeScheduler:
             if not personas:
                 await self._stop.wait()
                 break
+            if self.db is not None:
+                try:
+                    self.db.cleanup_expired_leases()
+                except Exception as exc:
+                    self.log.warning("lease cleanup failed: %s", exc)
             today_local = local_now(self.config.timezone, self.now_fn()).date()
             today_key = today_local.isoformat()
             if today_key not in self._seeded_dates:
@@ -425,7 +423,7 @@ class LifeScheduler:
                 )
                 self._done_keys.add(key)
                 continue
-            if not self._acquire_lease(persona_id, key, kind):
+            if not self._acquire_lease(persona_id, key):
                 self.log.warning(
                     "lease for %s %s held by another instance, skipping", persona_id, key
                 )
@@ -451,13 +449,11 @@ class LifeScheduler:
             )
             keepalive: Optional[asyncio.Task] = None
 
-            async def _keepalive(
-                p: str = persona_id, k: str = key, kd: str = kind
-            ) -> None:
+            async def _keepalive(p: str = persona_id, k: str = key) -> None:
                 while True:
-                    await asyncio.sleep(self._renew_interval(kd))
+                    await asyncio.sleep(self._renew_interval())
                     try:
-                        renewed = self._renew_lease(p, k, kd)
+                        renewed = self._renew_lease(p, k)
                     except Exception:
                         self.log.exception(
                             "keepalive renew failed for %s %s", p, k
@@ -488,7 +484,7 @@ class LifeScheduler:
                             result = await self.service.run_quarterly_review(persona_id)
                         else:
                             result = await self.service.run_review(persona_id, "monthly")
-                        status, reason = self._plan_status_review(result)
+                        status, reason = self._plan_status_diary(result)
                     else:
                         result = await self.service.run_nightly_diary(persona_id)
                         status, reason = self._plan_status_diary(result)

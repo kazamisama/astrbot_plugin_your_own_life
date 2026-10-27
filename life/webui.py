@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Any, Callable, Optional
 
-from life.life_tool import _merge_unified, recall_life_memory
+from life.life_tool import _merge_unified, query_life_plans, recall_life_memory
 from life.memory_adapter import MemoryHostError
 from life.timeutil import DEFAULT_TIMEZONE, local_today
 
@@ -258,10 +258,8 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         args = await _query_args()
         persona = str(args.get("persona") or _first_persona(config))
         rows = db.list_revisit_chains(persona, limit=500)
-        by_id: dict[int, dict] = {}
         follow_ups_by_original: dict[int, list[dict]] = {}
         for note in rows:
-            by_id[int(note["id"])] = note
             original_id = int(note.get("revisit_of") or 0)
             if original_id:
                 follow_ups_by_original.setdefault(original_id, []).append(note)
@@ -409,12 +407,7 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         persona = str(args.get("persona") or _first_persona(config))
         date = args.get("date") or _today(config)
         status = str(args.get("status") or "")
-        return {
-            "persona_id": persona,
-            "plan_date": date,
-            "summary": db.plan_summary(persona, date),
-            "items": db.list_plans(persona, date, status or None),
-        }
+        return query_life_plans(db, persona, date, status)
 
     async def events():
         args = await _query_args()

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Sequence
+from typing import Any
 
 _SUSPICIOUS_PATTERNS = (
     re.compile(
@@ -40,23 +40,3 @@ def sanitize_text(text: Any, limit: int = 300) -> str:
     cleaned = _CONTROL_RE.sub(" ", str(text or ""))
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned[:limit]
-
-
-def scan_items(
-    items: Sequence[Any],
-    fields: Sequence[str] = ("title", "summary"),
-) -> list[dict[str, str]]:
-    """Return suspicious field hits from fetched/memory items."""
-    hits: list[dict[str, str]] = []
-    for item in items:
-        for field in fields:
-            value = getattr(item, field, None)
-            if is_suspicious(value):
-                hits.append(
-                    {
-                        "source": str(getattr(item, "source", "") or ""),
-                        "field": field,
-                        "preview": str(value)[:200],
-                    }
-                )
-    return hits

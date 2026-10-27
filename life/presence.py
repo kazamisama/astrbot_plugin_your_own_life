@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Optional
 
 
@@ -64,9 +64,6 @@ class LifePresence:
     ) -> None:
         self._conversation_until[persona_id] = until
         self._conversation_closed.discard(persona_id)
-
-    def conversation_until(self, persona_id: str) -> Optional[datetime]:
-        return self._conversation_until.get(persona_id)
 
     def conversation_active(
         self, persona_id: str, now: Optional[datetime] = None

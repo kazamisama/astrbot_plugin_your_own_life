@@ -1429,7 +1429,7 @@ class LifeService:
                     [{"note_id": note["id"], "url": note.get("url") or ""}],
                     f"capsule/{capsule['id']}/reply",
                 )
-            except BudgetExhausted as exc:
+            except BudgetExhausted:
                 failed += 1
                 self.db.append_event(
                     persona_id, "capsule",
@@ -1471,7 +1471,6 @@ class LifeService:
             return {"persona_id": persona_id, "ok": False,
                     "error": "persona_unavailable"}
         now = local_now(self.config.timezone, self.now_fn())
-        today = now.strftime("%Y-%m-%d")
         run_token = -random.randrange(1, 2**62)
         threshold = (
             now - timedelta(days=max(1, int(self.config.revisit_interval_days)))
@@ -1519,7 +1518,7 @@ class LifeService:
                 if not summary or not title:
                     raise LLMError("revisit LLM 未返回标题或正文")
                 staged.append((original, payload))
-            except BudgetExhausted as exc:
+            except BudgetExhausted:
                 failed += 1
                 self.db.add_state_snapshot(
                     persona_id, "revisit_skipped", self.esm.get_energy(persona_id), "",

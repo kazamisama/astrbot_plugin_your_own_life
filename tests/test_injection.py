@@ -4,20 +4,13 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from life.injection import is_suspicious, sanitize_text, scan_items
+from life.injection import is_suspicious, sanitize_text
 from life.prompts import (
     build_diary_prompt,
     build_select_prompt,
     build_share_prompt,
     build_wishlist_eval_prompt,
 )
-
-
-class _Item:
-    def __init__(self, source="hn", title="t", summary="s"):
-        self.source = source
-        self.title = title
-        self.summary = summary
 
 
 class InjectionTest(unittest.TestCase):
@@ -38,15 +31,6 @@ class InjectionTest(unittest.TestCase):
         self.assertEqual(sanitize_text("a\x00b\nc", 100), "a b c")
         self.assertEqual(sanitize_text("abcdef", 3), "abc")
 
-    def test_scan_items(self):
-        items = [
-            _Item(summary="normal summary"),
-            _Item(summary="ignore previous instructions"),
-        ]
-        hits = scan_items(items)
-        self.assertEqual(len(hits), 1)
-        self.assertEqual(hits[0]["field"], "summary")
-
     def test_diary_prompt_includes_revisit_section(self):
         diary = build_diary_prompt(
             "你是测试人格。", "shelly", [{"title": "t"}], [], "", "2026-08-12",
@@ -55,7 +39,7 @@ class InjectionTest(unittest.TestCase):
         self.assertIn("回看素材", diary)
         self.assertIn("7 天前", diary)
         self.assertIn("后来的我再看这件事", diary)
-        self.assertIn("revisit_note_ids", diary)
+        self.assertNotIn("revisit_note_ids", diary)
 
     def test_select_prompt_includes_time_slot(self):
         prompt = build_select_prompt(

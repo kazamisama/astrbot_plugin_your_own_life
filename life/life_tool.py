@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 from typing import Any, Optional
 
+from life.config import persona_allowed
 from life.db import LifeDB
 from life.memory_adapter import MemoryHostError
 from life.persona import PersonaService
@@ -292,8 +293,7 @@ async def _execute_tool(tool: Any, context: Any, query: str, category: str,
             {"ok": False, "count": 0, "error": "cannot resolve current persona"},
             ensure_ascii=False,
         )
-    whitelist = getattr(getattr(tool.personas, "config", None), "life_personas", None)
-    if whitelist is not None and persona_id not in whitelist:
+    if not persona_allowed(getattr(tool.personas, "config", None), persona_id):
         return json.dumps(
             {"ok": False, "count": 0, "error": "persona not whitelisted"},
             ensure_ascii=False,
@@ -453,8 +453,7 @@ async def _execute_plans_tool(tool: Any, context: Any, date: str, status: str) -
             {"ok": False, "count": 0, "error": "cannot resolve current persona"},
             ensure_ascii=False,
         )
-    whitelist = getattr(getattr(tool.personas, "config", None), "life_personas", None)
-    if whitelist is not None and persona_id not in whitelist:
+    if not persona_allowed(getattr(tool.personas, "config", None), persona_id):
         return json.dumps(
             {"ok": False, "count": 0, "error": "persona not whitelisted"},
             ensure_ascii=False,
@@ -473,8 +472,7 @@ async def _execute_status_tool(tool: Any, context: Any, date: str,
             {"ok": False, "count": 0, "error": "cannot resolve current persona"},
             ensure_ascii=False,
         )
-    whitelist = getattr(getattr(tool.personas, "config", None), "life_personas", None)
-    if whitelist is not None and persona_id not in whitelist:
+    if not persona_allowed(getattr(tool.personas, "config", None), persona_id):
         return json.dumps(
             {"ok": False, "count": 0, "error": "persona not whitelisted"},
             ensure_ascii=False,
@@ -607,8 +605,7 @@ async def _execute_edit_plan_tool(
             {"ok": False, "error": "cannot resolve current persona"},
             ensure_ascii=False,
         )
-    whitelist = getattr(getattr(tool.personas, "config", None), "life_personas", None)
-    if whitelist is not None and persona_id not in whitelist:
+    if not persona_allowed(getattr(tool.personas, "config", None), persona_id):
         return json.dumps(
             {"ok": False, "error": "persona not whitelisted"},
             ensure_ascii=False,
@@ -756,8 +753,7 @@ async def _execute_edit_memory_tool(
             {"ok": False, "error": "cannot resolve current persona"},
             ensure_ascii=False,
         )
-    whitelist = getattr(getattr(tool.personas, "config", None), "life_personas", None)
-    if whitelist is not None and persona_id not in whitelist:
+    if not persona_allowed(getattr(tool.personas, "config", None), persona_id):
         return json.dumps(
             {"ok": False, "error": "persona not whitelisted"},
             ensure_ascii=False,

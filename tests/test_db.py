@@ -431,7 +431,8 @@ class LifeDBTest(unittest.TestCase):
 
     def test_seen_cache_and_reset(self):
         self.assertFalse(self.db.is_seen("shelly", "abc"))
-        self.db.mark_seen("shelly", "abc")
+        self.db.stage_seen("shelly", 0, "abc")
+        self.db.commit_staged("shelly", 0, status="completed")
         self.assertTrue(self.db.is_seen("shelly", "abc"))
         self.db.reset_all("shelly")
         self.assertEqual(self.db.list_notes("shelly"), [])

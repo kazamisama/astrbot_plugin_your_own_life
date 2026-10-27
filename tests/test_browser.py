@@ -15,7 +15,7 @@ from life.db import LifeDB
 from life.esm_adapter import ESMAdapter
 from life.fetchers import FetchedItem
 from life.interests import InterestStore
-from life.llm import BudgetExhausted, LLMError
+from life.llm import LLMError
 from life.memory_adapter import MemoryHostError
 from life.persona import PersonaPrompt, PersonaUnavailable
 

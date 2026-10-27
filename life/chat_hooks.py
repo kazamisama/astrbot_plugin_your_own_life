@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
+from life.config import persona_allowed
 from life.life_tool import query_life_status
 
 try:
@@ -135,8 +136,7 @@ async def handle_llm_request(
     persona_id = await resolve_event_persona(context, event)
     if not persona_id or not getattr(config, "life_presence_enabled", True):
         return False
-    whitelist = getattr(config, "life_personas", None)
-    if whitelist and persona_id not in whitelist:
+    if not persona_allowed(config, persona_id):
         return False
     text = str(getattr(event, "message_str", "") or "").strip()
     if not text:
@@ -192,8 +192,7 @@ async def handle_llm_response(
     persona_id = await resolve_event_persona(context, event)
     if not persona_id or not getattr(config, "life_presence_enabled", True):
         return False
-    whitelist = getattr(config, "life_personas", None)
-    if whitelist and persona_id not in whitelist:
+    if not persona_allowed(config, persona_id):
         return False
     text = str(
         getattr(response, "completion_text", None)

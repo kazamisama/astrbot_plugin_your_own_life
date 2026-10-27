@@ -8,7 +8,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator, Optional, Sequence
 
 from life.timeutil import (
     DEFAULT_TIMEZONE,
@@ -931,12 +931,6 @@ class LifeDB:
         )
         return row is not None
 
-    def mark_seen(self, persona_id: str, url_hash: str, now_str: Optional[str] = None) -> None:
-        self._execute(
-            "INSERT OR IGNORE INTO seen_items (persona_id, url_hash, first_seen_at) VALUES (?, ?, ?)",
-            (persona_id, url_hash, now_str or self._now()),
-        )
-
     # ----- run staging (crash-safe run writes) -----
 
     def stage_note(
@@ -1287,7 +1281,7 @@ class LifeDB:
         confidence: float = 0.0,
         source_refs: Optional[list] = None,
     ) -> int:
-        cur = self._execute(
+        self._execute(
             "INSERT INTO reviews "
             "(persona_id, period, period_start, period_end, generated_at, status, content, confidence, source_refs) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "

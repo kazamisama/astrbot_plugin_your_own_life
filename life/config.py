@@ -9,6 +9,14 @@ from typing import Any, Mapping, Sequence
 from life.timeutil import DEFAULT_TIMEZONE, is_valid_timezone
 
 
+def persona_allowed(config: Any, persona_id: str) -> bool:
+    """Empty whitelist means no persona runs; a missing config means unrestricted."""
+    whitelist = getattr(config, "life_personas", None)
+    if whitelist is None:
+        return True
+    return persona_id in whitelist
+
+
 def _as_str(value: Any, default: str = "") -> str:
     if value is None:
         return default

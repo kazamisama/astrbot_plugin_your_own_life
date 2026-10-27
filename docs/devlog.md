@@ -2,6 +2,20 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-27 审计后的第三批修复：死代码、重复实现与 lint 基线（v0.5.22）
+- 目标：按审计报告 batch 3 清理无生产调用的代码与重复实现，修正文档/提示词里未被消费的字段，并让 `ruff --select F,E9` 回到全绿。
+- 已确认决策：
+  - 死代码以"生产调用为零"为准删除，不保留"以后可能用"的公共方法；`mark_seen` 的测试改为走真实的 `stage_seen + commit_staged` 路径。
+  - `life_personas` 空列表的语义统一为"不允许任何 persona"（与 `_conf_schema.json` 的提示一致）；缺省配置（None）仍视为不限制。这是有意的行为变更，已写入 CHANGELOG。
+  - `cleanup_expired_leases` 不删除，改为在调度器每轮调用，避免只为测试存在的死方法，也防止不再被复用的任务键留下过期租约。
+  - 提示词只保留执行端真正消费的字段：删除 `energy_change` / `revisit_day_offset` / `revisit_note_ids` / `highlights`，减少无效输出 token；日记叙事要求不变。
+  - 租约助手的 `kind` 参数从未参与任何决策，直接移除，测试同步。
+  - 不在本批动结构性重复（两套 persona 解析、10 个 Tool 类、review/quarterly 同构主体、`started_at` 死列、兼容端点），避免把清理批次变成高风险重构。
+- 改动：`life/config.py`（`persona_allowed`）、`life/life_tool.py`、`life/chat_hooks.py`、`life/presence.py`、`life/injection.py`、`life/db.py`、`life/scheduler.py`、`life/webui.py`、`life/prompts.py`、`pages/life/index.html`、`docs/design.md`、`tests/test_config.py`、`tests/test_db.py`、`tests/test_injection.py`、`tests/test_scheduler.py`、`tests/test_interests.py`、`tests/test_browser.py`、`tests/test_share.py`、`README.md`、`CHANGELOG.md`、`metadata.yaml`、`life/__init__.py`；版本 v0.5.21 → v0.5.22。
+- 验证：全量 `unittest discover -s tests` 300 条，仅 `test_config` 与生产 AstrBot 混装的已知 ImportError，skipped=1；`ruff check --select F,E9 life tests main.py` 全绿；页面内联脚本 `node --check` 通过；`compileall` 通过。
+- 遗留：结构性重复见 CHANGELOG Notes；页面仍未给 usage/archive/interests/injection_log 提供视图；`life_plans.started_at` 仍是死列；两个 change_log 端点保持兼容。
+- 下一步：提交 `chore(release): v0.5.22 ...`，随后按用户决定是否推送 v0.5.20–v0.5.22 三个提交。
+
 ## 2026-10-27 审计后的第二批修复：数据一致性、工具边界与健壮性（v0.5.21）
 - 目标：继续按审计报告修 batch 2 —— 并发/迁移索引、事件幂等、记忆编辑与回滚、提交后副作用、工具通道绕过计划硬约束、watchlist/多话题/探索位、LLM 与 persona 缓存的健壮性。
 - 已确认决策：

@@ -8,7 +8,14 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from life.config import DEFAULT_TIME_SLOTS, SleepWindow, current_time_slot, load_config, parse_interest_line
+from life.config import (
+    DEFAULT_TIME_SLOTS,
+    SleepWindow,
+    current_time_slot,
+    load_config,
+    parse_interest_line,
+    persona_allowed,
+)
 
 _ASTRBOT_APP = r"C:\application\AstrBot\backend\app"
 _ASTRBOT_STUB_MODULES = (
@@ -294,6 +301,12 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(load_config({}).plan_daily_action_cap, 5)
         self.assertEqual(load_config({"plan_daily_action_cap": "0"}).plan_daily_action_cap, 0)
         self.assertEqual(load_config({"plan_daily_action_cap": "8"}).plan_daily_action_cap, 8)
+
+    def test_persona_allowed_semantics(self):
+        self.assertTrue(persona_allowed(None, "shelly"))
+        self.assertTrue(persona_allowed(load_config({"life_personas": ["shelly"]}), "shelly"))
+        self.assertFalse(persona_allowed(load_config({"life_personas": ["shelly"]}), "other"))
+        self.assertFalse(persona_allowed(load_config({}), "shelly"))
 
 
 if __name__ == "__main__":

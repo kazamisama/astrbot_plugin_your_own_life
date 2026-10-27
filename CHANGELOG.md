@@ -2,6 +2,30 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.22] - 2026-10-27
+
+### Changed
+
+- `life_personas` 白名单判定收敛到 `life/config.py:persona_allowed`：缺省配置视为不限制，空列表一律拒绝，与 `_conf_schema.json` 的「留空 = 不运行任何生活任务」一致；此前聊天钩子在空列表时会放行。
+- 调度器每轮调用 `cleanup_expired_leases`，不再只靠测试覆盖；租约助手的 `kind` 死参数移除。
+- WebUI 计划板改为复用 `life_tool.query_life_plans`，不再复制一份查询。
+
+### Removed
+
+- 无生产调用的 `LifePresence.conversation_until`、`injection.scan_items`、`LifeDB.mark_seen`、`LifeScheduler._plan_status_review`。
+- 页面死代码 `escapeHtml` 与 `eventWrite` 占位，以及 `revisit_chains` 里只写不读的索引。
+- 提示词中代码从不解析的输出字段：选择/日记的 `energy_change`、日记的 `revisit_day_offset` / `revisit_note_ids`、回顾/季度的 `highlights`；日记仍保留「后来的我再看这件事」段落要求。
+- 测试里的 GBK 乱码 fixture（`浜哄伐鏅鸿兘` → `人工智能`）。
+
+### Fixed
+
+- `ruff --select F,E9` 全绿：清理 3 处未使用异常变量、1 处未使用局部变量、2 处未使用导入，并补上 `db.py` 缺失的 `Sequence` 导入。
+
+### Notes
+
+- 测试：300 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 未动（结构性、留待单独设计）：两套 persona 解析、10 个双胞胎 Tool 类、`run_review` / `run_quarterly_review` 的同构主体、`life_plans.started_at` 死列、`change_log` 与 `life_edits` 两个兼容端点、页面尚未使用的 usage/archive/interests/injection_log 接口。
+
 ## [0.5.21] - 2026-10-27
 
 ### Fixed

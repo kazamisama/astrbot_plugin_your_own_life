@@ -354,7 +354,6 @@ select, input[type="date"], input[type="text"] {
       <div class="stat"><span class="label">事件总数</span><span class="value" id="eventTotal">-</span></div>
       <div class="stat"><span class="label">当前页</span><span class="value" id="eventPage">-</span></div>
       <div class="stat"><span class="label">重放</span><span class="value" id="eventReplay">只读</span></div>
-      <div class="stat"><span class="label">写入口</span><span class="value" id="eventWrite">无</span></div>
     </div>
     <div class="panel">
       <div class="chip-row" id="eventFilters"></div>
@@ -526,12 +525,6 @@ function today() {
   var m = String(d.getMonth() + 1).padStart(2, "0");
   var day = String(d.getDate()).padStart(2, "0");
   return d.getFullYear() + "-" + m + "-" + day;
-}
-
-function escapeHtml(text) {
-  var div = document.createElement("div");
-  div.textContent = text == null ? "" : String(text);
-  return div.innerHTML;
 }
 
 function showError(msg) {

@@ -222,7 +222,7 @@ class SchedulerPlansTest(unittest.TestCase):
             memory_lease_ttl_seconds=120,
         )
         scheduler = LifeScheduler(service=service, config=cfg)
-        self.assertTrue(scheduler._acquire_lease("shelly", "key-1", "browse"))
+        self.assertTrue(scheduler._acquire_lease("shelly", "key-1"))
         self.assertEqual(
             memory.claims,
             [("shelly", "key-1", scheduler._instance_id, 120)],
@@ -236,15 +236,15 @@ class SchedulerPlansTest(unittest.TestCase):
         scheduler2 = LifeScheduler(
             service=_FakeServiceWithMemory(self.db, denied), config=cfg
         )
-        self.assertFalse(scheduler2._acquire_lease("shelly", "key-2", "browse"))
+        self.assertFalse(scheduler2._acquire_lease("shelly", "key-2"))
 
     def test_lease_falls_back_to_local_sqlite(self):
         service = _FakeService(self.db)
         cfg = LifeConfig(lease_ttl_seconds=60)
         scheduler = LifeScheduler(service=service, config=cfg)
-        self.assertTrue(scheduler._acquire_lease("shelly", "local-key", "browse"))
+        self.assertTrue(scheduler._acquire_lease("shelly", "local-key"))
         scheduler._release_lease("shelly", "local-key")
-        self.assertTrue(scheduler._acquire_lease("shelly", "local-key", "browse"))
+        self.assertTrue(scheduler._acquire_lease("shelly", "local-key"))
         scheduler._release_lease("shelly", "local-key")
 
     def test_renew_lease_uses_memory_host_when_configured(self):
@@ -255,7 +255,7 @@ class SchedulerPlansTest(unittest.TestCase):
             memory_lease_ttl_seconds=120,
         )
         scheduler = LifeScheduler(service=service, config=cfg)
-        self.assertTrue(scheduler._renew_lease("shelly", "key-1", "browse"))
+        self.assertTrue(scheduler._renew_lease("shelly", "key-1"))
         self.assertEqual(
             memory.renews,
             [("shelly", "key-1", scheduler._instance_id, 120)],
@@ -265,8 +265,8 @@ class SchedulerPlansTest(unittest.TestCase):
         service = _FakeService(self.db)
         cfg = LifeConfig(lease_ttl_seconds=60)
         scheduler = LifeScheduler(service=service, config=cfg)
-        self.assertTrue(scheduler._acquire_lease("shelly", "local-key", "browse"))
-        self.assertTrue(scheduler._renew_lease("shelly", "local-key", "browse"))
+        self.assertTrue(scheduler._acquire_lease("shelly", "local-key"))
+        self.assertTrue(scheduler._renew_lease("shelly", "local-key"))
         scheduler._release_lease("shelly", "local-key")
 
     def test_review_slot_pushed_out_of_sleep_window(self):
@@ -312,7 +312,7 @@ class SchedulerPlansTest(unittest.TestCase):
             service=service, config=cfg,
             now_fn=lambda: datetime(2026, 8, 12, 9, 59, 59),
         )
-        scheduler._renew_interval = lambda kind: 0.02
+        scheduler._renew_interval = lambda: 0.02
 
         async def run():
             loop = asyncio.get_running_loop()
