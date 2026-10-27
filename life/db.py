@@ -1361,13 +1361,22 @@ class LifeDB:
             (persona_id, capsule_id),
         )
 
+    def capsules_sealed_on(self, persona_id: str, date: str) -> int:
+        row = self._one(
+            "SELECT COUNT(*) AS n FROM time_capsules "
+            "WHERE persona_id = ? AND sealed_at LIKE ?",
+            (persona_id, f"{date}%"),
+        )
+        return int(row["n"] or 0) if row else 0
+
     def capsules_due(
         self, persona_id: str, now_str: Optional[str] = None
     ) -> list[dict]:
+        # 手动提前打开的胶囊状态已是 unlocked，即使 unlock_at 仍在未来也要回信。
         return self._rows(
             "SELECT * FROM time_capsules WHERE persona_id = ? "
             "AND status IN ('sealed', 'unlocked') AND reply = '' "
-            "AND unlock_at <= ? ORDER BY unlock_at ASC",
+            "AND (status = 'unlocked' OR unlock_at <= ?) ORDER BY unlock_at ASC",
             (persona_id, now_str or self._now()),
         )
 
@@ -1378,9 +1387,9 @@ class LifeDB:
         now_str: Optional[str] = None,
     ) -> bool:
         cur = self._execute(
-            "UPDATE time_capsules SET status = 'unlocked', unlock_at = ? "
-            "WHERE persona_id = ? AND id = ?",
-            (now_str or self._now(), persona_id, capsule_id),
+            "UPDATE time_capsules SET status = 'unlocked' "
+            "WHERE persona_id = ? AND id = ? AND status = 'sealed'",
+            (persona_id, capsule_id),
         )
         return cur.rowcount > 0
 
@@ -1830,6 +1839,7 @@ class LifeDB:
         reason: str = "",
         budget_used: Optional[float] = None,
         finished_at: str = "",
+        only_if_status: Optional[str] = None,
     ) -> bool:
         sets = ["status = ?", "reason = ?"]
         params: list[Any] = [status, reason or ""]
@@ -1840,11 +1850,14 @@ class LifeDB:
             sets.append("finished_at = ?")
             params.append(finished_at)
         params += [persona_id, plan_date, task_id]
-        cur = self._execute(
+        sql = (
             f"UPDATE life_plans SET {', '.join(sets)} "
-            "WHERE persona_id = ? AND plan_date = ? AND task_id = ?",
-            tuple(params),
+            "WHERE persona_id = ? AND plan_date = ? AND task_id = ?"
         )
+        if only_if_status:
+            sql += " AND status = ?"
+            params.append(only_if_status)
+        cur = self._execute(sql, tuple(params))
         return cur.rowcount > 0
 
     def list_plans(
@@ -2170,6 +2183,10 @@ class LifeDB:
                 (persona_id, cutoff),
             ).fetchall()
             for row in note_rows:
+                self._conn.execute(
+                    "DELETE FROM time_capsules WHERE persona_id = ? AND note_id = ?",
+                    (persona_id, int(row["id"])),
+                )
                 self._conn.execute("DELETE FROM notes WHERE id = ?", (int(row["id"]),))
             for row in diary_rows:
                 self._conn.execute(
@@ -2432,6 +2449,9 @@ class LifeDB:
                 "wishlist",
                 "reviews",
                 "time_capsules",
+                "life_plans",
+                "event_chain",
+                "persona_prompts",
                 "staging_notes",
                 "staging_diary",
                 "staging_snapshots",

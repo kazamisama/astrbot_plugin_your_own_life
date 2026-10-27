@@ -374,6 +374,93 @@ class SchedulerPlansTest(unittest.TestCase):
         self.assertEqual(self.scheduler._budget_delta(before, after), 24.0)
         self.assertEqual(self.scheduler._budget_delta(None, None), 0.0)
 
+    def test_update_plan_only_if_pending_guard(self):
+        self.scheduler.seed_plans(["shelly"], datetime(2026, 8, 12))
+        self.assertTrue(self.db.update_plan(
+            "shelly", "2026-08-12", "browse-10-00", "done",
+            only_if_status="pending",
+        ))
+        self.assertFalse(self.db.update_plan(
+            "shelly", "2026-08-12", "browse-10-00", "failed",
+            only_if_status="pending",
+        ))
+        rows = self.db.list_plans("shelly", "2026-08-12")
+        row = next(r for r in rows if r["task_id"] == "browse-10-00")
+        self.assertEqual(row["status"], "done")
+
+    def test_next_target_catches_up_overdue_same_day_plan(self):
+        self.scheduler.seed_plans(["shelly"], datetime(2026, 8, 12))
+        target = self.scheduler.next_target(
+            datetime(2026, 8, 12, 12, 0), ["shelly"]
+        )
+        self.assertEqual(target[0], datetime(2026, 8, 12, 12, 0))
+        self.assertEqual(target[2], "peek")
+        self.assertEqual(target[3], "peek-09-00")
+        self.assertEqual(target[4], "2026-08-12")
+
+    def test_ensure_target_plan_seeds_next_day_slot(self):
+        target = self.scheduler.next_target(
+            datetime(2026, 8, 12, 23, 30), ["shelly"]
+        )
+        self.assertEqual(target[4], "2026-08-13")
+        self.assertEqual(self.db.list_plans("shelly", "2026-08-13"), [])
+        self.scheduler._ensure_target_plan(*target)
+        rows = self.db.list_plans("shelly", "2026-08-13")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["task_id"], target[3])
+        self.assertEqual(rows[0]["status"], "pending")
+
+    def test_scheduler_skips_optional_plan_skipped_while_waiting(self):
+        class _TrackingService(_FakeService):
+            def __init__(self, db):
+                super().__init__(db)
+                self.calls = []
+
+            async def run_browse_session(self, persona_id, trigger):
+                self.calls.append(persona_id)
+
+                class _Result:
+                    status = "completed"
+                    reason = ""
+                    error = ""
+
+                return _Result()
+
+            def record_skipped_duplicate(self, persona_id, kind, slot):
+                self.calls.append("skip")
+
+        service = _TrackingService(self.db)
+        cfg = LifeConfig(
+            browse_times=["15:00"], diary_time="23:00",
+            browse_jitter_minutes=0, diary_jitter_minutes=0,
+            peek_times=[], life_personas=["shelly"],
+        )
+        scheduler = LifeScheduler(
+            service=service, config=cfg,
+            now_fn=lambda: datetime(2026, 8, 12, 9, 59, 58),
+        )
+        self.db.add_optional_plan(
+            "shelly", "2026-08-12", "extra-1", "browse",
+            "2026-08-12 10:00:00",
+        )
+
+        async def run():
+            task = asyncio.create_task(scheduler._run())
+            await asyncio.sleep(0.3)
+            self.assertTrue(self.db.skip_plan(
+                "shelly", "2026-08-12", "extra-1", reason="user_skip"
+            ))
+            await asyncio.sleep(1.2)
+            scheduler._stop.set()
+            await task
+
+        asyncio.run(run())
+        self.assertEqual(service.calls, [])
+        rows = self.db.list_plans("shelly", "2026-08-12")
+        row = next(r for r in rows if r["task_id"] == "extra-1")
+        self.assertEqual(row["status"], "skipped")
+        self.assertEqual(row["reason"], "user_skip")
+
     def test_jitter_crossing_midnight_keeps_plan_anchored(self):
         cfg = LifeConfig(
             browse_times=[], diary_time="23:00",

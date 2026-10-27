@@ -344,6 +344,27 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         persona = await _persona_arg()
         return db.list_trash(persona)
 
+    async def trash_add():
+        body = await _json_body()
+        persona = str(body.get("persona") or _first_persona(config))
+        entity = str(body.get("entity") or "")
+        actor = str(body.get("actor") or "owner")
+        reason = str(body.get("reason") or "")
+        if entity == "note":
+            try:
+                note_id = int(body.get("id") or 0)
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "invalid note id"}
+            ok = db.soft_delete_note(persona, note_id, actor=actor, reason=reason)
+        elif entity == "diary":
+            date = str(body.get("date") or "")
+            if not date:
+                return {"ok": False, "error": "date required"}
+            ok = db.soft_delete_diary(persona, date, actor=actor, reason=reason)
+        else:
+            return {"ok": False, "error": "entity must be note or diary"}
+        return {"ok": ok, "persona_id": persona, "entity": entity}
+
     async def trash_restore():
         body = await _json_body()
         persona = str(body.get("persona") or _first_persona(config))
@@ -486,6 +507,7 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         "personas": personas_list,
         "persona_refresh": persona_refresh,
         "trash": trash,
+        "trash_add": trash_add,
         "trash_restore": trash_restore,
         "change_log": change_log,
         "injection_log": injection_log,
@@ -543,6 +565,7 @@ def register_api(context: Any, db: Any, service: Any, share_gate: Any,
         (f"{API_PREFIX}/entity_appears_on", "entity_appears_on", ["GET"], "Where an entity appears"),
         (f"{API_PREFIX}/usage", "usage", ["GET"], "Daily LLM usage"),
         (f"{API_PREFIX}/trash", "trash", ["GET"], "Trash list"),
+        (f"{API_PREFIX}/trash_add", "trash_add", ["POST"], "Move note/diary to trash"),
         (f"{API_PREFIX}/trash_restore", "trash_restore", ["POST"], "Restore a trashed item"),
         (f"{API_PREFIX}/change_log", "change_log", ["GET"], "Change log"),
         (f"{API_PREFIX}/injection_log", "injection_log", ["GET"], "Injection audit log"),

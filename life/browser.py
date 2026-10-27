@@ -876,7 +876,10 @@ class LifeService:
             return {"date": date, "notes": len(notes), "fallback": False, "error": repr(exc)}
 
         aux_error = ""
+        capsules_sealed = 0
+        purged_trash = 0
         try:
+            capsules_sealed = self._seal_daily_capsule(persona_id, notes, date)
             wishlist_eval = await self._evaluate_wishlist(persona_id, persona.system_prompt)
             capsule_result = await self.run_capsules(persona_id)
             revisit_result = await self.run_revisit(persona_id)
@@ -888,12 +891,24 @@ class LifeService:
             capsule_result = {"opened": 0, "replied": 0}
             revisit_result = {"candidates": 0, "revisited": 0, "failed": 0}
             aux_error = repr(exc)
+        try:
+            purged_trash = self.db.purge_trash(
+                persona_id, self.config.trash_retention_days
+            )
+        except Exception as exc:
+            self.log.warning(
+                "nightly trash purge failed for %s: %s", persona_id, exc
+            )
+            if not aux_error:
+                aux_error = f"purge_trash: {exc!r}"
         return {"date": date, "notes": len(notes), "fallback": False,
                 "revisit_day": revisit_day, "revisit_notes": len(raw_revisit_notes),
                 "wishlist_promoted": wishlist_eval["promoted"],
                 "wishlist_discarded": wishlist_eval["discarded"],
+                "capsules_sealed": capsules_sealed,
                 "capsules_opened": capsule_result["opened"],
                 "capsules_replied": capsule_result["replied"],
+                "purged_trash": purged_trash,
                 "revisit_candidates": revisit_result.get("candidates", 0),
                 "revisited": revisit_result.get("revisited", 0),
                 "revisit_failed": revisit_result.get("failed", 0),
@@ -1262,6 +1277,37 @@ class LifeService:
             source_refs=[{"note_id": note["id"], "url": note.get("url") or ""}],
         )
 
+    def _seal_daily_capsule(
+        self, persona_id: str, notes: list[dict], date: str
+    ) -> int:
+        """Nightly: seal at most one note per day, preferring the day's hottest one."""
+        if not self.config.enabled or not notes:
+            return 0
+        if self.db.capsules_sealed_on(persona_id, date) > 0:
+            return 0
+        candidate = max(
+            notes,
+            key=lambda note: (
+                float(note.get("interest_level") or 0.0),
+                int(note.get("id") or 0),
+            ),
+        )
+        sealed_id = self.seal_capsule_for_note(persona_id, candidate)
+        if sealed_id is None:
+            return 0
+        capsule = self.db.get_capsule(persona_id, sealed_id) or {}
+        self.db.append_event(
+            persona_id,
+            "capsule",
+            {"capsule_id": sealed_id, "note_id": candidate["id"],
+             "status": "sealed",
+             "sealed_at": capsule.get("sealed_at") or "",
+             "unlock_at": capsule.get("unlock_at") or ""},
+            [{"note_id": candidate["id"], "url": candidate.get("url") or ""}],
+            f"capsule/{sealed_id}/seal",
+        )
+        return 1
+
     async def run_capsules(self, persona_id: str) -> dict[str, Any]:
         if not self.config.enabled:
             return {"persona_id": persona_id, "ok": False, "error": "disabled"}
@@ -1278,12 +1324,12 @@ class LifeService:
         replied = 0
         failed = 0
         for capsule in due:
-            self.db.unlock_capsule(
+            note = self.db.get_note(capsule["note_id"])
+            if self.db.unlock_capsule(
                 persona_id, capsule["id"],
                 now_str=now.strftime("%Y-%m-%d %H:%M:%S"),
-            )
-            opened += 1
-            note = self.db.get_note(capsule["note_id"])
+            ):
+                opened += 1
             if not note:
                 continue
             prompt = build_capsule_reply_prompt(
@@ -1556,6 +1602,7 @@ class LifeService:
         budget_exhausted = (call_limit > 0 and calls >= call_limit) or (
             token_budget > 0 and tokens >= token_budget
         )
+        now_local = local_now(self.config.timezone, self.now_fn())
         for index, entry in enumerate(raw_actions):
             if not isinstance(entry, dict):
                 action = str(entry)[:40] or "unknown"
@@ -1599,9 +1646,13 @@ class LifeService:
                 rejected.append({"action": action, "reason": reason})
                 self._record_plan_rejection(persona_id, date, action, index, reason)
                 continue
-            if self.config.sleep_window.contains(
-                datetime.strptime(scheduled, "%Y-%m-%d %H:%M:%S")
-            ):
+            scheduled_dt = datetime.strptime(scheduled, "%Y-%m-%d %H:%M:%S")
+            if scheduled_dt <= now_local:
+                reason = "past_window"
+                rejected.append({"action": action, "reason": reason})
+                self._record_plan_rejection(persona_id, date, action, index, reason)
+                continue
+            if self.config.sleep_window.contains(scheduled_dt):
                 reason = "sleep_window"
                 rejected.append({"action": action, "reason": reason})
                 self._record_plan_rejection(persona_id, date, action, index, reason)
@@ -1644,13 +1695,16 @@ class LifeService:
 
     def _plan_window_time(self, date: str, entry: dict) -> Optional[str]:
         try:
-            start_h, start_m = str(entry.get("window_start") or "").split(":", 1)
-            end_h, end_m = str(entry.get("window_end") or "").split(":", 1)
-            start_min = int(start_h) * 60 + int(start_m)
-            end_min = int(end_h) * 60 + int(end_m)
+            start_raw = str(entry.get("window_start") or "").strip()
+            end_raw = str(entry.get("window_end") or "").strip()
+            start = datetime.strptime(f"{date} {start_raw}", "%Y-%m-%d %H:%M")
+            if end_raw == "24:00":
+                end = datetime.strptime(f"{date} 00:00", "%Y-%m-%d %H:%M") + timedelta(days=1)
+            else:
+                end = datetime.strptime(f"{date} {end_raw}", "%Y-%m-%d %H:%M")
         except (ValueError, TypeError, AttributeError):
             return None
-        if end_min <= start_min or not (0 <= start_min < 24 * 60) or not (0 <= end_min <= 24 * 60):
+        if end <= start:
             return None
-        mid = (start_min + end_min) // 2
-        return f"{date} {mid // 60:02d}:{mid % 60:02d}:00"
+        mid = start + (end - start) / 2
+        return mid.strftime("%Y-%m-%d %H:%M:%S")

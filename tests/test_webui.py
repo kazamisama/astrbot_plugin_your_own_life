@@ -286,6 +286,7 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/astrbot_plugin_your_own_life/api/memory_search", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/usage", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/trash", routes)
+        self.assertIn("/astrbot_plugin_your_own_life/api/trash_add", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/trash_restore", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/change_log", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/injection_log", routes)
@@ -301,7 +302,7 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/astrbot_plugin_your_own_life/api/life_edits_rollback", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/watchlist", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/revisit_chains", routes)
-        self.assertEqual(len(routes), 34)
+        self.assertEqual(len(routes), 35)
 
     async def test_share_note_invalid_body_returns_error(self):
         handlers = build_handlers(self.db, service=None, share_gate=None,

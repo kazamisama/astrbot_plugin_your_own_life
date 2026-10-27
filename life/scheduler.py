@@ -159,6 +159,7 @@ class LifeScheduler:
         self, now: datetime, personas: Sequence[str]
     ) -> Optional[tuple[datetime, str, str, str, str]]:
         best: Optional[tuple[datetime, str, str, str, str]] = None
+        overdue: Optional[tuple[datetime, str, str, str, str]] = None
         seen: set[tuple[datetime, str, str]] = set()
 
         def consider(
@@ -177,12 +178,20 @@ class LifeScheduler:
             for persona_id in personas:
                 for row in self.db.list_plans(persona_id, day_str, status="pending"):
                     slot = self._plan_datetime(row)
-                    if slot is not None:
-                        consider(
-                            slot, persona_id, str(row.get("kind") or ""),
-                            str(row.get("task_id") or ""),
-                            str(row.get("plan_date") or day_str),
-                        )
+                    if slot is None:
+                        continue
+                    kind = str(row.get("kind") or "")
+                    task_id = str(row.get("task_id") or "")
+                    plan_date = str(row.get("plan_date") or day_str)
+                    if slot <= now:
+                        # 当日错过槽位（对话等待/长任务/停机）：立即补做，睡眠窗内顺延。
+                        due_at = self._window_shifted(now)
+                        if overdue is None or due_at < overdue[0]:
+                            overdue = (due_at, persona_id, kind, task_id, plan_date)
+                    else:
+                        consider(slot, persona_id, kind, task_id, plan_date)
+        if overdue is not None:
+            return overdue
         for offset in (0, 1):
             day = now.date() + timedelta(days=offset)
             for persona_id in personas:
@@ -210,6 +219,22 @@ class LifeScheduler:
                 )
                 count += 1
         return count
+
+    def _ensure_target_plan(
+        self,
+        slot: datetime,
+        persona_id: str,
+        kind: str,
+        task_id: str,
+        plan_date: str,
+    ) -> None:
+        if self.db is None:
+            return
+        self.db.ensure_plan(
+            persona_id, plan_date, task_id, kind,
+            scheduled_at=slot.strftime("%Y-%m-%d %H:%M:%S"),
+            fixed=True,
+        )
 
     def _plan_status_browse(self, result: Any) -> tuple[str, str]:
         status = getattr(result, "status", "completed")
@@ -317,7 +342,32 @@ class LifeScheduler:
             if not self.presence.conversation_active(p, now)
         ]
 
+    def _plan_row(
+        self, persona_id: str, plan_date: str, task_id: str
+    ) -> Optional[dict]:
+        if self.db is None:
+            return None
+        for row in self.db.list_plans(persona_id, plan_date):
+            if str(row.get("task_id") or "") == task_id:
+                return row
+        return None
+
     async def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                await self._run_loop()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.log.exception("scheduler loop crashed; restarting in 5s")
+                try:
+                    await asyncio.wait_for(self._stop.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    pass
+                continue
+            break
+
+    async def _run_loop(self) -> None:
         personas = list(self.config.life_personas or [])
         while not self._stop.is_set():
             if not self.config.enabled:
@@ -346,9 +396,14 @@ class LifeScheduler:
                 continue
             target = self._current_target(personas_ready)
             if target is None:
-                await self._stop.wait()
-                break
+                try:
+                    await asyncio.wait_for(self._stop.wait(), timeout=60)
+                except asyncio.TimeoutError:
+                    pass
+                continue
             slot, persona_id, kind, task_id, plan_date = target
+            # 目标可能落在次日（尚未播种）；先补齐计划行，finally 才不会落空。
+            self._ensure_target_plan(slot, persona_id, kind, task_id, plan_date)
             now_local = local_now(self.config.timezone, self.now_fn())
             wait = max(1.0, (slot - now_local).total_seconds())
             try:
@@ -357,8 +412,18 @@ class LifeScheduler:
                 pass
             if self._stop.is_set():
                 break
-            key = f"{slot.strftime('%Y-%m-%d %H:%M')}:{persona_id}:{kind}"
+            key = (
+                f"{slot.strftime('%Y-%m-%d %H:%M')}:{persona_id}:{kind}:{task_id}"
+            )
             if key in self._done_keys:
+                continue
+            plan_row = self._plan_row(persona_id, plan_date, task_id)
+            if plan_row is not None and str(plan_row.get("status") or "") != "pending":
+                self.log.info(
+                    "plan %s/%s became %s while waiting; skipping",
+                    plan_date, task_id, plan_row.get("status"),
+                )
+                self._done_keys.add(key)
                 continue
             if not self._acquire_lease(persona_id, key, kind):
                 self.log.warning(
@@ -376,6 +441,7 @@ class LifeScheduler:
                         finished_at=local_now(
                             self.config.timezone, self.now_fn()
                         ).strftime("%Y-%m-%d %H:%M:%S"),
+                        only_if_status="pending",
                     )
                 self._done_keys.add(key)
                 continue
@@ -385,10 +451,22 @@ class LifeScheduler:
             )
             keepalive: Optional[asyncio.Task] = None
 
-            async def _keepalive() -> None:
+            async def _keepalive(
+                p: str = persona_id, k: str = key, kd: str = kind
+            ) -> None:
                 while True:
-                    await asyncio.sleep(self._renew_interval(kind))
-                    self._renew_lease(persona_id, key, kind)
+                    await asyncio.sleep(self._renew_interval(kd))
+                    try:
+                        renewed = self._renew_lease(p, k, kd)
+                    except Exception:
+                        self.log.exception(
+                            "keepalive renew failed for %s %s", p, k
+                        )
+                        return
+                    if not renewed:
+                        self.log.warning(
+                            "keepalive renew returned false for %s %s", p, k
+                        )
 
             async with self._lock:
                 status = "failed"
@@ -424,15 +502,34 @@ class LifeScheduler:
                         self.presence.clear_busy(persona_id)
                     if keepalive is not None:
                         keepalive.cancel()
+                        try:
+                            await keepalive
+                        except asyncio.CancelledError:
+                            pass
+                        except Exception:
+                            self.log.debug(
+                                "keepalive ended with error", exc_info=True
+                            )
                     self._done_keys.add(key)
                     self._release_lease(persona_id, key)
                     if self.db is not None:
-                        usage_after = self.db.get_daily_usage(persona_id, plan_date)
-                        self.db.update_plan(
-                            persona_id, plan_date, task_id, status,
-                            reason=reason,
-                            budget_used=self._budget_delta(usage_before, usage_after),
-                            finished_at=local_now(
-                                self.config.timezone, self.now_fn()
-                            ).strftime("%Y-%m-%d %H:%M:%S"),
-                        )
+                        try:
+                            usage_after = self.db.get_daily_usage(
+                                persona_id, plan_date
+                            )
+                            self.db.update_plan(
+                                persona_id, plan_date, task_id, status,
+                                reason=reason,
+                                budget_used=self._budget_delta(
+                                    usage_before, usage_after
+                                ),
+                                finished_at=local_now(
+                                    self.config.timezone, self.now_fn()
+                                ).strftime("%Y-%m-%d %H:%M:%S"),
+                                only_if_status="pending",
+                            )
+                        except Exception:
+                            self.log.exception(
+                                "failed to finalize plan %s/%s",
+                                plan_date, task_id,
+                            )

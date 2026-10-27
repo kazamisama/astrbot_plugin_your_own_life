@@ -240,6 +240,7 @@ select, input[type="date"], input[type="text"] {
     <button class="tab" data-tab="edits">改动</button>
     <button class="tab" data-tab="watch">关注</button>
     <button class="tab" data-tab="revisit">故地重游</button>
+    <button class="tab" data-tab="trash">回收站</button>
   </nav>
 
   <section id="tab-life">
@@ -260,6 +261,7 @@ select, input[type="date"], input[type="text"] {
       <section class="panel diary">
         <h2>今日日记</h2>
         <p class="diary-text empty" id="diaryText">暂无日记。夜间复盘后会出现。</p>
+        <button class="btn small" id="diaryDeleteBtn" hidden>移入回收站</button>
       </section>
       <section class="panel notes">
         <h2>浏览足迹</h2>
@@ -441,6 +443,22 @@ select, input[type="date"], input[type="text"] {
       <div id="revisitEmpty" class="empty" hidden>还没有故地重游记录。旧短记超过 revisit_interval_days 后会在夜间自动重访。</div>
     </div>
   </section>
+
+  <section id="tab-trash" hidden>
+    <div class="stats">
+      <div class="stat"><span class="label">回收站短记</span><span class="value" id="trashNotes">-</span></div>
+      <div class="stat"><span class="label">回收站日记</span><span class="value" id="trashDiaries">-</span></div>
+    </div>
+    <div class="panel">
+      <h2>已删除短记</h2>
+      <ul class="note-list" id="trashNoteList"></ul>
+    </div>
+    <div class="panel">
+      <h2>已删除日记</h2>
+      <ul class="note-list" id="trashDiaryList"></ul>
+      <div id="trashEmpty" class="empty" hidden>回收站是空的。删除的内容会按 trash_retention_days 保留。</div>
+    </div>
+  </section>
 </div>
 
 <script>
@@ -600,6 +618,7 @@ function switchTab(name) {
   document.getElementById("tab-edits").hidden = name !== "edits";
   document.getElementById("tab-watch").hidden = name !== "watch";
   document.getElementById("tab-revisit").hidden = name !== "revisit";
+  document.getElementById("tab-trash").hidden = name !== "trash";
   if (name === "memory") { loadMemory(); loadWishlist(); }
   if (name === "share") loadShare();
   if (name === "timeline") { renderTimelineFilters(); loadTimeline(true); }
@@ -611,6 +630,7 @@ function switchTab(name) {
   if (name === "edits") loadLifeEdits();
   if (name === "watch") loadWatchlist();
   if (name === "revisit") loadRevisits();
+  if (name === "trash") loadTrash();
 }
 
 function loadPersonas() {
@@ -682,12 +702,26 @@ function renderStats(overview) {
 function renderDiary(overview) {
   var el = document.getElementById("diaryText");
   var diary = overview.diary;
+  var delBtn = document.getElementById("diaryDeleteBtn");
   if (diary && diary.content) {
     el.textContent = diary.content;
     el.className = "diary-text";
+    delBtn.hidden = false;
+    delBtn.onclick = function () {
+      var date = (overview && overview.date) || dateInput.value || today();
+      if (!window.confirm("把 " + date + " 的日记移入回收站？")) return;
+      apiPost("trash_add", {
+        persona: state.persona, entity: "diary", date: date
+      }).then(function (res) {
+        if (res && res.ok === false) showError(res.error || "删除失败");
+        loadLife();
+      }).catch(function () { showError("删除日记失败。"); });
+    };
   } else {
     el.textContent = "暂无日记。夜间复盘后会出现。";
     el.className = "diary-text empty";
+    delBtn.hidden = true;
+    delBtn.onclick = null;
   }
 }
 
@@ -1155,6 +1189,21 @@ function loadMemory() {
           span.textContent = tag;
           li.appendChild(span);
         });
+        if (item.kind === "note" && item.id) {
+          var del = document.createElement("button");
+          del.className = "btn small";
+          del.textContent = "移入回收站";
+          del.addEventListener("click", function () {
+            if (!window.confirm("把这条短记移入回收站？")) return;
+            apiPost("trash_add", {
+              persona: state.persona, entity: "note", id: item.id
+            }).then(function (res) {
+              if (res && res.ok === false) showError(res.error || "删除失败");
+              loadMemory();
+            }).catch(function () { showError("删除短记失败。"); });
+          });
+          li.appendChild(del);
+        }
         ul.appendChild(li);
       });
       if (!(data.items || []).length) {
@@ -1242,6 +1291,7 @@ function load() {
     if (state.tab === "edits") loadLifeEdits();
     if (state.tab === "watch") loadWatchlist();
     if (state.tab === "revisit") loadRevisits();
+    if (state.tab === "trash") loadTrash();
   });
 }
 
@@ -1296,6 +1346,68 @@ function loadCapsules() {
       });
     })
     .catch(function () { showError("时间胶囊加载失败。"); });
+}
+
+function loadTrash() {
+  apiGet("trash", { persona: state.persona })
+    .then(function (data) {
+      var notes = data.notes || [];
+      var diaries = data.diaries || [];
+      document.getElementById("trashNotes").textContent = notes.length;
+      document.getElementById("trashDiaries").textContent = diaries.length;
+      document.getElementById("trashEmpty").hidden =
+        notes.length + diaries.length > 0;
+      renderTrashList("trashNoteList", notes, "note");
+      renderTrashList("trashDiaryList", diaries, "diary");
+    })
+    .catch(function () { showError("回收站加载失败。"); });
+}
+
+function renderTrashList(id, rows, entity) {
+  var ul = document.getElementById(id);
+  ul.textContent = "";
+  if (!rows.length) {
+    var empty = document.createElement("li");
+    empty.className = "empty";
+    empty.textContent = entity === "note" ? "没有已删除的短记。" : "没有已删除的日记。";
+    ul.appendChild(empty);
+    return;
+  }
+  rows.forEach(function (row) {
+    var li = document.createElement("li");
+    var title = document.createElement("div");
+    title.className = "note-title";
+    title.textContent = entity === "note"
+      ? (row.title || ("短记 #" + row.id))
+      : ("日记 · " + row.date);
+    li.appendChild(title);
+    var meta = document.createElement("div");
+    meta.className = "note-src";
+    meta.textContent = "删除于 " + (row.deleted_at || "");
+    li.appendChild(meta);
+    var body = entity === "note" ? (row.summary || "") : (row.content || "");
+    if (body) {
+      var summary = document.createElement("div");
+      summary.className = "note-summary";
+      summary.textContent = body;
+      li.appendChild(summary);
+    }
+    var btn = document.createElement("button");
+    btn.className = "btn small primary";
+    btn.textContent = "恢复";
+    btn.addEventListener("click", function () {
+      apiPost("trash_restore", {
+        persona: state.persona, entity: entity,
+        id: entity === "note" ? row.id : undefined,
+        date: entity === "diary" ? row.date : undefined
+      }).then(function (res) {
+        if (res && res.ok === false) showError(res.error || "恢复失败");
+        loadTrash();
+      });
+    });
+    li.appendChild(btn);
+    ul.appendChild(li);
+  });
 }
 
 function openCapsule(capsuleId) {

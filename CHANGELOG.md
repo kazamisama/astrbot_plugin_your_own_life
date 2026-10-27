@@ -2,6 +2,20 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.20] - 2026-10-27
+
+### Fixed
+
+- 时间胶囊恢复自动封存链路：夜间复盘每天从当日短记中挑兴趣最高的一条封存（`capsule_days` 天后到期），并写 `capsule` 事件；此前 `seal_capsule_for_note` 无生产调用，`time_capsules` 永远为空，胶囊 tab 与到期回信整链不可达。手动打开不再覆写 `unlock_at`，重复打开不会重复计数。
+- 回收站打通：新增 WebUI「回收站」tab 与 `POST /trash_add`，笔记/日记可软删除并恢复；夜间复盘按 `trash_retention_days` 清理过期回收站条目，且清理短记时级联删除引用它的时间胶囊。此前软删除函数无生产调用，`trash_retention_days` 解析后无人读取。
+- `reset_all` 补齐 `life_plans` / `event_chain` / `persona_prompts` 三张表，`/life_reset` 后不再残留计划、事件链与人格缓存。
+- 调度器状态机：进程内异常不再杀死调度协程（supervisor 5s 重启）；目标落在次日时先播种计划行；当日错过的 pending 计划顺延补做；等待期间被 skip 的计划不再执行；`update_plan` 增加 `only_if_status` 守卫，避免覆盖已终态计划；租约冲突与收尾更新只作用于 pending。
+- 计划窗口与 `edit_life_plan` 时间校验改为严格 `HH:MM`：`09:60` / `25:99` 不再被静默归一或落到 23:59；`_plan_window_time` 支持 `24:00` 结束边界，非法窗口返回空。
+
+### Notes
+
+- 测试：282 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外），新增胶囊封存、回收站级联、reset 完整性、调度器补做/次日播种/等待期 skip 等回归用例。
+
 ## [0.5.19] - 2026-08-19
 
 ### Fixed

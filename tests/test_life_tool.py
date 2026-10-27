@@ -224,6 +224,14 @@ class LifeToolTest(unittest.IsolatedAsyncioTestCase):
         extra = next(item for item in items if item["task_id"] == "extra-1")
         self.assertEqual(extra["status"], "skipped")
         self.assertEqual(extra["reason"], "not now")
+        for bad_time in ("25:99", "09:60", "abc"):
+            raw = await tool.call(
+                _FakeWrapper(), action="add", task_id="bad-" + bad_time,
+                date="2026-08-12", kind="peek", time=bad_time, reason="bad",
+            )
+            data = json.loads(raw)
+            self.assertFalse(data["ok"])
+            self.assertIn("HH:MM", data["error"])
 
     def test_query_life_status_returns_sections(self):
         sid = self.db.start_browse_session(

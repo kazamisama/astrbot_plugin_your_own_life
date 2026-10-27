@@ -401,6 +401,33 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         events = self.db.list_events("shelly")
         self.assertEqual(json.loads(events[0]["payload"])["status"], "reply_failed")
 
+    async def test_diary_seals_one_capsule_per_day(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 23, 0)
+        low = self.db.add_note(
+            "shelly", None, "hn", "https://seal-low", "Low", "s",
+            url_hash="seal-low", interest_level=0.2,
+        )
+        high = self.db.add_note(
+            "shelly", None, "hn", "https://seal-high", "High", "s",
+            url_hash="seal-high", interest_level=0.9,
+        )
+        self.db._execute(
+            "UPDATE notes SET fetched_at = ? WHERE id IN (?, ?)",
+            ("2026-08-12 10:00:00", low, high),
+        )
+        self.service.llm = _FakeLLM(payload={
+            "diary_text": "今天看了两件事。", "mood": "calm",
+            "signature": "", "interest_updates": {},
+        })
+        first = await self.service.run_nightly_diary("shelly")
+        self.assertEqual(first["capsules_sealed"], 1)
+        rows = self.db.list_capsules("shelly")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["note_id"], high)
+        second = await self.service.run_nightly_diary("shelly")
+        self.assertEqual(second["capsules_sealed"], 0)
+        self.assertEqual(len(self.db.list_capsules("shelly")), 1)
+
     async def test_diary_revisits_old_note(self):
         self.service.now_fn = lambda: datetime(2026, 8, 12, 23, 0)
         old_id = self.db.add_note(
@@ -1061,7 +1088,7 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
                  "reason": "意外"},
                 {"action": "evil_action", "window_start": "09:00", "window_end": "10:00",
                  "reason": "hack"},
-                {"action": "diary", "window_start": "01:00", "window_end": "02:00",
+                {"action": "diary", "window_start": "23:30", "window_end": "23:50",
                  "reason": "夜里写"},
                 {"action": "diary", "window_start": "25:00", "window_end": "26:00",
                  "reason": "bad"},
@@ -1095,6 +1122,20 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(len(reject_events), 4)
         self.assertIn("unknown_action", {e["reason"] for e in reject_events})
         self.assertIn("sleep_window", {e["reason"] for e in reject_events})
+
+    def test_plan_window_rejects_invalid_minutes(self):
+        self.assertIsNone(self.service._plan_window_time(
+            "2026-08-12", {"window_start": "09:60", "window_end": "11:00"}
+        ))
+        self.assertIsNone(self.service._plan_window_time(
+            "2026-08-12", {"window_start": "22:00", "window_end": "25:00"}
+        ))
+        self.assertEqual(
+            self.service._plan_window_time(
+                "2026-08-12", {"window_start": "09:00", "window_end": "11:00"}
+            ),
+            "2026-08-12 10:00:00",
+        )
 
     async def test_generate_plan_respects_action_cap(self):
         self.service.now_fn = lambda: datetime(2026, 8, 12, 8, 0)

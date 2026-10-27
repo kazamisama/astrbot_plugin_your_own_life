@@ -495,13 +495,13 @@ async def _execute_status_tool(tool: Any, context: Any, date: str,
     return json.dumps(data, ensure_ascii=False)
 
 
-def _plan_time(plan_date: str, time_str: str) -> str:
+def _plan_time(plan_date: str, time_str: str) -> Optional[str]:
     raw = (time_str or "23:59").strip()
     try:
-        hour, minute = raw.split(":", 1)
-        return f"{plan_date} {int(hour):02d}:{int(minute):02d}:00"
-    except (ValueError, AttributeError):
-        return f"{plan_date} 23:59:00"
+        parsed = datetime.strptime(f"{plan_date} {raw}", "%Y-%m-%d %H:%M")
+    except (ValueError, TypeError):
+        return None
+    return parsed.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def edit_life_plan(
@@ -525,6 +525,8 @@ def edit_life_plan(
         if kind not in ("browse", "peek", "diary"):
             return {"ok": False, "error": "kind must be browse/peek/diary"}
         scheduled_at = _plan_time(plan_date, str(time or ""))
+        if scheduled_at is None:
+            return {"ok": False, "error": "time must be HH:MM within the day"}
         plan_id = db.add_optional_plan(
             persona_id, plan_date, task_id, kind, scheduled_at, reason=reason,
         )
@@ -539,6 +541,8 @@ def edit_life_plan(
                 "error": "" if ok else "cannot reorder fixed or missing task"}
     if action == "defer":
         scheduled_at = _plan_time(plan_date, str(time or ""))
+        if scheduled_at is None:
+            return {"ok": False, "error": "time must be HH:MM within the day"}
         ok = db.defer_plan(persona_id, plan_date, task_id, scheduled_at, reason=reason)
         return {"ok": ok, "action": action, "plan_date": plan_date,
                 "task_id": task_id, "scheduled_at": scheduled_at,

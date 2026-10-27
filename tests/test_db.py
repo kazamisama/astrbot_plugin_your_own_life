@@ -268,6 +268,32 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(row["reply"], "当时的我…现在的我…")
         self.assertEqual(len(self.db.capsules_due("shelly", "2026-12-01")), 0)
 
+    def test_capsule_manual_open_keeps_unlock_at(self):
+        note_id = self.db.add_note("shelly", None, "hn", "https://cap2", "C2", "s",
+                                   url_hash="cap2")
+        cid = self.db.seal_capsule(
+            "shelly", note_id, "2099-01-01 00:00:00",
+            sealed_at="2026-08-01 09:00:00",
+        )
+        self.assertEqual(self.db.capsules_sealed_on("shelly", "2026-08-01"), 1)
+        self.assertEqual(self.db.capsules_due("shelly", "2026-08-02"), [])
+        self.assertTrue(self.db.unlock_capsule("shelly", cid))
+        self.assertEqual(
+            self.db.get_capsule("shelly", cid)["unlock_at"], "2099-01-01 00:00:00"
+        )
+        self.assertEqual(len(self.db.capsules_due("shelly", "2026-08-02")), 1)
+
+    def test_purge_trash_cascades_time_capsules(self):
+        note_id = self.db.add_note("shelly", None, "hn", "https://cap3", "C3", "s",
+                                   url_hash="cap3")
+        self.db.seal_capsule(
+            "shelly", note_id, "2099-01-01 00:00:00",
+            sealed_at="2026-08-01 09:00:00",
+        )
+        self.assertTrue(self.db.soft_delete_note("shelly", note_id))
+        self.assertEqual(self.db.purge_trash("shelly", 0), 1)
+        self.assertEqual(self.db.list_capsules("shelly"), [])
+
     def test_llm_edit_apply_and_rollback(self):
         note_id = self.db.add_note(
             "shelly", None, "hn", "https://x", "Old title", "Old summary", url_hash="edit1"
@@ -341,6 +367,18 @@ class LifeDBTest(unittest.TestCase):
         self.db.reset_all("shelly")
         self.assertEqual(self.db.list_notes("shelly"), [])
         self.assertEqual(self.db.get_interests("shelly"), [])
+
+    def test_reset_all_clears_plans_events_and_persona_prompts(self):
+        self.db.ensure_plan("shelly", "2026-08-12", "browse-10-00", "browse",
+                            scheduled_at="2026-08-12 10:00:00", fixed=True)
+        self.db.add_optional_plan("shelly", "2026-08-12", "extra-1", "peek",
+                                  "2026-08-12 11:00:00")
+        self.db.append_event("shelly", "observe", {"x": 1}, [])
+        self.db.upsert_persona_prompt("shelly", "sys", "persona", "ok")
+        self.db.reset_all("shelly")
+        self.assertEqual(self.db.list_plans("shelly", "2026-08-12"), [])
+        self.assertEqual(self.db.list_events("shelly"), [])
+        self.assertIsNone(self.db.get_persona_prompt("shelly"))
 
     def test_legacy_migration(self):
         path = Path(self.tmp.name) / "legacy.db"

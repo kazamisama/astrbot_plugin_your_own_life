@@ -2,6 +2,19 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-27 完备性/冗余性审计后的第一批修复：断链与调度器（v0.5.20）
+- 目标：对仓库做完备性与冗余性审计后，按批次修复真实断链与状态机缺陷；本批为 batch 1（胶囊自动封存、回收站视图、reset 完整性、调度器状态机、计划时间校验）。
+- 已确认决策：
+  - 胶囊封存不再依赖不存在的调用方：夜间复盘每天从当日短记中挑 `(interest_level, id)` 最大的一条封存一条（当日已封存则跳过），复用 `seal_capsule_for_note`；手动打开只把 sealed 改 unlocked，不覆写 `unlock_at`。
+  - 回收站入口补在 WebUI（新增 tab + `POST /trash_add`），清理沿用夜间复盘、按 `trash_retention_days` 执行；`purge_trash` 删除短记前先删引用它的 `time_capsules`。
+  - 调度器 `_run` 包成 supervisor（异常 5s 后重启），原循环改名 `_run_loop`；目标次日先 `ensure_plan` 播种；当日错过槽位补做；等待期结束重读计划状态，非 pending 则跳过；`update_plan` 增加 `only_if_status`，租约冲突/收尾只改 pending。
+  - 计划时间一律严格 `HH:MM`（`datetime.strptime`），非法直接拒绝；窗口结束支持 `24:00`。
+  - 胶囊/回收站修复只做"可达 + 幂等"，不改变 `change_log` 语义与权限模型（留待 batch 2/3）。
+- 改动：`life/db.py`、`life/browser.py`、`life/scheduler.py`、`life/life_tool.py`、`life/webui.py`、`pages/life/index.html`、`tests/test_db.py`、`tests/test_browser.py`、`tests/test_scheduler.py`、`tests/test_life_tool.py`、`tests/test_webui.py`、`test_scheduler.py`；版本 v0.5.19 → v0.5.20。
+- 验证：受影响 5 个测试文件全绿（db 59、browser 54、webui 20、life_tool 13、scheduler 27）；全量 `unittest discover -s tests` 282 条，仅 `test_config` 与生产 AstrBot 混装的已知环境错误（单独跑通过）；页面内联脚本 `node --check` 通过；`compileall` 通过。
+- 遗留：审计 batch 2（宿主/本地写入顺序、commit 后异常仍报 error、`weight=0.0` 回滚、事件幂等键、工具通道绕过计划硬约束、watchlist 解析、多话题丢失等）与 batch 3（死代码/重复实现/词表与提示词字段未消费、测试补齐）未动；仓库根 `astrbot_test_kit_runs/` 仍未纳入 `.gitignore`。
+- 下一步：提交 `chore(release): v0.5.20 ...`，随后按审计报告继续 batch 2。
+
 ## 2026-08-19 修复 v0.5.18 后插件页整体卡死：桥注入点被注释里的闭合标签截获（v0.5.19）
 - 目标：用户反馈 v0.5.18 后 Dashboard 插件页"直接卡住了"，定位并修复。
 - 已确认决策：
