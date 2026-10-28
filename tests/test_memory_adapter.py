@@ -66,6 +66,13 @@ class _FakeContext:
         return self.host
 
 
+class _FakeMetadata:
+    """Mimics AstrBot's StarMetadata registry record."""
+
+    def __init__(self, star_cls):
+        self.star_cls = star_cls
+
+
 class MemoryAdapterTest(unittest.TestCase):
     def test_missing_host_raises_hard_error(self):
         adapter = LifeMemoryAdapter(_FakeContext(None))
@@ -79,6 +86,19 @@ class MemoryAdapterTest(unittest.TestCase):
         host = _FakeHost()
         host.store_diary_line = None
         adapter = LifeMemoryAdapter(_FakeContext(host))
+        with self.assertRaises(MemoryHostError):
+            adapter.store_diary_line("shelly", "2026-08-12", "x")
+
+    def test_registry_metadata_is_unwrapped_to_host_instance(self):
+        host = _FakeHost()
+        adapter = LifeMemoryAdapter(_FakeContext(_FakeMetadata(host)))
+        self.assertTrue(adapter.available())
+        self.assertEqual(adapter.add_note("shelly", {"summary": "s"}), "nid-1")
+        self.assertEqual(host.calls[0][0], "add_note")
+
+    def test_inactive_registry_metadata_is_unavailable(self):
+        adapter = LifeMemoryAdapter(_FakeContext(_FakeMetadata(None)))
+        self.assertFalse(adapter.available())
         with self.assertRaises(MemoryHostError):
             adapter.store_diary_line("shelly", "2026-08-12", "x")
 

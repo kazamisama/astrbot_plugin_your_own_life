@@ -2,6 +2,22 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.30] - 2026-10-28
+
+### Fixed
+
+- 统一记忆宿主：AstrBot 的 `get_registered_star()` 返回 `StarMetadata` 注册记录，可调用的插件实例在 `star_cls` 上；`LifeMemoryAdapter` 现在会解包实例再调用 `store_diary_line` / `add_note` / `store_event` / 租约等方法。此前元数据对象没有这些方法，所有宿主写入都会 `MemoryHostError`，日记/短记/事件到不了 engram_core。
+- 宿主未激活：`StarMetadata` 已注册但 `star_cls` 为 `None` 时明确抛 `MemoryHostError`，`available()` 返回 `False`，不再把未激活宿主当作可用。
+
+### Changed
+
+- `.gitignore` 忽略 `astrbot_test_kit_runs/`，避免 test kit 测试目录被递归复制进插件副本。
+
+### Notes
+
+- 测试：333 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 仍未修：页面 `archive` / `interests` 独立视图；结构性重复（两套 persona 解析、10 个 Tool 类、review/quarterly 同构）；统一记忆宿主孤儿无删除 API；工具 add 无 ESM 精力 gate。
+
 ## [0.5.29] - 2026-10-28
 
 ### Fixed

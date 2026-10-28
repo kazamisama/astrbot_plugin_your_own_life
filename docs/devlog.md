@@ -2,6 +2,18 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-28 真实 AstrBot E2E 与统一记忆宿主修复（v0.5.30）
+- 目标：用 astrbot-test-kit 验证真实 AstrBot 下的命令与 WebUI API；处理验证中确认的统一记忆宿主适配问题；清理 test kit 目录卫生。
+- 已确认决策：
+  - AstrBot 的 `Context.get_registered_star()` 返回 `StarMetadata`，可调用的插件实例在 `metadata.star_cls`；适配器必须解包实例，不能把注册记录当宿主。
+  - `star_cls is None`（插件注册但未激活）必须显式报错，`available()` 返回 False；不得静默当作可用。
+  - 测试用户 ID 必须是数字；管理权限通过 `ASTRBOT_TEST_CONF` 的 `admins_id` 注入，否则 422/权限拒绝。
+  - 测试插件目录不能直接用仓库根（含 302MB `astrbot_test_kit_runs/`），应使用 `git archive HEAD` 的干净副本；仓库忽略该目录。
+- 改动：`life/memory_adapter.py`、`tests/test_memory_adapter.py`、`.gitignore`、`README.md`、`CHANGELOG.md`、`metadata.yaml`、`life/__init__.py`；版本 v0.5.29 → v0.5.30。
+- 验证：memory adapter 5 条测试全绿；真实 AstrBot 4.25.5 下 `/life`、`/life_today`、`/life_archive`、`/life_interest`、`/life_personas`、`/life_share 999` 全部 PASS；WebUI 登录后 overview/status/heatmap/personas/plans/events/capsules/usage/trash/interests/archive/revisit_chains/watchlist/entities 均 200。全量测试与 ruff/compileall 提交前执行。
+- 遗留：LLM 路径（/life_now、/life_plan、夜间日记）未在 E2E 中验证；页面视觉未用真实浏览器检查；结构性重复与记忆宿主孤儿仍待处理。
+- 下一步：提交 `chore(release): v0.5.30 ...`，再评估结构性重构。
+
 ## 2026-10-28 审计第六批：重访链与手动漫游体验（v0.5.29）
 - 目标：处理上一轮列出的低风险项：revisit_chains 截断、/run 固定刷新、实体图错误提示、回顾来源重复扫描。
 - 已确认决策：

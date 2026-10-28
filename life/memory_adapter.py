@@ -30,6 +30,20 @@ class LifeMemoryAdapter:
             raise MemoryHostError(f"memory host lookup failed: {exc}") from None
         if star is None:
             raise MemoryHostError(f"memory host {self.host_id} not registered")
+        # AstrBot's get_registered_star() returns the registry record
+        # (StarMetadata), not the plugin instance: the callable API lives on
+        # metadata.star_cls (core/star/star.py). Returning the metadata made
+        # every _require_method() call raise MemoryHostError, so the life
+        # plugin's diary/entity writes never reached engram_core (its
+        # life_*/task_leases tables stayed empty). Accept a bare instance
+        # too, because older managers and test doubles return one.
+        if not hasattr(star, "store_diary_line"):
+            inst = getattr(star, "star_cls", None)
+            if inst is None:
+                raise MemoryHostError(
+                    f"memory host {self.host_id} is registered but not active"
+                )
+            star = inst
         return star
 
     @staticmethod
