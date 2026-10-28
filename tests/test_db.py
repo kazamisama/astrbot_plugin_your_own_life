@@ -744,6 +744,35 @@ class LifeDBTest(unittest.TestCase):
         self.assertTrue(self.db.restore_diary("shelly", "2026-08-12", reason="undo"))
         self.assertEqual(self.db.get_diary("shelly", "2026-08-12")["content"], "d")
 
+    def test_rollback_soft_delete_restores_note_and_diary(self):
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://rb", "RB", "s", url_hash="rb1"
+        )
+        self.assertTrue(self.db.soft_delete_note("shelly", note_id))
+        note_log = self.db.list_change_log("shelly")[0]
+        self.assertIsNotNone(self.db.rollback_change("shelly", note_log["id"]))
+        self.assertIsNotNone(self.db.get_note(note_id))
+
+        self.db.add_diary("shelly", "2026-08-13", "body")
+        self.assertTrue(self.db.soft_delete_diary("shelly", "2026-08-13"))
+        diary_log = self.db.list_change_log("shelly")[0]
+        self.assertIsNotNone(self.db.rollback_change("shelly", diary_log["id"]))
+        self.assertIsNotNone(self.db.get_diary("shelly", "2026-08-13"))
+
+    def test_rollback_promotion_without_previous_interest_removes_ghost(self):
+        self.db.upsert_interest("shelly", "ghost", "Ghost", 0.5, seen_count=0)
+        log_id = self.db.log_change(
+            "shelly", "interest", "ghost",
+            json.dumps({"exists": False, "key": "ghost"}),
+            json.dumps({"action": "wishlist_promote", "key": "ghost",
+                        "name": "Ghost"}),
+            actor="owner", reason="wishlist_promote", status="applied",
+        )
+        self.assertIsNotNone(self.db.rollback_change("shelly", log_id))
+        self.assertNotIn(
+            "ghost", [row["key"] for row in self.db.get_interests("shelly")]
+        )
+
     def test_purge_trash_respects_retention(self):
         note_id = self.db.add_note("shelly", None, "hn", "https://a", "A", "s", url_hash="h1")
         self.db.soft_delete_note("shelly", note_id)

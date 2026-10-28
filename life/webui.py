@@ -161,7 +161,7 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
             except MemoryHostError as exc:
                 result["error"] = f"memory_host: {exc}"
                 return result
-            result["items"] = _merge_unified(host_items, result["items"])
+            result["items"] = _merge_unified(host_items, result["items"], limit=k)
             result["count"] = len(result["items"])
         return result
 
@@ -501,9 +501,13 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
                 )
             else:
                 db.upsert_interest(persona, key, name or key, 0.5, seen_count=0)
+            old_payload = (
+                dict(existing) if existing
+                else {"exists": False, "key": key}
+            )
             db.log_change(
                 persona, "interest", key,
-                json.dumps(existing or {}, ensure_ascii=False, default=str),
+                json.dumps(old_payload, ensure_ascii=False, default=str),
                 json.dumps({"action": "wishlist_promote", "key": key,
                             "name": name or key}, ensure_ascii=False),
                 actor="owner", reason="wishlist_promote", status="applied",

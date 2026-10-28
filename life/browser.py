@@ -1,6 +1,7 @@
 """Per-persona life orchestration: browse sessions, shares and nightly diary."""
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import random
@@ -54,6 +55,19 @@ def _first_topic(raw: str) -> str:
         if part:
             return part
     return "未记录"
+
+
+def _watched_digest(item: FetchedItem) -> str:
+    """Content fingerprint for stable watchlist URLs.
+
+    A watched blog/repo keeps the same URL forever. Comparing only the URL
+    would hide every later change, so the digest covers title, summary and
+    publish time and is stored in seen_items.
+    """
+    raw = "\n".join(
+        [str(item.title or ""), str(item.summary or ""), str(item.published_at or "")]
+    )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 @dataclass
@@ -266,10 +280,14 @@ class LifeService:
                 )
                 candidates = await self.fetcher_fn(self.config, client, queries)
 
-            unseen = [
-                item for item in candidates
-                if not self.db.is_seen(persona_id, item.url_hash)
-            ]
+            unseen = []
+            for item in candidates:
+                watched = item.source.startswith("watchlist/")
+                digest = _watched_digest(item) if watched else None
+                # 普通来源按 URL 去重；关注列表的 URL 固定，只有内容变化才重新入选。
+                if self.db.is_seen(persona_id, item.url_hash, digest):
+                    continue
+                unseen.append(item)
             if not unseen:
                 self.db.finish_browse_session(sid, "completed", 0, "nothing_new")
                 self.db.add_state_snapshot(
@@ -363,7 +381,10 @@ class LifeService:
                     share_decision=self._valid_share(meta.get("share")),
                     url_hash=item.url_hash,
                 )
-                self.db.stage_seen(persona_id, sid, item.url_hash)
+                self.db.stage_seen(
+                    persona_id, sid, item.url_hash,
+                    _watched_digest(item) if item.source.startswith("watchlist/") else "",
+                )
                 self.interests.stage_note(
                     persona_id, sid, key, name,
                     _clamp(meta.get("interest_level", 0.5)), now=now,
@@ -1527,13 +1548,18 @@ class LifeService:
             return {"persona_id": persona_id, "ok": False,
                     "error": "persona_unavailable"}
         now = local_now(self.config.timezone, self.now_fn())
+        run_date = now.strftime("%Y-%m-%d")
         run_token = -random.randrange(1, 2**62)
         threshold = (
             now - timedelta(days=max(1, int(self.config.revisit_interval_days)))
         ).strftime("%Y-%m-%d")
         candidates = self.db.list_revisit_candidates(
-            persona_id, threshold, limit=5
+            persona_id, threshold, limit=50
         )
+        # 固定取最旧 5 条会让少数一直失败的候选堵住队列；按天确定性打乱，
+        # 失败者下一晚仍有机会被轮到。
+        random.Random(f"revisit:{persona_id}:{run_date}").shuffle(candidates)
+        candidates = candidates[:5]
         if not candidates:
             return {"persona_id": persona_id, "ok": True,
                     "candidates": 0, "revisited": 0, "failed": 0}
@@ -1591,10 +1617,11 @@ class LifeService:
                 self.db.append_event(
                     persona_id, "revisit",
                     {"original_id": int(original["id"]),
-                     "status": "failed", "reason": str(exc)},
+                     "status": "failed", "reason": str(exc),
+                     "date": run_date},
                     [{"note_id": int(original["id"]),
                       "url": original.get("url") or ""}],
-                    f"revisit/{int(original['id'])}/failed",
+                    f"revisit/{int(original['id'])}/failed/{run_date}",
                 )
         if not staged:
             return {"persona_id": persona_id, "ok": True,

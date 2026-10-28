@@ -94,6 +94,8 @@ CREATE TABLE IF NOT EXISTS seen_items (
     persona_id TEXT NOT NULL DEFAULT 'default',
     url_hash TEXT NOT NULL,
     first_seen_at TEXT NOT NULL,
+    digest TEXT DEFAULT '',
+    last_seen_at TEXT DEFAULT '',
     PRIMARY KEY (persona_id, url_hash)
 );
 CREATE TABLE IF NOT EXISTS share_log (
@@ -239,7 +241,8 @@ CREATE TABLE IF NOT EXISTS staging_seen (
     persona_id TEXT NOT NULL DEFAULT 'default',
     session_id INTEGER,
     url_hash TEXT NOT NULL,
-    first_seen_at TEXT NOT NULL
+    first_seen_at TEXT NOT NULL,
+    digest TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS staging_wishlist (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -362,6 +365,9 @@ class LifeDB:
             self._ensure_column("staging_snapshots", "extra", "extra TEXT DEFAULT ''")
             self._ensure_column("staging_wishlist", "interest_key", "interest_key TEXT DEFAULT ''")
             self._ensure_column("staging_interests", "last_seen_at", "last_seen_at TEXT DEFAULT ''")
+            self._ensure_column("staging_seen", "digest", "digest TEXT DEFAULT ''")
+            self._ensure_column("seen_items", "digest", "digest TEXT DEFAULT ''")
+            self._ensure_column("seen_items", "last_seen_at", "last_seen_at TEXT DEFAULT ''")
             self._migrate_notes_unique()
             self._conn.commit()
         self.recover_stale_runs()
@@ -962,12 +968,18 @@ class LifeDB:
 
     # ----- seen cache -----
 
-    def is_seen(self, persona_id: str, url_hash: str) -> bool:
+    def is_seen(
+        self, persona_id: str, url_hash: str, digest: Optional[str] = None
+    ) -> bool:
         row = self._one(
-            "SELECT 1 FROM seen_items WHERE persona_id = ? AND url_hash = ?",
+            "SELECT digest FROM seen_items WHERE persona_id = ? AND url_hash = ?",
             (persona_id, url_hash),
         )
-        return row is not None
+        if row is None:
+            return False
+        if digest is None:
+            return True
+        return str(row["digest"] or "") == digest
 
     # ----- run staging (crash-safe run writes) -----
 
@@ -1055,11 +1067,14 @@ class LifeDB:
         )
         return int(cur.lastrowid)
 
-    def stage_seen(self, persona_id: str, session_id: int, url_hash: str) -> int:
+    def stage_seen(
+        self, persona_id: str, session_id: int, url_hash: str, digest: str = ""
+    ) -> int:
         cur = self._execute(
-            "INSERT INTO staging_seen (persona_id, session_id, url_hash, first_seen_at) "
-            "VALUES (?, ?, ?, ?)",
-            (persona_id, session_id, url_hash, self._now()),
+            "INSERT INTO staging_seen "
+            "(persona_id, session_id, url_hash, first_seen_at, digest) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (persona_id, session_id, url_hash, self._now(), digest),
         )
         return int(cur.lastrowid)
 
@@ -1181,10 +1196,13 @@ class LifeDB:
                 (persona_id, session_id, session_id),
             )
             self._conn.execute(
-                "INSERT OR IGNORE INTO seen_items (persona_id, url_hash, first_seen_at) "
-                "SELECT persona_id, url_hash, first_seen_at FROM staging_seen "
-                "WHERE persona_id = ? AND "
-                "(session_id = ? OR (session_id IS NULL AND ? IS NULL))",
+                "INSERT INTO seen_items "
+                "(persona_id, url_hash, first_seen_at, digest, last_seen_at) "
+                "SELECT persona_id, url_hash, first_seen_at, digest, first_seen_at "
+                "FROM staging_seen WHERE persona_id = ? AND "
+                "(session_id = ? OR (session_id IS NULL AND ? IS NULL)) "
+                "ON CONFLICT(persona_id, url_hash) DO UPDATE SET "
+                "digest = excluded.digest, last_seen_at = excluded.last_seen_at",
                 (persona_id, session_id, session_id),
             )
             interest_rows = self._conn.execute(
@@ -1684,12 +1702,40 @@ class LifeDB:
                 note_id = int(entity_id or 0)
             except (TypeError, ValueError):
                 return False
-            return self.update_note_field(
-                persona_id, note_id, field,
-                str(payload.get("value") or ""),
-            ) is not None
+            if field:
+                return self.update_note_field(
+                    persona_id, note_id, field,
+                    str(payload.get("value") or ""),
+                ) is not None
+            # 软删除的 old_value 是整行短记；回滚时恢复 deleted_at。
+            if "deleted_at" in payload:
+                cur = self._execute(
+                    "UPDATE notes SET deleted_at = ? "
+                    "WHERE persona_id = ? AND id = ?",
+                    (str(payload.get("deleted_at") or ""), persona_id, note_id),
+                )
+                return cur.rowcount > 0
+            return False
+        if entity == "diary":
+            if "deleted_at" not in payload:
+                return False
+            date = str(entity_id or "")
+            if not date:
+                return False
+            cur = self._execute(
+                "UPDATE diary_entries SET deleted_at = ? "
+                "WHERE persona_id = ? AND date = ?",
+                (str(payload.get("deleted_at") or ""), persona_id, date),
+            )
+            return cur.rowcount > 0
         if entity == "interest":
             key = str(payload.get("key") or entity_id or "")
+            if payload.get("exists") is False:
+                cur = self._execute(
+                    "DELETE FROM interests WHERE persona_id = ? AND key = ?",
+                    (persona_id, key),
+                )
+                return cur.rowcount >= 0
             name = str(payload.get("name") or key)
             raw_weight = payload.get("weight")
             try:
@@ -1701,9 +1747,14 @@ class LifeDB:
                 "SELECT seen_count FROM interests WHERE persona_id = ? AND key = ?",
                 (persona_id, key),
             )
+            seen_count = current["seen_count"] if current else None
+            if "seen_count" in payload:
+                try:
+                    seen_count = int(payload.get("seen_count") or 0)
+                except (TypeError, ValueError):
+                    seen_count = seen_count
             self.upsert_interest(
-                persona_id, key, name, weight,
-                seen_count=int(current["seen_count"]) if current else None,
+                persona_id, key, name, weight, seen_count=seen_count,
             )
             return True
         return False

@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from life.config import LifeConfig, SleepWindow
 from life.db import LifeDB
 from life.life_tool import (
+    _merge_unified,
     LifeEditTool,
     LifeMemoryTool,
     LifePlanEditTool,
@@ -360,6 +361,26 @@ class LifeToolTest(unittest.IsolatedAsyncioTestCase):
         raw = await tool.call(_FakeWrapper(with_managers=False))
         data = json.loads(raw)
         self.assertFalse(data["ok"])
+
+    def test_merge_unified_deduplicates_and_respects_limit(self):
+        local = [
+            {"kind": "note", "summary": "same", "content": "body",
+             "url": "https://a", "id": 1, "temperature": 0.4},
+            {"kind": "note", "summary": "other", "content": "body2",
+             "url": "https://b", "id": 2, "temperature": 0.9},
+        ]
+        host = [
+            {"memory_type": "note", "summary": "same", "content": "body",
+             "created_at": 1700000000, "temperature": 0.8},
+            {"memory_type": "diary", "summary": "host only", "content": "d",
+             "created_at": 1700000000, "temperature": 0.3},
+        ]
+        merged = _merge_unified(host, local, limit=2)
+        self.assertEqual(len(merged), 2)
+        self.assertEqual(merged[0]["summary"], "other")
+        same = [row for row in merged if row["summary"] == "same"][0]
+        self.assertEqual(same["id"], 1)
+        self.assertEqual(same["temperature"], 0.8)
 
 
 if __name__ == "__main__":

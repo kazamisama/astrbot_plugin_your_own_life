@@ -90,6 +90,40 @@ class FetchersTest(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].title, "Two")
 
+    def test_parse_atom_prefers_alternate_link(self):
+        atom = """<?xml version="1.0"?>
+        <feed xmlns="http://www.w3.org/2005/Atom">
+          <entry><title>Two</title>
+            <link rel="self" href="https://example.com/feed/2"/>
+            <link rel="alternate" href="https://example.com/post/2"/>
+            <summary>summary</summary></entry>
+        </feed>"""
+        items = parse_rss_text(atom)
+        self.assertEqual(items[0].url, "https://example.com/post/2")
+
+    def test_parse_rss_1_0_rdf(self):
+        xml = """<?xml version="1.0"?>
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+                 xmlns="http://purl.org/rss/1.0/">
+          <channel rdf:about="https://example.com/"><title>T</title></channel>
+          <item rdf:about="https://example.com/1">
+            <title>RDF one</title><link>https://example.com/1</link>
+            <description>rdf desc</description>
+          </item>
+        </rdf:RDF>"""
+        items = parse_rss_text(xml)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].title, "RDF one")
+        self.assertEqual(items[0].summary, "rdf desc")
+
+    def test_parse_rss_bytes_uses_declared_encoding(self):
+        xml = """<?xml version="1.0" encoding="gbk"?>
+        <rss version="2.0"><channel>
+          <item><title>中文标题</title><link>https://example.com/cn</link></item>
+        </channel></rss>"""
+        items = parse_rss_text(xml.encode("gbk"))
+        self.assertEqual(items[0].title, "中文标题")
+
 
 class FetchAllTest(unittest.IsolatedAsyncioTestCase):
     async def test_fetch_all_queries_every_topic(self):

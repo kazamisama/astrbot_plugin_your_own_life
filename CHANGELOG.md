@@ -2,6 +2,23 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.24] - 2026-10-28
+
+### Fixed
+
+- 关注列表更新：`seen_items` 增加内容指纹，固定 URL 的博客/仓库/RSS 源只有在标题、摘要或发布时间变化时才重新进入候选；旧的空指纹会自然升级。
+- 故地重游：候选从每次固定取最旧 5 条改为按天确定性轮转，少数持续失败的候选不再堵住队列；失败事件键带日期，同一候选跨晚失败不会被 `INSERT OR IGNORE` 吞掉。
+- 回收站回滚：软删除短记/日记的账本 `old_value` 是整行快照，`rollback_change` 现在按 `deleted_at` 恢复真实行，页面“回滚”不再必然失败。
+- 兴趣鬼影：转正愿望时如果原兴趣不存在，账本记录 `{"exists": false}`；回滚会删除新建兴趣，不再留下 weight=0.5 的幽灵；已有兴趣回滚时恢复旧 `seen_count`。
+- 统一记忆：宿主与本地结果合并时按 kind/摘要/正文去重，保留本地 id/url，并截断到请求的 `k`，不再返回 2k 条或 1970 日期。
+- RSS：支持 RSS 1.0/RDF；Atom 优先取 `rel="alternate"` 而不是 feed 自身链接；`fetch_rss` 传原始字节，按 XML 声明解码 GBK/GB2312 等非 UTF-8 feed。
+- WebUI：热力图日期格可点击，切换到生活页并加载该日概览。
+
+### Notes
+
+- 测试：324 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 仍未修：commit_staged 兴趣快照覆盖、软删/审批/回滚的事务非原子、页面 usage/archive/interests/injection_log 无视图、结构性重复、docs/consistency.md 仍是 v0.5.12 基线。
+
 ## [0.5.23] - 2026-10-28
 
 ### Fixed

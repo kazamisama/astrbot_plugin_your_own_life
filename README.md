@@ -6,7 +6,7 @@
 
 当前 v1 仅 owner 侧档案，不进入群聊主动表达；跨平台社交交互为后续方向。
 
-当前版本：v0.5.23。
+当前版本：v0.5.24。
 
 ## 功能
 
@@ -44,6 +44,7 @@
 - 审计修复（v0.5.21）：计划播种并发改 `INSERT OR IGNORE`、唯一约束迁移后重建索引；软删/恢复/defer/skip/LLM 编辑事件键带变更 id，owner 批准/拒绝/回滚补事件链，回收站清除正文快照；兴趣 weight=0.0 与 seen_count 不再被改写、分享字符串 "false" 正确解析、wishlist 转正保留原兴趣；浏览/日记提交后副作用失败不再报 error，WebUI `/run` 单飞；工具 add/defer 遵守睡眠窗、过去时间、每日上限与 diary 依赖；overview/status 计数不再截断，watchlist、多话题、探索位、notes_min 修正；LLM provider 可重试、调用 120s 超时、persona 刷新失败保留缓存。
 - 冗余清理（v0.5.22）：删除无生产调用的 `conversation_until` / `scan_items` / `mark_seen` / `_plan_status_review` 与页面死代码 `escapeHtml` / `eventWrite`；租约清理接回调度器、租约助手去掉死参数；`life_personas` 白名单判定收敛为一个函数（空列表 = 不允许，与配置提示一致）；提示词删掉代码从不解析的 `energy_change` / `revisit_day_offset` / `revisit_note_ids` / `highlights` 字段；WebUI 计划板复用 `query_life_plans`；修复测试中的 GBK 乱码；`ruff --select F,E9` 全绿。
 - 审计修复（v0.5.23）：跨日 pending 计划不再永久孤儿，日记/回顾按计划的 `plan_date` 补写；等待期 defer 会重读时间；租约异常不再当成“别人占着”，冲突也不再改写共享计划状态；旧库 `staging_diary` 缺列自动补 `signature`，短记迁移恢复 id 高水位；计划预算不再把自己的 LLM 调用算成越界，动作上限统计当天已有可选计划；`done/skipped` 不可再被 skip/defer/reorder 改写，同时间 reorder 不再假成功；日记后置动作彼此隔离；胶囊缺短记时不再提前解锁成僵尸；浏览/peek/日记/回顾/计划全部执行端校验 `life_personas`；分享每日上限 0 视为不限、沉默判定一天一次、`recheck_pending` 不再卡 `should_share=false`；WebUI 大整数不再 500，人格列表不再返回完整 `system_prompt`，页面加载失败显示错误、实体图按节点数增高、POST 失败会提示。
+- 审计修复（v0.5.24）：关注列表的固定 URL 改用内容指纹（标题/摘要/发布时间）判断更新，博客或仓库有新内容时会重新进入候选；故地重游候选按天轮转，失败事件按日期记账，不会再被最旧的几条永久堵住；回收站软删的回滚真正恢复短记/日记，转正一个原本不存在的兴趣后回滚会删除该兴趣而不是留下 0.5 的鬼影；统一记忆与本地记忆合并时去重并截断到 k；RSS 支持 RSS 1.0/RDF、Atom 的 alternate 链接与非 UTF-8 编码声明；热力图的日期格可点击跳到当天。
 - 摘要优先：只持久化摘要、观点与链接，不保存网页原文。
 - 生态联动：可选接入 ESM 读取精力/情绪、施加信号；v0.4.4 起精力消费缺失时显式记录本地估算，不再默认静默降级；配置 `memory_host` 后统一记忆宿主为硬依赖。
 

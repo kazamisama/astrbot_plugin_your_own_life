@@ -588,7 +588,14 @@ function renderHeatmap(data) {
     cell.textContent = d;
     cell.title = key + ": notes " + (info.notes || 0) +
       ", diaries " + (info.diaries || 0) + ", shares " + (info.shares || 0) +
-      ", browse " + (info.browse || 0) + ", peeks " + (info.peeks || 0);
+      ", browse " + (info.browse || 0) + ", peeks " + (info.peeks || 0) +
+      "（点击查看这一天）";
+    cell.style.cursor = "pointer";
+    cell.addEventListener("click", function () {
+      dateInput.value = key;
+      switchTab("life");
+      load();
+    });
     box.appendChild(cell);
   }
   if (!hasAny) {

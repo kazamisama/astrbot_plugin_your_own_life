@@ -251,38 +251,48 @@ def recall_life_memory(
     return data
 
 
-def _merge_unified(host_items: list[dict], local_items: list[dict]) -> list[dict]:
-    """Merge host recall with the local archive, weighting by temperature."""
-    unified: list[dict[str, Any]] = []
-    for item in host_items:
-        mtype = item.get("memory_type") or "note"
-        if mtype == "diary":
-            kind = "diary"
-        elif mtype == "event":
-            kind = "event"
-        else:
+def _merge_unified(
+    host_items: list[dict], local_items: list[dict], limit: int = 10
+) -> list[dict]:
+    """Merge host recall with the local archive, deduplicated and capped."""
+    merged: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for item in list(local_items) + list(host_items):
+        kind = str(item.get("kind") or item.get("memory_type") or "note")
+        if kind not in ("note", "diary", "event"):
             kind = "note"
-        day = ""
-        try:
-            day = datetime.fromtimestamp(
-                float(item.get("created_at") or 0)
-            ).strftime("%Y-%m-%d")
-        except (TypeError, ValueError, OSError):
-            day = ""
-        unified.append({
-            "kind": kind,
-            "date": day,
-            "summary": item.get("summary") or "",
-            "content": item.get("content") or "",
-            "source": "unified",
-            "url": "",
-            "temperature": float(item.get("temperature") or 0.5),
-        })
-    items = unified + list(local_items)
+        summary = str(item.get("summary") or "")
+        content = str(item.get("content") or "")
+        key = (
+            kind,
+            " ".join(summary.lower().split()),
+            " ".join(content.lower().split()),
+        )
+        if key in merged:
+            # 本地条目带 id/url，始终保留；重复的 host 条目只抬高温度。
+            merged[key]["temperature"] = max(
+                float(merged[key].get("temperature") or 0.5),
+                float(item.get("temperature") or 0.5),
+            )
+            continue
+        row = dict(item)
+        row["kind"] = kind
+        if not row.get("date") and item.get("created_at"):
+            try:
+                row["date"] = datetime.fromtimestamp(
+                    float(item.get("created_at") or 0)
+                ).strftime("%Y-%m-%d")
+            except (TypeError, ValueError, OSError):
+                row["date"] = ""
+        row.setdefault("date", "")
+        row.setdefault("source", "unified")
+        row.setdefault("url", "")
+        row["temperature"] = float(item.get("temperature") or 0.5)
+        merged[key] = row
+    items = list(merged.values())
     items.sort(
         key=lambda item: float(item.get("temperature") or 0.5), reverse=True
     )
-    return items
+    return items[: max(1, int(limit or 1))]
 
 
 async def _execute_tool(tool: Any, context: Any, query: str, category: str,
@@ -314,7 +324,7 @@ async def _execute_tool(tool: Any, context: Any, query: str, category: str,
                 {"ok": False, "count": 0, "error": f"memory_host: {exc}"},
                 ensure_ascii=False,
             )
-        data["items"] = _merge_unified(host_items, data["items"])
+        data["items"] = _merge_unified(host_items, data["items"], limit=k)
         data["count"] = len(data["items"])
     tool.db.append_event(
         persona_id,

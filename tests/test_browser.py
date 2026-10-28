@@ -225,6 +225,38 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(diary["content"], "今天看到了一些有趣的东西。")
         self.assertEqual(diary["signature"], "今天有风")
 
+    async def test_watched_url_reappears_only_after_content_changes(self):
+        current = {"title": "Blog post", "summary": "first version"}
+
+        async def watch_fetcher(config, client, queries):
+            return [FetchedItem(
+                source="watchlist/blog",
+                url="https://watched.example/post",
+                title=current["title"],
+                summary=current["summary"],
+            )]
+
+        service = LifeService(
+            self.config, self.db, self.interests, self.esm,
+            _FakeLLM(payload={
+                "selected": [{"index": 0, "summary": "seen", "interest_level": 0.6,
+                              "interest_key": "tech"}],
+                "session_mood": "calm",
+            }),
+            self.personas, share_gate=self.share_gate,
+            fetcher_fn=watch_fetcher, now_fn=datetime.now,
+        )
+        self.config.notes_min = 1
+        first = await service.run_browse_session("shelly", "scheduled")
+        self.assertEqual(first.notes_count, 1)
+        second = await service.run_browse_session("shelly", "scheduled")
+        self.assertEqual(second.status, "completed")
+        self.assertEqual(second.reason, "nothing_new")
+
+        current["summary"] = "second version"
+        third = await service.run_browse_session("shelly", "scheduled")
+        self.assertEqual(third.notes_count, 1)
+
     def test_valid_share_coerces_string_flags(self):
         self.assertFalse(
             self.service._valid_share({"should_share": "false"})["should_share"]

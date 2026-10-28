@@ -128,11 +128,34 @@ def parse_reddit_payload(data: dict, subreddit: str = "") -> list[FetchedItem]:
     return out
 
 
-def parse_rss_text(xml_text: str, source_url: str = "") -> list[FetchedItem]:
-    root = ET.fromstring(xml_text)
+def parse_rss_text(xml_text: str | bytes, source_url: str = "") -> list[FetchedItem]:
+    try:
+        root = ET.fromstring(xml_text)
+    except (ET.ParseError, ValueError):
+        # 某些解析器不认 GBK/GB2312 声明；先按 XML 声明解码再试一次。
+        if not isinstance(xml_text, bytes):
+            raise
+        match = re.search(rb"encoding=[\"']([^\"']+)", xml_text[:200])
+        if not match:
+            raise
+        text = xml_text.decode(match.group(1).decode("ascii", "ignore"), "replace")
+        root = ET.fromstring(text)
     tag = root.tag.lower().rsplit("}", 1)[-1]
     out: list[FetchedItem] = []
-    if tag == "rss":
+    if tag == "rdf":
+        # RSS 1.0 / RDF：item 与字段都在 RSS 1.0 命名空间里。
+        ns = "{http://purl.org/rss/1.0/}"
+        for item in root.findall(f"{ns}item"):
+            title = _node_text(item, ns + "title")
+            link = _node_text(item, ns + "link")
+            summary = clean_text(_node_text(item, ns + "description"), 300)
+            published = _node_text(item, ns + "date")
+            if title and link:
+                out.append(FetchedItem(
+                    source="rss", url=link, title=title,
+                    summary=summary, published_at=published,
+                ))
+    elif tag == "rss":
         for item in root.findall("./channel/item"):
             title = _node_text(item, "title")
             link = _node_text(item, "link")
@@ -151,8 +174,15 @@ def parse_rss_text(xml_text: str, source_url: str = "") -> list[FetchedItem]:
     elif tag == "feed":
         for entry in root.findall("{http://www.w3.org/2005/Atom}entry"):
             title = _node_text(entry, "{http://www.w3.org/2005/Atom}title")
-            link_el = entry.find("{http://www.w3.org/2005/Atom}link")
-            link = (link_el.get("href") or "") if link_el is not None else ""
+            link = ""
+            for link_el in entry.findall("{http://www.w3.org/2005/Atom}link"):
+                rel = (link_el.get("rel") or "alternate").strip().lower()
+                if rel in ("alternate", ""):
+                    link = link_el.get("href") or ""
+                    break
+            if not link:
+                link_el = entry.find("{http://www.w3.org/2005/Atom}link")
+                link = (link_el.get("href") or "") if link_el is not None else ""
             summary = clean_text(
                 _node_text(entry, "{http://www.w3.org/2005/Atom}summary")
                 or _node_text(entry, "{http://www.w3.org/2005/Atom}content"),
@@ -228,7 +258,8 @@ async def fetch_reddit(client: httpx.AsyncClient, subreddits: Sequence[str],
 async def fetch_rss(client: httpx.AsyncClient, url: str) -> list[FetchedItem]:
     resp = await client.get(url)
     resp.raise_for_status()
-    return parse_rss_text(resp.text, url)
+    # 交给 XML 解析器按声明里的编码解码，避免非 UTF-8 feed 被 resp.text 破坏。
+    return parse_rss_text(resp.content, url)
 
 
 def _html_title(text: str) -> str:

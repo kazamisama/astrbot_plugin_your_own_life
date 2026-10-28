@@ -2,6 +2,21 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-28 第二轮审计收尾：关注更新、回滚与边界（v0.5.24）
+- 目标：继续修第二轮审计中不涉及大重构的 P2/P3，优先真实用户可见的断链与错误状态。
+- 已确认决策：
+  - 关注列表的 URL 是稳定的，单靠 URL 去重等于“永远只记一次”；在 `seen_items` 上记录内容指纹，只有内容变化才重新入选。指纹覆盖标题/摘要/发布时间，普通来源仍按 URL。
+  - 故地重游的头部阻塞不能靠“取更多”解决；按天确定性打乱候选，让失败者轮换，失败事件键按日期分区，保留可追溯性。
+  - 软删账本的 `old_value` 是整行，不是字段补丁；回滚按 `deleted_at` 恢复，短记和日记都支持。
+  - 转正不存在的兴趣必须记 `exists:false`，否则回滚只能按默认 0.5 重建，产生鬼影；已有兴趣则恢复旧 `seen_count`。
+  - 统一记忆合并要保留本地 id/url、去重并截断；host 重复条目只抬高温度。
+  - RSS 解析交给 XML 编码声明；Atom 取 `rel=alternate`；RDF 单独走 RSS 1.0 命名空间。
+  - 热力图点击落到生活页并设置日期，不新增接口。
+- 改动：`life/db.py`、`life/browser.py`、`life/life_tool.py`、`life/webui.py`、`life/fetchers.py`、`pages/life/index.html`、`tests/test_db.py`、`tests/test_browser.py`、`tests/test_life_tool.py`、`tests/test_fetchers.py`、`README.md`、`CHANGELOG.md`；版本 v0.5.23 → v0.5.24。
+- 验证：全量 `unittest discover -s tests` 324 条，仅 `test_config` 与生产 AstrBot 混装的已知 ImportError，skipped=1；受影响文件 db 70、browser 64、life_tool 17、fetchers 11 全绿；ruff F,E9 与 compileall 通过。
+- 遗留：commit_staged 兴趣快照覆盖、事务原子性、页面 usage/archive/interests/injection_log 视图、结构性重复、consistency.md 基线。
+- 下一步：提交 `chore(release): v0.5.24 ...`；之后处理事务边界与页面视图。
+
 ## 2026-10-28 第二轮审计修复：跨日计划、旧库 staging 与 WebUI 边界（v0.5.23）
 - 目标：按用户「依次修改，旧缺陷直接改」的要求，修第二轮审计的 P1/P2 与高影响 P3；不做兼容补丁，直接改真实写路径。
 - 已确认决策：
