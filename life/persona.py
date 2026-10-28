@@ -10,6 +10,59 @@ from life.db import LifeDB
 from life.timeutil import local_now
 
 
+async def resolve_persona_id(context: Any, event: Any = None) -> str:
+    """Resolve the active persona for an AstrBot conversation.
+
+    AstrBot exposes the conversation/persona managers on the agent context;
+    the tool layer wraps that context one level deeper.  This helper accepts
+    either shape and centralises the fallback order used by both the chat
+    hooks and the LLM tools:
+
+    1. the current conversation's explicit persona;
+    2. the platform default persona for the message origin.
+
+    An explicit no-persona selection (`[%None]`) resolves to an empty id:
+    it must not silently fall back to the platform default.
+    """
+    ctx = getattr(context, "context", context)
+    if event is None:
+        event = getattr(ctx, "event", None)
+    umo = str(getattr(event, "unified_msg_origin", "") or "")
+    if not umo:
+        return ""
+
+    conv_mgr = getattr(ctx, "conversation_manager", None)
+    if conv_mgr is not None:
+        try:
+            conv_id = await conv_mgr.get_curr_conversation_id(umo)
+            if conv_id:
+                conversation = await conv_mgr.get_conversation(umo, conv_id)
+                persona_id = (
+                    getattr(conversation, "persona_id", None)
+                    if conversation else None
+                )
+                if persona_id == "[%None]":
+                    return ""
+                if persona_id:
+                    return str(persona_id)
+        except Exception:
+            pass
+
+    persona_mgr = getattr(ctx, "persona_manager", None)
+    if persona_mgr is not None:
+        try:
+            default = await persona_mgr.get_default_persona_v3(umo=umo)
+            if isinstance(default, dict):
+                name = default.get("name")
+            else:
+                name = getattr(default, "name", None)
+            if name:
+                return str(name)
+        except Exception:
+            pass
+    return ""
+
+
 class PersonaUnavailable(RuntimeError):
     pass
 

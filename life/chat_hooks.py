@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from life.config import persona_allowed
 from life.life_tool import query_life_status
+from life.persona import resolve_persona_id
 
 try:
     from astrbot.core.agent.message import TextPart
@@ -23,39 +24,7 @@ PRESENCE_END = f"</{PRESENCE_TAG}>"
 
 async def resolve_event_persona(context: Any, event: Any) -> str:
     """Resolve the active persona id for an AstrBot message event."""
-    try:
-        umo = getattr(event, "unified_msg_origin", None) or ""
-        conv_mgr = getattr(context, "conversation_manager", None)
-        if conv_mgr is not None:
-            try:
-                conv_id = await conv_mgr.get_curr_conversation_id(umo)
-                if conv_id is not None:
-                    conversation = await conv_mgr.get_conversation(umo, conv_id)
-                    persona_id = (
-                        getattr(conversation, "persona_id", None)
-                        if conversation else None
-                    )
-                    if persona_id == "[%None]":
-                        return ""
-                    if persona_id:
-                        return str(persona_id)
-            except Exception:
-                pass
-        persona_mgr = getattr(context, "persona_manager", None)
-        if persona_mgr is not None:
-            try:
-                default = await persona_mgr.get_default_persona_v3(umo=umo)
-                if isinstance(default, dict):
-                    name = default.get("name")
-                else:
-                    name = getattr(default, "name", None)
-                if name:
-                    return str(name)
-            except Exception:
-                pass
-    except Exception:
-        pass
-    return ""
+    return await resolve_persona_id(context, event)
 
 
 def build_presence_block(status: dict[str, Any]) -> str:

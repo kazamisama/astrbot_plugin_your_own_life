@@ -2,6 +2,18 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-28 结构重构第一批：persona 解析收敛（v0.5.31）
+- 目标：把聊天钩子与 LLM 工具各自维护的 persona 解析收敛成一份实现，作为结构重构的低风险起点；不改变调度、数据模型与提示词。
+- 已确认决策：
+  - 解析顺序固定为“当前会话显式 persona → 平台默认 persona”；接受 AstrBot 原生上下文与工具层的包装上下文两种形状。
+  - 显式无 persona（`[%None]`）必须是空结果，不能回退到默认人格；此前工具通道会回退，聊天钩子不会，两边语义不一致。
+  - conversation manager 查询异常时继续尝试 default persona；此前工具通道会在异常时直接放弃，聊天钩子会继续。
+  - `life.persona.resolve_persona_id` 是唯一实现；`chat_hooks.resolve_event_persona` 只保留薄包装供现有调用点与测试使用，`life_tool._resolve_persona` 只做空值归一。
+- 改动：`life/persona.py`、`life/chat_hooks.py`、`life/life_tool.py`、`tests/test_persona_resolver.py`、`README.md`、`CHANGELOG.md`、`metadata.yaml`、`life/__init__.py`；版本 v0.5.30 → v0.5.31。
+- 验证：新增 persona resolver 7 条测试；受影响 test_chat_hooks 10、test_life_tool 17、test_persona 4 全绿；全量 340 条，仅 `test_config` 已知环境错误（skipped=1）；ruff F,E9、compileall、`git diff --check` 通过。
+- 遗留：双胞胎 Tool 类、review/quarterly 同构主体、`life_plans.started_at` 死列、`change_log`/`life_edits` 兼容端点尚未重构。
+- 下一步：提交 `chore(release): v0.5.31 ...`；随后评估下一个结构重构项（建议先做 Tool 类收敛或 review 同构主体）。
+
 ## 2026-10-28 真实 AstrBot E2E 与统一记忆宿主修复（v0.5.30）
 - 目标：用 astrbot-test-kit 验证真实 AstrBot 下的命令与 WebUI API；处理验证中确认的统一记忆宿主适配问题；清理 test kit 目录卫生。
 - 已确认决策：

@@ -2,6 +2,19 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.31] - 2026-10-28
+
+### Changed
+
+- 结构重构：新增 `life.persona.resolve_persona_id`，聊天钩子的 `resolve_event_persona` 与 LLM 工具的 `_resolve_persona` 共用同一套解析顺序（当前会话显式 persona → 平台默认 persona）。
+- 统一边界语义：显式无 persona（`[%None]`）解析为空，工具通道不再静默回退到平台默认人格；conversation 查询异常时仍会尝试平台默认人格。
+- 测试补充：新增 `tests/test_persona_resolver.py`，覆盖会话优先、默认回退、显式无 persona、异常回退、包装上下文与缺省 origin。
+
+### Notes
+
+- 全量测试 340 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 这是结构重构第一批；双胞胎 Tool 类、review/quarterly 同构主体、`life_plans.started_at` 死列与兼容端点仍未动。
+
 ## [0.5.30] - 2026-10-28
 
 ### Fixed

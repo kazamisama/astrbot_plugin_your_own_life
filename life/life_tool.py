@@ -8,7 +8,7 @@ from typing import Any, Optional
 from life.config import persona_allowed
 from life.db import LifeDB
 from life.memory_adapter import MemoryHostError
-from life.persona import PersonaService
+from life.persona import PersonaService, resolve_persona_id
 from life.timeutil import DEFAULT_TIMEZONE, local_now, local_today
 
 try:
@@ -803,34 +803,8 @@ class _LifeMemoryToolMixin:
         self.memory = memory
 
     async def _resolve_persona(self, context: Any) -> Optional[str]:
-        ctx = getattr(context, "context", context)
-        event = getattr(ctx, "event", None)
-        umo = ""
-        if event is not None:
-            umo = str(getattr(event, "unified_msg_origin", "") or "")
-        if not umo:
-            return None
-
-        conv_mgr = getattr(ctx, "conversation_manager", None)
-        persona_mgr = getattr(ctx, "persona_manager", None)
-        if conv_mgr is not None and persona_mgr is not None:
-            try:
-                conv_id = await conv_mgr.get_curr_conversation_id(umo)
-                if conv_id:
-                    conversation = await conv_mgr.get_conversation(umo, conv_id)
-                    persona_id = getattr(conversation, "persona_id", None) if conversation else None
-                    if persona_id and persona_id != "[%None]":
-                        return str(persona_id)
-                default = await persona_mgr.get_default_persona_v3(umo=umo)
-                if isinstance(default, dict):
-                    name = default.get("name")
-                else:
-                    name = getattr(default, "name", None)
-                if name:
-                    return str(name)
-            except Exception:
-                return None
-        return None
+        persona_id = await resolve_persona_id(context)
+        return persona_id or None
 
     def register(self, context: Any) -> bool:
         for method_name in ("add_llm_tools", "register_tool"):
