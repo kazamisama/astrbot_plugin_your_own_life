@@ -351,6 +351,17 @@ class LifeDB:
             self._ensure_column("notes", "last_touched_at", "last_touched_at TEXT DEFAULT ''")
             self._ensure_column("notes", "revisit_of", "revisit_of INTEGER NOT NULL DEFAULT 0")
             self._ensure_column("reviews", "confidence", "confidence REAL NOT NULL DEFAULT 0")
+            # staging_* 表是跨版本升级的盲区：CREATE TABLE IF NOT EXISTS 不会补列。
+            # 这些列在旧库里可能不存在，补齐后旧库的 staging 写入才不会整夜失败。
+            self._ensure_column("staging_notes", "share_decision", "share_decision TEXT DEFAULT ''")
+            self._ensure_column("staging_notes", "share_status", "share_status TEXT DEFAULT ''")
+            self._ensure_column("staging_notes", "url_hash", "url_hash TEXT NOT NULL DEFAULT ''")
+            self._ensure_column("staging_diary", "signature", "signature TEXT DEFAULT ''")
+            self._ensure_column("staging_snapshots", "mood", "mood TEXT DEFAULT ''")
+            self._ensure_column("staging_snapshots", "curiosity", "curiosity REAL")
+            self._ensure_column("staging_snapshots", "extra", "extra TEXT DEFAULT ''")
+            self._ensure_column("staging_wishlist", "interest_key", "interest_key TEXT DEFAULT ''")
+            self._ensure_column("staging_interests", "last_seen_at", "last_seen_at TEXT DEFAULT ''")
             self._migrate_notes_unique()
             self._conn.commit()
         self.recover_stale_runs()
@@ -375,6 +386,14 @@ class LifeDB:
             for row in self._conn.execute("PRAGMA table_info('notes')").fetchall()
         ]
         col_sql = ", ".join(f'"{col}"' for col in cols)
+        old_seq = 0
+        try:
+            seq_row = self._conn.execute(
+                "SELECT seq FROM sqlite_sequence WHERE name = 'notes'"
+            ).fetchone()
+            old_seq = int(seq_row["seq"] or 0) if seq_row else 0
+        except sqlite3.OperationalError:
+            old_seq = 0
         self._conn.execute("PRAGMA foreign_keys = OFF")
         self._conn.execute("ALTER TABLE notes RENAME TO notes_migrate_old")
         self._conn.executescript(_SCHEMA)
@@ -384,6 +403,26 @@ class LifeDB:
         self._conn.execute("DROP TABLE notes_migrate_old")
         # 旧索引随旧表删除；executescript 会跳过同名 IF NOT EXISTS，必须补建。
         self._conn.executescript(_SCHEMA)
+        # 重建表会丢掉 sqlite_sequence 的旧高水位；不恢复会让新短记复用
+        # 已被 purge 删除的 id，使 revisit_of/share_log/change_log 指向别的短记。
+        try:
+            max_row = self._conn.execute(
+                "SELECT COALESCE(MAX(id), 0) AS n FROM notes"
+            ).fetchone()
+            max_id = int(max_row["n"] or 0) if max_row else 0
+            new_seq = max(old_seq, max_id)
+            if new_seq > 0:
+                cur = self._conn.execute(
+                    "UPDATE sqlite_sequence SET seq = ? WHERE name = 'notes'",
+                    (new_seq,),
+                )
+                if cur.rowcount == 0:
+                    self._conn.execute(
+                        "INSERT INTO sqlite_sequence(name, seq) VALUES('notes', ?)",
+                        (new_seq,),
+                    )
+        except sqlite3.OperationalError:
+            pass
         self._conn.execute("PRAGMA foreign_keys = ON")
 
     def _now(self) -> str:
@@ -738,7 +777,6 @@ class LifeDB:
         self,
         persona_id: str,
         query: str = "",
-        category: str = "",
         date: str = "",
         limit: int = 10,
     ) -> list[dict]:
@@ -1927,6 +1965,24 @@ class LifeDB:
         sql += " ORDER BY scheduled_at ASC, id ASC"
         return self._rows(sql, tuple(params))
 
+    def list_pending_plans(
+        self, persona_id: str, limit: Optional[int] = None
+    ) -> list[dict]:
+        """All pending plans across dates, oldest date first.
+
+        The scheduler must see yesterday's unfinished plans too; filtering by
+        today would leave them pending forever.
+        """
+        sql = (
+            "SELECT * FROM life_plans WHERE persona_id = ? AND status = 'pending' "
+            "ORDER BY plan_date ASC, scheduled_at ASC, id ASC"
+        )
+        params: list[Any] = [persona_id]
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(max(1, int(limit)))
+        return self._rows(sql, tuple(params))
+
     def plan_summary(self, persona_id: str, plan_date: str) -> dict[str, Any]:
         rows = self._rows(
             "SELECT status, COUNT(*) AS n, COALESCE(SUM(budget_used), 0) AS budget "
@@ -1990,14 +2046,18 @@ class LifeDB:
         if task_id not in indexes:
             return False
         current = indexes[task_id]
-        if rows[current].get("fixed"):
+        current_row = rows[current]
+        if current_row.get("fixed") or str(current_row.get("status") or "") != "pending":
             return False
         target = max(0, min(int(position) - 1, len(rows) - 1))
         if target == current:
             return True
-        if rows[target].get("fixed"):
-            return False
         neighbor = rows[target]
+        if neighbor.get("fixed") or str(neighbor.get("status") or "") != "pending":
+            return False
+        if (current_row.get("scheduled_at") or "") == (neighbor.get("scheduled_at") or ""):
+            # 交换相同 scheduled_at 不会改变顺序；不能报成功并写一条假 change 事件。
+            return False
         cur = self._execute(
             "UPDATE life_plans SET scheduled_at = ? "
             "WHERE persona_id = ? AND plan_date = ? AND task_id = ?",
@@ -2032,7 +2092,7 @@ class LifeDB:
             "SELECT * FROM life_plans WHERE persona_id = ? AND plan_date = ? AND task_id = ?",
             (persona_id, plan_date, task_id),
         )
-        if row is None or row.get("fixed"):
+        if row is None or row.get("fixed") or str(row.get("status") or "") != "pending":
             return False
         cur = self._execute(
             "UPDATE life_plans SET scheduled_at = ?, reason = ? "
@@ -2062,7 +2122,7 @@ class LifeDB:
             "SELECT * FROM life_plans WHERE persona_id = ? AND plan_date = ? AND task_id = ?",
             (persona_id, plan_date, task_id),
         )
-        if row is None or row.get("fixed"):
+        if row is None or row.get("fixed") or str(row.get("status") or "") != "pending":
             return False
         now = self._now()
         cur = self._execute(

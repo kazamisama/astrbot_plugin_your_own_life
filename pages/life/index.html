@@ -506,6 +506,18 @@ function apiPost(path, body) {
   }).then(function (r) { return r.json(); });
 }
 
+function apiPostChecked(path, body) {
+  return apiPost(path, body).then(function (res) {
+    if (res && (res.ok === false || res.error || res.started === false)) {
+      showError((res.error || res.reason || "操作失败"));
+    }
+    return res;
+  }).catch(function (err) {
+    showError("请求失败：" + (err && err.message ? err.message : "网络错误"));
+    throw err;
+  });
+}
+
 var state = {
   persona: "",
   tab: "life",
@@ -643,6 +655,16 @@ function loadPersonas() {
       }
       personaSelect.value = state.persona;
       renderPersonas(data.cache || []);
+    })
+    .catch(function () {
+      showError("人格列表加载失败，已使用默认视图。");
+      if (!state.persona) state.persona = "default";
+      personaSelect.innerHTML = "";
+      var opt = document.createElement("option");
+      opt.value = state.persona;
+      opt.textContent = state.persona;
+      personaSelect.appendChild(opt);
+      renderPersonas([]);
     });
 }
 
@@ -668,7 +690,7 @@ function renderPersonas(rows) {
     btn.className = "btn small";
     btn.textContent = "刷新";
     btn.addEventListener("click", function () {
-      apiPost("persona_refresh", { persona: row.persona_id })
+      apiPostChecked("persona_refresh", { persona: row.persona_id })
         .then(function () { return loadPersonas(); });
     });
     li.appendChild(name);
@@ -703,7 +725,7 @@ function renderDiary(overview) {
     delBtn.onclick = function () {
       var date = (overview && overview.date) || dateInput.value || today();
       if (!window.confirm("把 " + date + " 的日记移入回收站？")) return;
-      apiPost("trash_add", {
+      apiPostChecked("trash_add", {
         persona: state.persona, entity: "diary", date: date
       }).then(function (res) {
         if (res && res.ok === false) showError(res.error || "删除失败");
@@ -1123,7 +1145,7 @@ function loadWishlist() {
           promoteBtn.className = "btn small primary";
           promoteBtn.textContent = "升级";
           promoteBtn.addEventListener("click", function () {
-            apiPost("wishlist_action", { persona: state.persona, id: item.id, action: "promote", interest_key: item.interest_key || "wishlist" })
+            apiPostChecked("wishlist_action", { persona: state.persona, id: item.id, action: "promote", interest_key: item.interest_key || "wishlist" })
               .then(function () { loadWishlist(); });
           });
           li.appendChild(promoteBtn);
@@ -1131,7 +1153,7 @@ function loadWishlist() {
           discardBtn.className = "btn small";
           discardBtn.textContent = "丢弃";
           discardBtn.addEventListener("click", function () {
-            apiPost("wishlist_action", { persona: state.persona, id: item.id, action: "discard", reason: "owner" })
+            apiPostChecked("wishlist_action", { persona: state.persona, id: item.id, action: "discard", reason: "owner" })
               .then(function () { loadWishlist(); });
           });
           li.appendChild(discardBtn);
@@ -1188,7 +1210,7 @@ function loadMemory() {
           del.textContent = "移入回收站";
           del.addEventListener("click", function () {
             if (!window.confirm("把这条短记移入回收站？")) return;
-            apiPost("trash_add", {
+            apiPostChecked("trash_add", {
               persona: state.persona, entity: "note", id: item.id
             }).then(function (res) {
               if (res && res.ok === false) showError(res.error || "删除失败");
@@ -1238,7 +1260,7 @@ function loadShare() {
         btn.className = "btn small primary";
         btn.textContent = "手动分享";
         btn.addEventListener("click", function () {
-          apiPost("share_note", { persona: state.persona, note_id: note.id })
+          apiPostChecked("share_note", { persona: state.persona, note_id: note.id })
             .then(function () { loadShare(); });
         });
         li.appendChild(btn);
@@ -1285,6 +1307,8 @@ function load() {
     if (state.tab === "watch") loadWatchlist();
     if (state.tab === "revisit") loadRevisits();
     if (state.tab === "trash") loadTrash();
+  }).catch(function () {
+    showError("页面数据加载失败，请稍后重试。");
   });
 }
 
@@ -1389,7 +1413,7 @@ function renderTrashList(id, rows, entity) {
     btn.className = "btn small primary";
     btn.textContent = "恢复";
     btn.addEventListener("click", function () {
-      apiPost("trash_restore", {
+      apiPostChecked("trash_restore", {
         persona: state.persona, entity: entity,
         id: entity === "note" ? row.id : undefined,
         date: entity === "diary" ? row.date : undefined
@@ -1404,7 +1428,7 @@ function renderTrashList(id, rows, entity) {
 }
 
 function openCapsule(capsuleId) {
-  apiPost("capsules_open", { persona: state.persona, capsule_id: capsuleId })
+  apiPostChecked("capsules_open", { persona: state.persona, capsule_id: capsuleId })
     .then(function () { loadCapsules(); })
     .catch(function () { showError("打开胶囊失败。"); });
 }
@@ -1530,7 +1554,7 @@ function loadLifeEdits() {
 }
 
 function lifeEditAction(action, logId) {
-  apiPost("life_edits_" + action, { persona: state.persona, log_id: logId })
+  apiPostChecked("life_edits_" + action, { persona: state.persona, log_id: logId })
     .then(function () { loadLifeEdits(); })
     .catch(function () { showError("改动操作失败。"); });
 }
@@ -1678,13 +1702,18 @@ function loadEntities() {
 
 function renderEntityGraph(box, entities, links, seen) {
   if (!entities.length) return;
-  var width = 760, height = 260;
   var dims = ["platform", "url", "person", "project", "community", "topic"];
   var groups = {};
   dims.forEach(function (d) { groups[d] = []; });
   entities.forEach(function (e) {
     (groups[e.dimension] || groups.topic).push(e);
   });
+  var maxCount = 1;
+  dims.forEach(function (d) {
+    maxCount = Math.max(maxCount, (groups[d] || []).length);
+  });
+  var width = 760;
+  var height = Math.max(260, 70 + maxCount * 42);
   var colors = { platform: "#3b82f6", url: "#10b981", person: "#f59e0b",
                  project: "#8b5cf6", community: "#ec4899", topic: "#64748b" };
   var pos = {};
@@ -1774,7 +1803,7 @@ document.getElementById("personaSelect").addEventListener("change", function () 
   load();
 });
 document.getElementById("runBtn").addEventListener("click", function () {
-  apiPost("run", { persona: state.persona })
+  apiPostChecked("run", { persona: state.persona })
     .then(function () { setTimeout(load, 3000); });
 });
 document.getElementById("memorySearchBtn").addEventListener("click", loadMemory);

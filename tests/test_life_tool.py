@@ -142,6 +142,18 @@ class LifeToolTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ok["ok"])
         self.assertEqual(self.db.get_note(note_id)["summary"], "Old")
 
+    def test_edit_life_memory_interest_does_not_bump_seen_count(self):
+        self.db.upsert_interest("shelly", "ai", "AI", 0.5, seen_count=5)
+        data = edit_life_memory(
+            self.db, "shelly", "update", entity="interest", entity_id="ai",
+            field="weight", value="0.9", allowed=["interest.weight"],
+            actor="owner", reason="owner tune",
+        )
+        self.assertTrue(data["ok"])
+        row = self.db.get_interests("shelly")[0]
+        self.assertAlmostEqual(row["weight"], 0.9)
+        self.assertEqual(row["seen_count"], 5)
+
     async def test_edit_tool_updates_and_rolls_back(self):
         tool = LifeEditTool(self.db, _FakePersonas(), allowed=["note.summary"])
         note_id = self.db.add_note(

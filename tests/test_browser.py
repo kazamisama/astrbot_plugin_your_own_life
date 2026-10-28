@@ -167,7 +167,8 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.db = LifeDB(Path(self.tmp.name) / "life.db")
         self.config = load_config({"sleep_window": "00:00-00:01",
                                    "share_sessions": {"shelly": ["sid-1"]},
-                                   "rest_probability": 0})
+                                   "rest_probability": 0,
+                                   "life_personas": ["shelly"]})
         self.interests = InterestStore(self.db, self.config.interests_initial)
         self.esm = ESMAdapter(_NoStarContext(), scope_prefix="internet-life", energy_gate=0.3)
         self.personas = _FakePersonas()
@@ -248,6 +249,7 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
             "rest_probability": 0,
             "notes_min": 2,
             "notes_max": 3,
+            "life_personas": ["shelly"],
         })
         service = LifeService(
             cfg, self.db, self.interests, self.esm,
@@ -335,10 +337,19 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(len(self.db._rows("SELECT * FROM staging_notes")), 0)
 
+    async def test_whitelist_blocks_browse_and_plan(self):
+        result = await self.service.run_browse_session("alice", "scheduled")
+        self.assertEqual(result.status, "skipped")
+        self.assertEqual(result.reason, "persona_not_whitelisted")
+        plan = await self.service.generate_plan("alice")
+        self.assertEqual(plan["error"], "persona_not_whitelisted")
+        self.assertEqual(self.db.list_notes("alice"), [])
+
     async def test_sleep_window_skips_diary_and_peek(self):
         cfg = load_config({"sleep_window": "00:00-23:59",
                            "share_sessions": {"shelly": ["sid-1"]},
-                           "rest_probability": 0})
+                           "rest_probability": 0,
+                           "life_personas": ["shelly"]})
         service = LifeService(
             cfg, self.db, self.interests, self.esm, _FakeLLM(payload={}),
             self.personas, share_gate=self.share_gate, fetcher_fn=_fake_fetcher,
@@ -570,8 +581,42 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         result = await self.service.run_nightly_diary("shelly")
         self.assertNotIn("error", result)
         self.assertIn("aux_error", result)
-        self.assertEqual(result["aux_error"], "RuntimeError('aux boom')")
+        self.assertIn("revisit: RuntimeError('aux boom')", result["aux_error"])
         self.assertIsNotNone(self.db.get_diary("shelly", "2026-08-12"))
+
+    async def test_nightly_diary_uses_plan_date_for_catch_up(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 13, 8, 0)
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://plan-date", "昨日见闻", "s",
+            url_hash="plan-date-note",
+        )
+        self.db._execute(
+            "UPDATE notes SET fetched_at = ? WHERE id = ?",
+            ("2026-08-12 10:00:00", note_id),
+        )
+        self.service.llm = _FakeLLM(payload={
+            "diary_text": "补写昨天的日记。",
+            "signature": "",
+            "mood": "calm",
+            "interest_updates": {},
+        })
+        result = await self.service.run_nightly_diary("shelly", "2026-08-12")
+        self.assertEqual(result["date"], "2026-08-12")
+        self.assertEqual(result["notes"], 1)
+        diary = self.db.get_diary("shelly", "2026-08-12")
+        self.assertIsNotNone(diary)
+        self.assertEqual(diary["content"], "补写昨天的日记。")
+        self.assertIsNone(self.db.get_diary("shelly", "2026-08-13"))
+
+    async def test_review_uses_plan_date_for_missed_monthly(self):
+        self.service.now_fn = lambda: datetime(2026, 9, 2, 10, 0)
+        self.service.llm = _FakeLLM(payload={"review_text": "七月回顾。"})
+        result = await self.service.run_review(
+            "shelly", "monthly", "2026-08-01"
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["period_start"], "2026-07-01")
+        self.assertEqual(result["period_end"], "2026-07-31")
 
     async def test_run_revisit_writes_later_note_and_event(self):
         self.service.now_fn = lambda: datetime(2026, 8, 12, 23, 0)
@@ -1088,7 +1133,8 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(row["key"] == "vector" for row in interests))
 
     async def test_sleep_window_blocks_scheduled_only(self):
-        cfg = load_config({"sleep_window": "00:00-07:00"})
+        cfg = load_config({"sleep_window": "00:00-07:00",
+                           "life_personas": ["shelly"]})
         service = LifeService(cfg, self.db, self.interests, self.esm,
                               _FakeLLM(payload={}), self.personas,
                               share_gate=self.share_gate,
@@ -1235,7 +1281,24 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result["accepted"]), 1)
         self.assertEqual(result["rejected"][0]["reason"], "daily_action_cap")
 
-    async def test_generate_plan_budget_rejects_all_actions(self):
+    async def test_generate_plan_action_cap_counts_existing_optional_plans(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 8, 0)
+        self.service.config.plan_daily_action_cap = 1
+        self.db.add_optional_plan(
+            "shelly", "2026-08-12", "browse-plan-9", "browse",
+            "2026-08-12 07:00:00",
+        )
+        self.service.llm = _FakeLLM(payload={
+            "actions": [
+                {"action": "browse", "window_start": "09:00", "window_end": "10:00",
+                 "reason": "a"},
+            ],
+        })
+        result = await self.service.generate_plan("shelly")
+        self.assertEqual(result["accepted"], [])
+        self.assertEqual(result["rejected"][0]["reason"], "daily_action_cap")
+
+    async def test_generate_plan_does_not_spend_its_own_budget_on_actions(self):
         self.service.now_fn = lambda: datetime(2026, 8, 12, 8, 0)
         self.service.config.daily_llm_call_limit = 1
         self.service.llm = _FakeLLM(payload={
@@ -1245,16 +1308,29 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
             ],
         })
         result = await self.service.generate_plan("shelly")
-        self.assertEqual(result["rejected"][0]["reason"], "budget_exhausted")
-        self.assertEqual(result["accepted"], [])
+        self.assertEqual(result["rejected"], [])
+        self.assertEqual(len(result["accepted"]), 1)
         events = self.db.list_events("shelly")
         reject = [
             json.loads(e["payload"])
             for e in events
             if e["kind"] == "reject"
-            and json.loads(e["payload"]).get("action") == "reject"
         ]
-        self.assertEqual(reject[0]["reason"], "budget_exhausted")
+        self.assertFalse(any(r.get("reason") == "budget_exhausted" for r in reject))
+
+    async def test_generate_plan_rejects_when_budget_already_exhausted(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 8, 0)
+        self.service.config.daily_llm_call_limit = 1
+        self.db.increment_llm_usage("shelly", "2026-08-12", calls=1)
+        self.service.llm = _FakeLLM(payload={
+            "actions": [
+                {"action": "browse", "window_start": "09:00", "window_end": "10:00",
+                 "reason": "a"},
+            ],
+        })
+        result = await self.service.generate_plan("shelly")
+        self.assertEqual(result["accepted"], [])
+        self.assertIn("budget_exhausted", result["error"])
 
     async def test_generate_plan_diary_needs_today_notes(self):
         self.service.now_fn = lambda: datetime(2026, 8, 12, 8, 0)

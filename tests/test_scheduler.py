@@ -492,6 +492,81 @@ class SchedulerPlansTest(unittest.TestCase):
                 finished_at="2026-08-13 00:01:00",
             ))
 
+    def test_next_target_includes_previous_day_pending_plan(self):
+        self.scheduler.seed_plans(["shelly"], datetime(2026, 8, 12))
+        target = self.scheduler.next_target(
+            datetime(2026, 8, 13, 8, 0), ["shelly"]
+        )
+        self.assertIsNotNone(target)
+        self.assertEqual(target[4], "2026-08-12")
+        self.assertEqual(target[3], "peek-09-00")
+
+    def test_next_target_includes_missed_monthly_review(self):
+        self.db.ensure_plan(
+            "shelly", "2026-08-01", "review-monthly", "review",
+            scheduled_at="2026-08-01 09:00:00", fixed=True,
+        )
+        target = self.scheduler.next_target(
+            datetime(2026, 9, 2, 10, 0), ["shelly"]
+        )
+        self.assertIsNotNone(target)
+        self.assertEqual(target[3], "review-monthly")
+        self.assertEqual(target[4], "2026-08-01")
+
+    def test_lease_claim_failure_is_not_reported_as_held(self):
+        class _ExplodingMemory:
+            def claim_task(self, *args, **kwargs):
+                raise TimeoutError("lease timeout")
+
+        cfg = LifeConfig(
+            memory_host="astrbot_plugin_engram_core",
+            memory_lease_ttl_seconds=120,
+        )
+        scheduler = LifeScheduler(
+            service=_FakeServiceWithMemory(self.db, _ExplodingMemory()),
+            config=cfg,
+        )
+        self.assertIsNone(scheduler._acquire_lease("shelly", "key-x"))
+
+    def test_lease_conflict_leaves_plan_pending_for_winner(self):
+        class _TrackingService:
+            def __init__(self, db, memory):
+                self.db = db
+                self.memory = memory
+                self.calls = []
+
+            async def run_browse_session(self, persona_id, trigger):
+                self.calls.append(persona_id)
+
+            def record_skipped_duplicate(self, persona_id, kind, slot):
+                self.calls.append("skip")
+
+        memory = _FakeMemoryLease(claimed=False)
+        service = _TrackingService(self.db, memory)
+        cfg = LifeConfig(
+            browse_times=["10:00"], diary_time="23:00",
+            browse_jitter_minutes=0, diary_jitter_minutes=0,
+            peek_times=[], life_personas=["shelly"],
+            memory_host="astrbot_plugin_engram_core",
+            memory_lease_ttl_seconds=60,
+        )
+        scheduler = LifeScheduler(
+            service=service, config=cfg,
+            now_fn=lambda: datetime(2026, 8, 12, 9, 59, 59),
+        )
+
+        async def run():
+            task = asyncio.create_task(scheduler._run())
+            await asyncio.sleep(1.4)
+            scheduler._stop.set()
+            await task
+
+        asyncio.run(run())
+        rows = self.db.list_plans("shelly", "2026-08-12")
+        row = next(r for r in rows if r["task_id"] == "browse-10-00")
+        self.assertEqual(row["status"], "pending")
+        self.assertEqual(service.calls, ["skip"])
+
     def test_scheduler_loop_exits_when_disabled(self):
         class _TrackingService(_FakeService):
             def __init__(self, db):

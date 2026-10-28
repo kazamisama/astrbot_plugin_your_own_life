@@ -174,17 +174,17 @@ class LifeScheduler:
                 best = (slot, persona_id, kind, task_id, plan_date)
 
         if self.db is not None:
-            day_str = now.date().strftime("%Y-%m-%d")
             for persona_id in personas:
-                for row in self.db.list_plans(persona_id, day_str, status="pending"):
+                # 跨日 pending 也必须进入候选：昨天/上个月没跑掉的计划不能永久躺着。
+                for row in self.db.list_pending_plans(persona_id):
                     slot = self._plan_datetime(row)
                     if slot is None:
                         continue
                     kind = str(row.get("kind") or "")
                     task_id = str(row.get("task_id") or "")
-                    plan_date = str(row.get("plan_date") or day_str)
+                    plan_date = str(row.get("plan_date") or now.date().strftime("%Y-%m-%d"))
                     if slot <= now:
-                        # 当日错过槽位（对话等待/长任务/停机）：立即补做，睡眠窗内顺延。
+                        # 错过槽位（对话等待/长任务/停机/跨日）：立即补做，睡眠窗内顺延。
                         due_at = self._window_shifted(now)
                         if overdue is None or due_at < overdue[0]:
                             overdue = (due_at, persona_id, kind, task_id, plan_date)
@@ -236,6 +236,38 @@ class LifeScheduler:
             fixed=True,
         )
 
+    async def _await_plan_slot(
+        self, slot: datetime, persona_id: str, task_id: str, plan_date: str
+    ) -> tuple[Optional[datetime], Optional[dict]]:
+        """Wait for the slot, re-reading scheduled_at after each wait.
+
+        A defer/reorder during a long wait must move the execution time, not be
+        ignored until the old slot fires. Returns (slot, None) to run, (None,
+        row) when the plan changed status, and (None, None) on stop.
+        """
+        while True:
+            now_local = local_now(self.config.timezone, self.now_fn())
+            wait = (slot - now_local).total_seconds()
+            if wait > 0:
+                try:
+                    await asyncio.wait_for(self._stop.wait(), timeout=wait)
+                except asyncio.TimeoutError:
+                    pass
+            if self._stop.is_set():
+                return None, None
+            row = self._plan_row(persona_id, plan_date, task_id)
+            if row is not None and str(row.get("status") or "") != "pending":
+                self.log.info(
+                    "plan %s/%s became %s while waiting; skipping",
+                    plan_date, task_id, row.get("status"),
+                )
+                return None, row
+            new_slot = self._plan_datetime(row) if row is not None else None
+            if new_slot is not None and new_slot != slot:
+                slot = new_slot
+                continue
+            return slot, row
+
     def _plan_status_browse(self, result: Any) -> tuple[str, str]:
         status = getattr(result, "status", "completed")
         reason = str(getattr(result, "reason", "") or getattr(result, "error", "") or "")
@@ -258,7 +290,8 @@ class LifeScheduler:
 
         return float(max(0, _tokens(after) - _tokens(before)))
 
-    def _acquire_lease(self, persona_id: str, task_key: str) -> bool:
+    def _acquire_lease(self, persona_id: str, task_key: str) -> Optional[bool]:
+        """True=acquired, False=held elsewhere, None=lease backend unavailable."""
         memory = getattr(self.service, "memory", None) if self.service else None
         if memory is not None and getattr(self.config, "memory_host", ""):
             try:
@@ -271,7 +304,7 @@ class LifeScheduler:
                     "memory lease claim failed for %s %s: %s",
                     persona_id, task_key, exc,
                 )
-                return False
+                return None
         if self.db is not None:
             return self.db.acquire_lease(
                 persona_id, task_key, self._instance_id,
@@ -402,46 +435,47 @@ class LifeScheduler:
             slot, persona_id, kind, task_id, plan_date = target
             # 目标可能落在次日（尚未播种）；先补齐计划行，finally 才不会落空。
             self._ensure_target_plan(slot, persona_id, kind, task_id, plan_date)
-            now_local = local_now(self.config.timezone, self.now_fn())
-            wait = max(1.0, (slot - now_local).total_seconds())
-            try:
-                await asyncio.wait_for(self._stop.wait(), timeout=wait)
-            except asyncio.TimeoutError:
-                pass
+            awaited_slot, plan_row = await self._await_plan_slot(
+                slot, persona_id, task_id, plan_date
+            )
             if self._stop.is_set():
                 break
+            if awaited_slot is None:
+                if plan_row is not None:
+                    self._done_keys.add(
+                        f"{slot.strftime('%Y-%m-%d %H:%M')}:{persona_id}:{kind}:{task_id}"
+                    )
+                continue
+            slot = awaited_slot
             key = (
                 f"{slot.strftime('%Y-%m-%d %H:%M')}:{persona_id}:{kind}:{task_id}"
             )
             if key in self._done_keys:
                 continue
-            plan_row = self._plan_row(persona_id, plan_date, task_id)
-            if plan_row is not None and str(plan_row.get("status") or "") != "pending":
-                self.log.info(
-                    "plan %s/%s became %s while waiting; skipping",
-                    plan_date, task_id, plan_row.get("status"),
-                )
-                self._done_keys.add(key)
-                continue
-            if not self._acquire_lease(persona_id, key):
+            lease = self._acquire_lease(persona_id, key)
+            if lease is None:
+                # 租约服务临时不可用不是"别人占着"；保留 pending，稍后重试。
                 self.log.warning(
-                    "lease for %s %s held by another instance, skipping", persona_id, key
+                    "lease backend unavailable for %s %s; will retry", persona_id, key
+                )
+                try:
+                    await asyncio.wait_for(self._stop.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    pass
+                continue
+            if lease is False:
+                self.log.warning(
+                    "lease for %s %s held by another instance, retrying later",
+                    persona_id, key,
                 )
                 self.service.record_skipped_duplicate(persona_id, kind, slot)
-                if self.db is not None:
-                    self.db.ensure_plan(
-                        persona_id, plan_date, task_id, kind,
-                        scheduled_at=slot.strftime("%Y-%m-%d %H:%M:%S"),
-                    )
-                    self.db.update_plan(
-                        persona_id, plan_date, task_id, "skipped",
-                        reason="skipped_duplicate",
-                        finished_at=local_now(
-                            self.config.timezone, self.now_fn()
-                        ).strftime("%Y-%m-%d %H:%M:%S"),
-                        only_if_status="pending",
-                    )
-                self._done_keys.add(key)
+                # 不把共享 plan 行改成 skipped：赢家随后要回写 done；若赢家失败，
+                # 租约 TTL 过期后这个 pending 计划还能再被捡起来。
+                wait_retry = min(60.0, max(1.0, float(self._lease_ttl())))
+                try:
+                    await asyncio.wait_for(self._stop.wait(), timeout=wait_retry)
+                except asyncio.TimeoutError:
+                    pass
                 continue
             usage_before = (
                 self.db.get_daily_usage(persona_id, plan_date)
@@ -479,14 +513,22 @@ class LifeScheduler:
                         status, reason = self._plan_status_browse(result)
                     elif kind == "review":
                         if task_id == "review-yearly":
-                            result = await self.service.run_review(persona_id, "yearly")
+                            result = await self.service.run_review(
+                                persona_id, "yearly", plan_date
+                            )
                         elif task_id == "review-quarterly":
-                            result = await self.service.run_quarterly_review(persona_id)
+                            result = await self.service.run_quarterly_review(
+                                persona_id, plan_date
+                            )
                         else:
-                            result = await self.service.run_review(persona_id, "monthly")
+                            result = await self.service.run_review(
+                                persona_id, "monthly", plan_date
+                            )
                         status, reason = self._plan_status_diary(result)
                     else:
-                        result = await self.service.run_nightly_diary(persona_id)
+                        result = await self.service.run_nightly_diary(
+                            persona_id, plan_date
+                        )
                         status, reason = self._plan_status_diary(result)
                 except Exception as exc:
                     self.log.exception(

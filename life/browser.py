@@ -10,7 +10,7 @@ from typing import Any, Awaitable, Callable, Optional, Sequence
 
 import httpx
 
-from life.config import LifeConfig, current_time_slot
+from life.config import LifeConfig, current_time_slot, persona_allowed
 from life.db import LifeDB
 from life.esm_adapter import ESMAdapter
 from life.fetchers import FetchedItem, USER_AGENT, fetch_all
@@ -202,6 +202,8 @@ class LifeService:
     ) -> BrowseResult:
         if not self.config.enabled:
             return BrowseResult(None, "disabled", 0, "disabled")
+        if not persona_allowed(self.config, persona_id):
+            return BrowseResult(None, "skipped", 0, "persona_not_whitelisted")
         now = local_now(self.config.timezone, self.now_fn())
         if not force and self.config.sleep_window.contains(now):
             return BrowseResult(None, "skipped", 0, "sleep_window")
@@ -616,6 +618,8 @@ class LifeService:
     async def run_peek(self, persona_id: str) -> BrowseResult:
         if not self.config.enabled:
             return BrowseResult(None, "disabled", 0, "disabled")
+        if not persona_allowed(self.config, persona_id):
+            return BrowseResult(None, "skipped", 0, "persona_not_whitelisted")
         now = local_now(self.config.timezone, self.now_fn())
         if self.config.sleep_window.contains(now):
             return BrowseResult(None, "skipped", 0, "sleep_window")
@@ -721,18 +725,27 @@ class LifeService:
 
     # ----- diary -----
 
-    async def run_nightly_diary(self, persona_id: str) -> dict[str, Any]:
+    async def run_nightly_diary(
+        self, persona_id: str, plan_date: Optional[str] = None
+    ) -> dict[str, Any]:
+        date = plan_date or local_today(self.config.timezone, self.now_fn())
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except (TypeError, ValueError):
+            date = local_today(self.config.timezone, self.now_fn())
         if not self.config.enabled:
-            return {"date": local_today(self.config.timezone, self.now_fn()),
-                    "notes": 0, "fallback": False, "skipped": "disabled"}
+            return {"date": date, "notes": 0, "fallback": False,
+                    "skipped": "disabled"}
+        if not persona_allowed(self.config, persona_id):
+            return {"date": date, "notes": 0, "fallback": False,
+                    "skipped": "persona_not_whitelisted"}
         try:
             persona = await self._resolve_persona(persona_id)
         except PersonaUnavailable:
-            return {"date": local_today(self.config.timezone, self.now_fn()),
-                    "notes": 0, "fallback": False, "skipped": "persona_unavailable"}
+            return {"date": date, "notes": 0, "fallback": False,
+                    "skipped": "persona_unavailable"}
 
         now = local_now(self.config.timezone, self.now_fn())
-        date = now.strftime("%Y-%m-%d")
         if self.config.sleep_window.contains(now):
             return {"date": date, "notes": 0, "fallback": False,
                     "skipped": "sleep_window"}
@@ -952,22 +965,35 @@ class LifeService:
             )
             return {"date": date, "notes": len(notes), "fallback": False, "error": repr(exc)}
 
-        aux_error = ""
+        aux_errors: list[str] = []
         capsules_sealed = 0
+        wishlist_eval = {"promoted": 0, "discarded": 0}
+        capsule_result = {"opened": 0, "replied": 0}
+        revisit_result = {"candidates": 0, "revisited": 0, "failed": 0}
         purged_trash = 0
+        # 这几个动作彼此独立：任何一个失败都不能阻断后面的胶囊/重访/清理。
         try:
             capsules_sealed = self._seal_daily_capsule(persona_id, notes, date)
-            wishlist_eval = await self._evaluate_wishlist(persona_id, persona.system_prompt)
+        except Exception as exc:
+            self.log.warning("capsule seal failed for %s: %s", persona_id, exc)
+            aux_errors.append(f"capsule_seal: {exc!r}")
+        try:
+            wishlist_eval = await self._evaluate_wishlist(
+                persona_id, persona.system_prompt
+            )
+        except Exception as exc:
+            self.log.warning("wishlist eval failed for %s: %s", persona_id, exc)
+            aux_errors.append(f"wishlist: {exc!r}")
+        try:
             capsule_result = await self.run_capsules(persona_id)
+        except Exception as exc:
+            self.log.warning("capsule run failed for %s: %s", persona_id, exc)
+            aux_errors.append(f"capsules: {exc!r}")
+        try:
             revisit_result = await self.run_revisit(persona_id)
         except Exception as exc:
-            self.log.warning(
-                "nightly diary post-commit actions failed for %s: %s", persona_id, exc
-            )
-            wishlist_eval = {"promoted": 0, "discarded": 0}
-            capsule_result = {"opened": 0, "replied": 0}
-            revisit_result = {"candidates": 0, "revisited": 0, "failed": 0}
-            aux_error = repr(exc)
+            self.log.warning("revisit failed for %s: %s", persona_id, exc)
+            aux_errors.append(f"revisit: {exc!r}")
         try:
             purged_trash = self.db.purge_trash(
                 persona_id, self.config.trash_retention_days
@@ -976,8 +1002,8 @@ class LifeService:
             self.log.warning(
                 "nightly trash purge failed for %s: %s", persona_id, exc
             )
-            if not aux_error:
-                aux_error = f"purge_trash: {exc!r}"
+            aux_errors.append(f"purge_trash: {exc!r}")
+        aux_error = "; ".join(aux_errors)
         return {"date": date, "notes": len(notes), "fallback": False,
                 "revisit_day": revisit_day, "revisit_notes": len(raw_revisit_notes),
                 "wishlist_promoted": wishlist_eval["promoted"],
@@ -1111,16 +1137,27 @@ class LifeService:
             )
         return "".join(lines)
 
-    async def run_review(self, persona_id: str, period: str) -> dict[str, Any]:
+    async def run_review(
+        self, persona_id: str, period: str, plan_date: Optional[str] = None
+    ) -> dict[str, Any]:
         period = "yearly" if period == "yearly" else "monthly"
         if not self.config.enabled:
             return {"period": period, "ok": False, "skipped": "disabled"}
+        if not persona_allowed(self.config, persona_id):
+            return {"period": period, "ok": False,
+                    "error": "persona_not_whitelisted"}
         try:
             persona = await self._resolve_persona(persona_id)
         except PersonaUnavailable:
             return {"period": period, "ok": False, "error": "persona_unavailable"}
         now = local_now(self.config.timezone, self.now_fn())
-        period_start, period_end = self._review_range(now, period)
+        anchor = now
+        if plan_date:
+            try:
+                anchor = datetime.strptime(plan_date, "%Y-%m-%d")
+            except (TypeError, ValueError):
+                anchor = now
+        period_start, period_end = self._review_range(anchor, period)
         idem = f"review/{period}/{period_start}"
         existing = self.db.find_event(persona_id, idem)
         if existing is not None:
@@ -1217,19 +1254,30 @@ class LifeService:
             )
         ]
 
-    async def run_quarterly_review(self, persona_id: str) -> dict[str, Any]:
+    async def run_quarterly_review(
+        self, persona_id: str, plan_date: Optional[str] = None
+    ) -> dict[str, Any]:
         if not self.config.enabled:
             return {"persona_id": persona_id, "ok": False, "skipped": "disabled"}
         if not self.config.quarterly_review_enabled:
             return {"persona_id": persona_id, "ok": False,
                     "skipped": "disabled"}
+        if not persona_allowed(self.config, persona_id):
+            return {"persona_id": persona_id, "ok": False,
+                    "error": "persona_not_whitelisted"}
         try:
             persona = await self._resolve_persona(persona_id)
         except PersonaUnavailable:
             return {"persona_id": persona_id, "ok": False,
                     "error": "persona_unavailable"}
         now = local_now(self.config.timezone, self.now_fn())
-        period_start, period_end = self._review_range(now, "quarterly")
+        anchor = now
+        if plan_date:
+            try:
+                anchor = datetime.strptime(plan_date, "%Y-%m-%d")
+            except (TypeError, ValueError):
+                anchor = now
+        period_start, period_end = self._review_range(anchor, "quarterly")
         idem = f"review/quarterly/{period_start}"
         existing = self.db.find_event(persona_id, idem)
         if existing is not None:
@@ -1388,6 +1436,9 @@ class LifeService:
     async def run_capsules(self, persona_id: str) -> dict[str, Any]:
         if not self.config.enabled:
             return {"persona_id": persona_id, "ok": False, "error": "disabled"}
+        if not persona_allowed(self.config, persona_id):
+            return {"persona_id": persona_id, "ok": False,
+                    "error": "persona_not_whitelisted"}
         try:
             persona = await self._resolve_persona(persona_id)
         except PersonaUnavailable:
@@ -1402,13 +1453,15 @@ class LifeService:
         failed = 0
         for capsule in due:
             note = self.db.get_note(capsule["note_id"])
+            if not note:
+                # 短记已软删/清除：不要把胶囊提前 unlock 成永远无法回信的僵尸。
+                # 保留 sealed，等短记恢复或 purge_trash 级联删除。
+                continue
             if self.db.unlock_capsule(
                 persona_id, capsule["id"],
                 now_str=now.strftime("%Y-%m-%d %H:%M:%S"),
             ):
                 opened += 1
-            if not note:
-                continue
             prompt = build_capsule_reply_prompt(
                 persona.system_prompt, persona_id, note,
                 capsule["sealed_at"], capsule["unlock_at"],
@@ -1465,6 +1518,9 @@ class LifeService:
         """Nightly light action: revisit old links and write a "what happened next" note."""
         if not self.config.enabled:
             return {"persona_id": persona_id, "ok": False, "error": "disabled"}
+        if not persona_allowed(self.config, persona_id):
+            return {"persona_id": persona_id, "ok": False,
+                    "error": "persona_not_whitelisted"}
         try:
             persona = await self._resolve_persona(persona_id)
         except PersonaUnavailable:
@@ -1619,6 +1675,13 @@ class LifeService:
     # ----- plan -----
 
     async def generate_plan(self, persona_id: str) -> dict[str, Any]:
+        date = local_today(self.config.timezone, self.now_fn())
+        if not self.config.enabled:
+            return {"date": date, "accepted": [], "rejected": [],
+                    "error": "disabled"}
+        if not persona_allowed(self.config, persona_id):
+            return {"date": date, "accepted": [], "rejected": [],
+                    "error": "persona_not_whitelisted"}
         try:
             persona = await self._resolve_persona(persona_id)
         except PersonaUnavailable:
@@ -1664,20 +1727,18 @@ class LifeService:
             return {"date": date, "accepted": accepted, "rejected": rejected,
                     "error": "invalid_payload"}
         cap = int(self.config.plan_daily_action_cap or 0)
+        existing_optional = 0
+        if cap > 0:
+            existing_optional = sum(
+                1 for row in self.db.list_plans(persona_id, date)
+                if not row.get("fixed")
+            )
         energy_blocked = False
         energy_reason = ""
         try:
             energy_blocked, _, energy_reason = self.esm.gate_energy(persona_id)
         except Exception:
             energy_blocked = False
-        usage = self.db.get_daily_usage(persona_id, date)
-        calls = int(usage["llm_calls"] or 0) if usage else 0
-        tokens = int(usage["tokens"] or 0) if usage else 0
-        call_limit = int(self.config.daily_llm_call_limit or 0)
-        token_budget = int(self.config.daily_token_budget or 0)
-        budget_exhausted = (call_limit > 0 and calls >= call_limit) or (
-            token_budget > 0 and tokens >= token_budget
-        )
         now_local = local_now(self.config.timezone, self.now_fn())
         for index, entry in enumerate(raw_actions):
             if not isinstance(entry, dict):
@@ -1687,13 +1748,6 @@ class LifeService:
                 self._record_plan_rejection(persona_id, date, action, index, reason)
                 continue
             action = str(entry.get("action") or "").strip().lower()
-            if budget_exhausted:
-                reason = "budget_exhausted"
-                rejected.append({"action": action or "unknown", "reason": reason})
-                self._record_plan_rejection(
-                    persona_id, date, action or "unknown", index, reason,
-                )
-                continue
             if action not in PLAN_ACTION_VOCABULARY:
                 reason = "unknown_action"
                 rejected.append({"action": action or "unknown", "reason": reason})
@@ -1706,7 +1760,7 @@ class LifeService:
                 rejected.append({"action": action, "reason": reason})
                 self._record_plan_rejection(persona_id, date, action, index, reason)
                 continue
-            if cap > 0 and len(accepted) >= cap:
+            if cap > 0 and existing_optional + len(accepted) >= cap:
                 reason = "daily_action_cap"
                 rejected.append({"action": action, "reason": reason})
                 self._record_plan_rejection(persona_id, date, action, index, reason)

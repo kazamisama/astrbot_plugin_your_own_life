@@ -2,6 +2,31 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.23] - 2026-10-28
+
+### Fixed
+
+- 跨日计划：调度器改为读取全部日期的 pending 计划，昨日/上月漏掉的 browse、diary、review 不再永久孤儿；日记与月度/季度回顾按计划所属 `plan_date` 补写，而不是按运行日写错日期或写丢胶囊。
+- 等待期变更：长等待结束后重读 `scheduled_at`，等待期间被 defer/reorder 的计划按新时间执行；计划终态变化则跳过。
+- 租约：`_acquire_lease` 返回三态，记忆宿主 claim 异常不再被当成“已被别人占用”而把计划标 skipped；真正的租约冲突只记录重复跳过，不再改共享计划状态，赢家仍能回写 done。
+- 旧库升级：`staging_notes` / `staging_diary` / `staging_snapshots` / `staging_wishlist` / `staging_interests` 缺列自动补齐（含 `staging_diary.signature`），旧库夜间日记不再整夜失败；`notes` 唯一约束迁移恢复 `sqlite_sequence` 高水位，新短记不再复用已 purge 的 id。
+- 计划硬约束：`skip_plan` / `defer_plan` / `reorder_plan` 只接受 pending 行，done/skipped 不可再被改写；同 `scheduled_at` 的 reorder 不再假成功并写假事件。
+- 计划预算：`generate_plan` 不再把自己那次 LLM 调用计入随后的动作预算，`daily_llm_call_limit=1` 时计划动作不再全被判 `budget_exhausted`；每日动作上限统计当天已有可选计划，分批调用不能绕过。
+- 日记后置动作：封胶囊、wishlist、胶囊回信、重访、回收站清理各自 try/except，一个失败不再阻断其余动作。
+- 时间胶囊：短记已软删/清除时不再提前 unlock 成永远无法回信的僵尸胶囊。
+- 白名单：`run_browse_session` / `run_peek` / `run_nightly_diary` / `run_review` / `run_quarterly_review` / `run_capsules` / `run_revisit` / `generate_plan` 全部执行端校验 `life_personas`，命令与 WebUI 不再绕过。
+- 分享：`share_daily_cap=0` 视为不限；沉默判定一天只掷一次（非沉默也写 `share_awake` 快照）；`recheck_pending` 对非法 JSON / `should_share=false` 的历史 pending 标记 dropped，不再每晚重试。
+- 兴趣编辑：`edit_life_memory` 改 weight/name 时保留当前 `seen_count`，不再顺带 +1。
+- 配置：`explore_probability` / `share_daily_cap` / `share_max_chars` 增加边界；`share_max_chars` 不再允许 0 导致分享正文为空。
+- WebUI：所有查询/请求整数入口改用有界解析，`2**63+10` 不再触发 SQLite `OverflowError` 500；`/personas` 只返回 persona 元数据，不返回完整 `system_prompt`；`/run` 与 `/capsules_open` 校验白名单；回收站 actor 固定为 owner。
+- 页面：`loadPersonas` 失败不再让整页卡在加载中；实体图按节点数增高，超出约 5 个不再被 viewBox 裁掉；所有 POST 统一检查 `ok/error`，失败显示在错误横幅。
+- 文档：README/design/features 删除不存在的 `register_web_routes` 回退，改为“引擎不提供 `register_web_api` 时只记录 warning、不注册 WebUI API”；`main.py` 同步记录 warning。
+
+### Notes
+
+- 测试：317 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 仍未修：watchlist 稳定 URL 首次见过后不再进候选（“持续关注”需要更新语义）；故地重游失败候选的头部阻塞；统一记忆宿主孤儿数据无删除 API；工具 add 无 ESM 精力 gate；结构性重复与页面 usage/archive/interests/injection_log 视图。
+
 ## [0.5.22] - 2026-10-27
 
 ### Changed

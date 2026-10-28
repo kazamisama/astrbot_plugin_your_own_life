@@ -219,6 +219,49 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["persona_id"], "shelly")
         self.assertEqual(result["usage"][0]["llm_calls"], 2)
 
+    async def test_huge_integers_do_not_reach_sqlite(self):
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=None, config=self.config)
+        huge = 2**63 + 10
+        with patch("life.webui._query_args",
+                   new=AsyncMock(return_value={"offset": huge, "limit": huge})):
+            timeline = await handlers["timeline"]()
+        self.assertEqual(timeline["offset"], 0)
+        with patch("life.webui._json_body",
+                   new=AsyncMock(return_value={"capsule_id": huge})):
+            opened = await handlers["capsules_open"]()
+        self.assertFalse(opened["ok"])
+        with patch("life.webui._json_body",
+                   new=AsyncMock(return_value={"entity": "note", "id": True})):
+            deleted = await handlers["trash_add"]()
+        self.assertFalse(deleted["ok"])
+
+    async def test_personas_list_hides_system_prompt(self):
+        class _FakePersonas:
+            def list_cache(self):
+                return [{"persona_id": "shelly", "status": "ready",
+                         "system_prompt": "SECRET PROMPT"}]
+
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=_FakePersonas(), config=self.config)
+        data = await handlers["personas"]()
+        self.assertEqual(data["cache"][0]["persona_id"], "shelly")
+        self.assertNotIn("system_prompt", data["cache"][0])
+        self.assertNotIn("SECRET PROMPT", str(data))
+
+    async def test_run_rejects_persona_outside_whitelist(self):
+        async def never_browse(persona, trigger, force=False):
+            raise AssertionError("should not run")
+
+        service = SimpleNamespace(run_browse_session=never_browse)
+        handlers = build_handlers(self.db, service=service, share_gate=None,
+                                  personas=None, config=self.config)
+        with patch("life.webui._json_body",
+                   new=AsyncMock(return_value={"persona": "alice"})):
+            result = await handlers["run"]()
+        self.assertFalse(result["started"])
+        self.assertIn("whitelist", result["error"])
+
     async def test_trash_and_change_log_handlers(self):
         note_id = self.db.add_note("shelly", None, "hn", "https://x", "T", "s", url_hash="hx")
         self.db.soft_delete_note("shelly", note_id)

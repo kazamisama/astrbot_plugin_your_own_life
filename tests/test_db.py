@@ -201,6 +201,20 @@ class LifeDBTest(unittest.TestCase):
         finally:
             migrated.close()
 
+    def test_old_staging_diary_schema_gets_signature_column(self):
+        path = self.db.path
+        self.db.close()
+        conn = sqlite3.connect(str(path))
+        conn.execute("ALTER TABLE staging_diary DROP COLUMN signature")
+        conn.commit()
+        conn.close()
+        self.db = LifeDB(path)
+        self.db.stage_diary(
+            "shelly", None, "2026-08-12", "旧库日记", "calm", 0.5, "ai", "sig",
+        )
+        rows = self.db._rows("SELECT signature FROM staging_diary")
+        self.assertEqual(rows[0]["signature"], "sig")
+
     def test_note_temperature_decay_and_rehydrate(self):
         cold = self.db.add_note("shelly", None, "hn", "https://cold", "Cold", "s", url_hash="cold-t")
         hot = self.db.add_note("shelly", None, "hn", "https://hot", "Hot", "s", url_hash="hot-t")
@@ -503,6 +517,41 @@ class LifeDBTest(unittest.TestCase):
         self.assertIn("idx_notes_persona_url", indexes)
         self.assertIn("idx_notes_persona_fetched", indexes)
         self.assertEqual(len(db.list_notes("shelly")), 1)
+        db.close()
+
+    def test_notes_migration_preserves_id_high_water_mark(self):
+        path = Path(self.tmp.name) / "seq.db"
+        conn = sqlite3.connect(str(path))
+        conn.executescript(
+            """
+            CREATE TABLE notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                persona_id TEXT NOT NULL DEFAULT '',
+                fetched_at TEXT NOT NULL,
+                source TEXT NOT NULL,
+                url TEXT NOT NULL,
+                title TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                url_hash TEXT NOT NULL,
+                UNIQUE(persona_id, url_hash)
+            );
+            """
+        )
+        conn.execute(
+            "INSERT INTO notes (id, persona_id, fetched_at, source, url, title, summary, url_hash) "
+            "VALUES (5, 'shelly', '2026-08-10 10:00:00', 'hn', 'https://old', 'Old', 's', 'h1')"
+        )
+        conn.execute("DELETE FROM notes WHERE id = 5")
+        conn.execute(
+            "UPDATE sqlite_sequence SET seq = 5 WHERE name = 'notes'"
+        )
+        conn.commit()
+        conn.close()
+        db = LifeDB(path)
+        new_id = db.add_note(
+            "shelly", None, "hn", "https://new", "New", "s", url_hash="h2"
+        )
+        self.assertEqual(new_id, 6)
         db.close()
 
     def test_timezone_normalization(self):
@@ -923,6 +972,43 @@ class LifeDBTest(unittest.TestCase):
             ["browse-10-00", "extra-2", "extra-1"],
         )
         self.assertFalse(self.db.reorder_plan("shelly", "2026-08-12", "extra-1", 1))
+
+    def test_plan_mutations_reject_non_pending_rows(self):
+        self.db.add_optional_plan(
+            "shelly", "2026-08-12", "extra-1", "peek", "2026-08-12 12:00:00",
+        )
+        self.assertTrue(self.db.update_plan(
+            "shelly", "2026-08-12", "extra-1", "done",
+        ))
+        self.assertFalse(self.db.defer_plan(
+            "shelly", "2026-08-12", "extra-1", "2026-08-12 14:00:00",
+        ))
+        self.assertFalse(self.db.skip_plan(
+            "shelly", "2026-08-12", "extra-1", "late",
+        ))
+        self.assertFalse(self.db.reorder_plan(
+            "shelly", "2026-08-12", "extra-1", 1,
+        ))
+        row = next(
+            item for item in self.db.list_plans("shelly", "2026-08-12")
+            if item["task_id"] == "extra-1"
+        )
+        self.assertEqual(row["status"], "done")
+
+    def test_reorder_plan_same_timestamp_is_not_reported_as_success(self):
+        self.db.add_optional_plan(
+            "shelly", "2026-08-12", "extra-1", "peek", "2026-08-12 12:00:00",
+        )
+        self.db.add_optional_plan(
+            "shelly", "2026-08-12", "extra-2", "peek", "2026-08-12 12:00:00",
+        )
+        self.assertFalse(self.db.reorder_plan("shelly", "2026-08-12", "extra-1", 2))
+        actions = [
+            json.loads(e["payload"])["action"]
+            for e in self.db.list_events("shelly")
+            if e["kind"] == "change"
+        ]
+        self.assertNotIn("reorder", actions)
 
 
 if __name__ == "__main__":

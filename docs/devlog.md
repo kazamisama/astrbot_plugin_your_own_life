@@ -2,6 +2,23 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-28 第二轮审计修复：跨日计划、旧库 staging 与 WebUI 边界（v0.5.23）
+- 目标：按用户「依次修改，旧缺陷直接改」的要求，修第二轮审计的 P1/P2 与高影响 P3；不做兼容补丁，直接改真实写路径。
+- 已确认决策：
+  - 调度器必须看见所有日期的 pending 计划，而不是只查当天；日记/回顾把 `plan_date` 传进服务，补写的是计划所属那天，不是运行日。
+  - 等待计划时只等一次是不够的：等待结束重读 `scheduled_at`，defer/reorder 立即生效；计划终态变化则放弃执行。
+  - 租约 claim 异常是“后端不可用”，不是“别人占着”；两者必须分开，否则任务会被假 skip 掉。租约冲突不改共享计划行，避免赢家无法回写 done。
+  - 旧库升级用 `_ensure_column` 补齐 staging 表列（staging 表是 `CREATE TABLE IF NOT EXISTS` 的盲区）；notes 唯一约束迁移恢复 `sqlite_sequence`，避免 id 复用导致引用错位。
+  - 计划状态机把 done/skipped 视作终态；同 `scheduled_at` 的 reorder 没有可交换顺序，直接返回失败而不是写假事件。
+  - `generate_plan` 的预算检查放在调用前由 `_llm_call` 做，动作上限按“当天已有可选计划 + 本次 accepted”计算；计划调用本身不占动作预算。
+  - 日记提交后的封胶囊/wishlist/胶囊/重访/回收站清理拆成独立 try，失败只进 `aux_error`。
+  - `life_personas` 在服务方法执行端统一校验，命令、WebUI、聊天钩子、调度器不再各有一套语义。
+  - WebUI 整数入口统一有界解析；`/personas` 投影掉 `system_prompt`；回收站 actor 固定 owner；页面所有 POST 走 `apiPostChecked`，失败可见。
+- 改动：`life/db.py`、`life/scheduler.py`、`life/browser.py`、`life/life_tool.py`、`life/webui.py`、`life/config.py`、`life/share.py`、`main.py`、`pages/life/index.html`、`README.md`、`CHANGELOG.md`、`docs/design.md`、`docs/features.md`、`tests/test_db.py`、`tests/test_scheduler.py`、`tests/test_browser.py`、`tests/test_life_tool.py`、`tests/test_webui.py`；版本 v0.5.22 → v0.5.23。
+- 验证：全量 `unittest discover -s tests` 317 条，仅 `test_config` 与生产 AstrBot 混装的已知 ImportError，skipped=1；受影响文件 db 68、scheduler 31、browser 63、life_tool 16、webui 24 全绿；页面内联脚本 `node --check` 与 `compileall` 提交前执行。
+- 遗留：watchlist 稳定 URL 更新语义、故地重游失败候选头部阻塞、统一记忆宿主孤儿、工具 add 无 ESM 精力 gate、结构性重复与页面未用视图仍未动。
+- 下一步：提交 `chore(release): v0.5.23 ...`，随后继续第三轮（watchlist/revisit/rollback 鬼影/fetchers 边界）。
+
 ## 2026-10-27 审计后的第三批修复：死代码、重复实现与 lint 基线（v0.5.22）
 - 目标：按审计报告 batch 3 清理无生产调用的代码与重复实现，修正文档/提示词里未被消费的字段，并让 `ruff --select F,E9` 回到全绿。
 - 已确认决策：

@@ -78,7 +78,8 @@ class ShareGate:
             return ShareResult("blocked", "energy_gate")
 
         date = now.strftime("%Y-%m-%d")
-        if self.db.count_share_success(persona_id, date) >= self.config.share_daily_cap:
+        daily_cap = int(self.config.share_daily_cap or 0)
+        if daily_cap > 0 and self.db.count_share_success(persona_id, date) >= daily_cap:
             self.db.log_share_attempt(persona_id, note_id, "blocked", "daily_cap", target)
             return ShareResult("blocked", "daily_cap")
 
@@ -130,6 +131,11 @@ class ShareGate:
             try:
                 decision = json.loads(note.get("share_decision") or "{}")
             except (ValueError, TypeError):
+                self.db.update_note_share_status(note["id"], "dropped")
+                continue
+            if not isinstance(decision, dict) or not decision.get("should_share"):
+                # 历史/手工数据可能留下 should_share=False 的 pending，不能每晚重试。
+                self.db.update_note_share_status(note["id"], "dropped")
                 continue
             result = await self.attempt_share(persona_id, note, decision)
             if result.status == "sent":
@@ -138,12 +144,22 @@ class ShareGate:
 
     def _share_silent(self, persona_id: str, date: str) -> bool:
         """Roll once per day: if silent, skip sharing and record a snapshot."""
-        if self.db.has_snapshot_activity(persona_id, date, "share_silent"):
-            return True
+        if (
+            self.db.has_snapshot_activity(persona_id, date, "share_silent")
+            or self.db.has_snapshot_activity(persona_id, date, "share_awake")
+        ):
+            return self.db.has_snapshot_activity(persona_id, date, "share_silent")
         rate = max(0.0, min(1.0, float(self.config.share_silence_rate or 0)))
         if rate <= 0:
             return False
         if self.rng.random() >= rate:
+            self.db.add_state_snapshot(
+                persona_id, "share_awake", self.esm.get_energy(persona_id), "",
+                extra=json.dumps(
+                    {"date": date, "reason": "share_silence_rate"},
+                    ensure_ascii=False,
+                ),
+            )
             return False
         self.db.add_state_snapshot(
             persona_id, "share_silent", self.esm.get_energy(persona_id), "",

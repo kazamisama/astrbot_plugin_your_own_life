@@ -206,7 +206,7 @@ def search_life_memory(
     notes = db.search_notes(
         persona_id, query, category, date, limit=k, temperature_weighted=True
     )
-    diaries = db.search_diary(persona_id, query, category, date, limit=3)
+    diaries = db.search_diary(persona_id, query=query, date=date, limit=3)
     items: list[dict[str, Any]] = []
     for note in notes:
         items.append({
@@ -732,7 +732,10 @@ def edit_life_memory(
             )
             return {"ok": False, "needs_owner_confirmation": True,
                     "change_id": log_id, "error": "requires owner confirmation"}
-        db.upsert_interest(persona_id, key, new_name, new_weight)
+        db.upsert_interest(
+            persona_id, key, new_name, new_weight,
+            seen_count=int(current.get("seen_count") or 0),
+        )
         log_id = db.log_change(
             persona_id, "interest", key, old_payload, new_payload,
             actor=actor, reason=reason, status="applied",

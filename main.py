@@ -118,8 +118,14 @@ class LifeStar(Star):
             self.life_status_tool.register(context)
             self.life_plan_edit_tool.register(context)
             self.life_edit_tool.register(context)
-        webui.register_api(context, self.db, self.service, self.share_gate,
-                           self.personas, self._cfg, self.memory, logger)
+        if not webui.register_api(
+            context, self.db, self.service, self.share_gate,
+            self.personas, self._cfg, self.memory, logger,
+        ):
+            logger.warning(
+                "register_web_api unavailable; WebUI API disabled "
+                "(no register_web_routes fallback)"
+            )
 
     async def terminate(self):
         try:

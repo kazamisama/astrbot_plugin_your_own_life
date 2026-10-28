@@ -41,7 +41,7 @@ Your Own Life 是一个观察者模式的 AstrBot 插件：Bot 不注册账号�
 - `life/browser.py`：`LifeService`，漫游与夜间复盘的核心编排。
 - `life/scheduler.py`：每 persona 独立槽位、确定性时间抖动、睡眠窗口。
 - `life/share.py`：`ShareGate`，分享决策与频率/去重/精力门槛。
-- `life/webui.py`：通过 `register_web_api` 注册 owner 数据接口（引擎不可用时回退 `register_web_routes`）。
+- `life/webui.py`：通过 `register_web_api` 注册 owner 数据接口；引擎不提供该接口时不注册 WebUI API（没有 `register_web_routes` 回退）。
 - `life/life_tool.py`：`query_life_memory` FunctionTool，让 LLM 查询当前 persona 自己的档案。
 
 ## 数据模型

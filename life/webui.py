@@ -7,9 +7,11 @@ import json
 import logging
 from typing import Any, Callable, Optional
 
+from life.config import persona_allowed
 from life.life_tool import _merge_unified, query_life_plans, recall_life_memory
 from life.memory_adapter import MemoryHostError
 from life.timeutil import DEFAULT_TIMEZONE, local_today
+
 
 PLUGIN_NAME = "astrbot_plugin_your_own_life"
 API_PREFIX = f"/{PLUGIN_NAME}/api"
@@ -44,6 +46,34 @@ def _first_persona(config: Any) -> str:
     return personas[0] if personas else "default"
 
 
+def _int_arg(value: Any, default: int = 0, minimum: Optional[int] = None,
+             maximum: int = 2**31 - 1) -> int:
+    """Parse a query/body integer without letting huge values reach SQLite."""
+    if isinstance(value, bool):
+        return default
+    try:
+        number = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    if minimum is not None and number < minimum:
+        return default
+    if number > maximum:
+        return default
+    return number
+
+
+def _public_persona(row: dict) -> dict:
+    """Persona rows carry the full prompt; WebUI only needs status metadata."""
+    return {
+        "persona_id": row.get("persona_id") or "",
+        "name": row.get("name") or "",
+        "status": row.get("status") or "",
+        "error": row.get("error") or "",
+        "updated_at": row.get("updated_at") or "",
+        "source": row.get("source") or "",
+    }
+
+
 def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
                    config: Any, memory_adapter: Any = None) -> dict[str, Callable]:
     async def _persona_arg() -> str:
@@ -70,14 +100,8 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         args = await _query_args()
         persona = str(args.get("persona") or _first_persona(config))
         types = [t for t in str(args.get("types") or "").split(",") if t]
-        try:
-            limit = max(1, min(int(args.get("limit", 50)), 200))
-        except (TypeError, ValueError):
-            limit = 50
-        try:
-            offset = max(0, int(args.get("offset", 0)))
-        except (TypeError, ValueError):
-            offset = 0
+        limit = max(1, min(_int_arg(args.get("limit", 50), 50), 200))
+        offset = _int_arg(args.get("offset", 0), 0, 0)
         return db.timeline(persona, types=types or None, limit=limit, offset=offset)
 
     async def archive():
@@ -106,6 +130,9 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         if service is None:
             return {"started": False, "persona_id": persona,
                     "error": "service unavailable"}
+        if not persona_allowed(config, persona):
+            return {"started": False, "persona_id": persona,
+                    "error": "persona not whitelisted"}
         if persona in running:
             return {"started": False, "persona_id": persona,
                     "error": "already running"}
@@ -160,10 +187,11 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
     async def capsules_open():
         args = await _json_body()
         persona = str(args.get("persona") or _first_persona(config))
-        try:
-            capsule_id = int(args.get("capsule_id") or 0)
-        except (TypeError, ValueError):
+        capsule_id = _int_arg(args.get("capsule_id"), 0, 1)
+        if capsule_id <= 0:
             return {"ok": False, "error": "capsule_id required"}
+        if not persona_allowed(config, persona):
+            return {"ok": False, "error": "persona not whitelisted"}
         capsule = db.get_capsule(persona, capsule_id)
         if capsule is None:
             return {"ok": False, "error": "capsule not found"}
@@ -222,9 +250,8 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
     async def life_edits_approve():
         body = await _json_body()
         persona = str(body.get("persona") or _first_persona(config))
-        try:
-            log_id = int(body.get("log_id") or 0)
-        except (TypeError, ValueError):
+        log_id = _int_arg(body.get("log_id"), 0, 1)
+        if log_id <= 0:
             return {"ok": False, "error": "log_id required"}
         row = db.apply_change(persona, log_id)
         if row is None:
@@ -235,9 +262,8 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
     async def life_edits_reject():
         body = await _json_body()
         persona = str(body.get("persona") or _first_persona(config))
-        try:
-            log_id = int(body.get("log_id") or 0)
-        except (TypeError, ValueError):
+        log_id = _int_arg(body.get("log_id"), 0, 1)
+        if log_id <= 0:
             return {"ok": False, "error": "log_id required"}
         ok = db.reject_change(persona, log_id)
         return {"ok": ok, "log_id": log_id,
@@ -246,9 +272,8 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
     async def life_edits_rollback():
         body = await _json_body()
         persona = str(body.get("persona") or _first_persona(config))
-        try:
-            log_id = int(body.get("log_id") or 0)
-        except (TypeError, ValueError):
+        log_id = _int_arg(body.get("log_id"), 0, 1)
+        if log_id <= 0:
             return {"ok": False, "error": "log_id required"}
         row = db.rollback_change(persona, log_id, actor="owner")
         return {"ok": row is not None, "log_id": log_id,
@@ -342,15 +367,21 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         return {"persona_id": persona, "usage": db.list_daily_usage(persona)}
 
     async def personas_list():
+        rows = [_public_persona(row) for row in personas.list_cache()]
         return {"whitelist": getattr(config, "life_personas", None) or [],
-                "cache": personas.list_cache()}
+                "cache": rows}
 
     async def persona_refresh():
         args = await _json_body()
         persona = str(args.get("persona") or _first_persona(config))
+        if not persona_allowed(config, persona):
+            return {"ok": False, "persona_id": persona,
+                    "error": "persona not whitelisted"}
         try:
             await personas.refresh(persona)
-            return {"ok": True, "persona_id": persona, "cached": personas.get_cached(persona)}
+            cached = personas.get_cached(persona) or {}
+            return {"ok": True, "persona_id": persona,
+                    "cached": _public_persona(cached)}
         except Exception as exc:
             personas.mark_error(persona, str(exc))
             return {"ok": False, "persona_id": persona, "error": str(exc)}
@@ -363,12 +394,11 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         body = await _json_body()
         persona = str(body.get("persona") or _first_persona(config))
         entity = str(body.get("entity") or "")
-        actor = str(body.get("actor") or "owner")
+        actor = "owner"
         reason = str(body.get("reason") or "")
         if entity == "note":
-            try:
-                note_id = int(body.get("id") or 0)
-            except (TypeError, ValueError):
+            note_id = _int_arg(body.get("id"), 0, 1)
+            if note_id <= 0:
                 return {"ok": False, "error": "invalid note id"}
             ok = db.soft_delete_note(persona, note_id, actor=actor, reason=reason)
         elif entity == "diary":
@@ -384,12 +414,11 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         body = await _json_body()
         persona = str(body.get("persona") or _first_persona(config))
         entity = str(body.get("entity") or "")
-        actor = str(body.get("actor") or "owner")
+        actor = "owner"
         reason = str(body.get("reason") or "")
         if entity == "note":
-            try:
-                note_id = int(body.get("id") or 0)
-            except (TypeError, ValueError):
+            note_id = _int_arg(body.get("id"), 0, 1)
+            if note_id <= 0:
                 return {"ok": False, "error": "invalid note id"}
             ok = db.restore_note(persona, note_id, actor=actor, reason=reason)
         elif entity == "diary":
@@ -413,14 +442,8 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         args = await _query_args()
         persona = str(args.get("persona") or _first_persona(config))
         kinds = [k for k in str(args.get("kinds") or "").split(",") if k]
-        try:
-            limit = max(1, min(int(args.get("limit", 50)), 200))
-        except (TypeError, ValueError):
-            limit = 50
-        try:
-            offset = max(0, int(args.get("offset", 0)))
-        except (TypeError, ValueError):
-            offset = 0
+        limit = max(1, min(_int_arg(args.get("limit", 50), 50), 200))
+        offset = _int_arg(args.get("offset", 0), 0, 0)
         return {
             "persona_id": persona,
             "kinds": kinds,
@@ -447,9 +470,8 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
     async def wishlist_action():
         body = await _json_body()
         persona = str(body.get("persona") or _first_persona(config))
-        try:
-            item_id = int(body.get("id") or 0)
-        except (TypeError, ValueError):
+        item_id = _int_arg(body.get("id"), 0, 1)
+        if item_id <= 0:
             return {"ok": False, "error": "invalid wishlist id"}
         action = str(body.get("action") or "")
         if action not in ("promote", "discard", "pending"):
@@ -503,9 +525,8 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
     async def share_note():
         body = await _json_body()
         persona = str(body.get("persona") or _first_persona(config))
-        try:
-            note_id = int(body.get("note_id") or 0)
-        except (TypeError, ValueError):
+        note_id = _int_arg(body.get("note_id"), 0, 1)
+        if note_id <= 0:
             return {"ok": False, "error": "note_id must be an integer"}
         note = db.get_note(note_id) if note_id else None
         if note is None or note.get("persona_id") != persona:
