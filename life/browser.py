@@ -1116,12 +1116,8 @@ class LifeService:
         notes = self.db.list_notes_between(
             persona_id, period_start, period_end, limit=20
         )
-        diaries = sorted(
-            (
-                d for d in self.db.list_diaries(persona_id, limit=100000)
-                if period_start <= d.get("date", "") <= period_end
-            ),
-            key=lambda d: d["date"],
+        diaries = self.db.list_diaries_between(
+            persona_id, period_start, period_end
         )
         refs: list[dict[str, Any]] = [
             {"note_id": note["id"], "url": note.get("url") or ""}

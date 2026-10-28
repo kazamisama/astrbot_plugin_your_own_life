@@ -775,6 +775,32 @@ class LifeDB:
             (persona_id, limit),
         )
 
+    def list_revisit_chain_originals(
+        self, persona_id: str, limit: int = 500
+    ) -> list[dict]:
+        """Originals that have at least one live follow-up, oldest first."""
+        return self._rows(
+            "SELECT * FROM notes WHERE persona_id = ? AND deleted_at = '' "
+            "AND revisit_of = 0 AND EXISTS ("
+            "SELECT 1 FROM notes r WHERE r.persona_id = notes.persona_id "
+            "AND r.revisit_of = notes.id AND r.deleted_at = '') "
+            "ORDER BY fetched_at ASC LIMIT ?",
+            (persona_id, max(1, int(limit))),
+        )
+
+    def list_revisit_follow_ups(
+        self, persona_id: str, original_ids: Sequence[int]
+    ) -> list[dict]:
+        ids = [int(n) for n in original_ids]
+        if not ids:
+            return []
+        placeholders = ",".join("?" for _ in ids)
+        return self._rows(
+            f"SELECT * FROM notes WHERE persona_id = ? AND deleted_at = '' "
+            f"AND revisit_of IN ({placeholders}) ORDER BY fetched_at ASC",
+            (persona_id, *ids),
+        )
+
     def pending_share_notes(self, persona_id: str, limit: int = 50) -> list[dict]:
         return self._rows(
             "SELECT * FROM notes WHERE persona_id = ? AND share_status = '' "

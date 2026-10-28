@@ -140,6 +140,11 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         running[persona] = asyncio.create_task(_run_browse_task(persona))
         return {"started": True, "persona_id": persona}
 
+    async def run_status():
+        args = await _query_args()
+        persona = str(args.get("persona") or _first_persona(config))
+        return {"persona_id": persona, "running": persona in running}
+
     async def memory():
         persona = await _persona_arg()
         return db.memory_overview(persona)
@@ -294,16 +299,16 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
     async def revisit_chains():
         args = await _query_args()
         persona = str(args.get("persona") or _first_persona(config))
-        rows = db.list_revisit_chains(persona, limit=500)
+        originals = db.list_revisit_chain_originals(persona, limit=500)
+        original_ids = [int(note["id"]) for note in originals]
+        follow_ups = db.list_revisit_follow_ups(persona, original_ids)
         follow_ups_by_original: dict[int, list[dict]] = {}
-        for note in rows:
+        for note in follow_ups:
             original_id = int(note.get("revisit_of") or 0)
             if original_id:
                 follow_ups_by_original.setdefault(original_id, []).append(note)
         chains: list[dict] = []
-        for note in rows:
-            if note.get("revisit_of"):
-                continue
+        for note in originals:
             note_id = int(note["id"])
             chains.append({
                 "id": note_id,
@@ -578,6 +583,7 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         "archive": archive,
         "interests": interests,
         "run": run,
+        "run_status": run_status,
         "memory": memory,
         "memory_search": memory_search,
         "usage": usage,
@@ -626,6 +632,7 @@ def register_api(context: Any, db: Any, service: Any, share_gate: Any,
         (f"{API_PREFIX}/archive", "archive", ["GET"], "Life archive"),
         (f"{API_PREFIX}/interests", "interests", ["GET"], "Life interests"),
         (f"{API_PREFIX}/run", "run", ["POST"], "Trigger a browse session"),
+        (f"{API_PREFIX}/run_status", "run_status", ["GET"], "Browse session status"),
         (f"{API_PREFIX}/memory", "memory", ["GET"], "Memory categories overview"),
         (f"{API_PREFIX}/memory_search", "memory_search", ["GET"], "Search life memory"),
         (f"{API_PREFIX}/capsules", "capsules", ["GET"], "Time capsules"),

@@ -1752,10 +1752,14 @@ function loadEntities() {
       box.hidden = entities.length === 0;
       seen.textContent = "";
       renderEntityGraph(box, entities, links, seen);
+      if (data.error) {
+        showError("实体图加载失败：" + data.error);
+      }
     })
-    .catch(function () {
+    .catch(function (err) {
       document.getElementById("entityHost").textContent = "error";
       empty.hidden = false;
+      showError("实体图加载失败：" + (err && err.message ? err.message : "网络错误"));
     });
 }
 
@@ -1861,9 +1865,25 @@ document.getElementById("personaSelect").addEventListener("change", function () 
   state.persona = personaSelect.value;
   load();
 });
+function pollRun(attempt) {
+  attempt = attempt || 0;
+  if (attempt > 100) { load(); return; }
+  setTimeout(function () {
+    apiGet("run_status", { persona: state.persona })
+      .then(function (data) {
+        if (data && data.running) pollRun(attempt + 1);
+        else load();
+      })
+      .catch(function () { load(); });
+  }, 3000);
+}
+
 document.getElementById("runBtn").addEventListener("click", function () {
   apiPostChecked("run", { persona: state.persona })
-    .then(function () { setTimeout(load, 3000); });
+    .then(function (res) {
+      if (res && res.started) pollRun(0);
+      else load();
+    });
 });
 document.getElementById("memorySearchBtn").addEventListener("click", loadMemory);
 document.getElementById("memoryQuery").addEventListener("keydown", function (e) {

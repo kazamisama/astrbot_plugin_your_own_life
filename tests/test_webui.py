@@ -72,8 +72,10 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         handlers = build_handlers(self.db, service=service, share_gate=None,
                                    personas=None, config=self.config)
         first = await handlers["run"]()
+        status = await handlers["run_status"]()
         second = await handlers["run"]()
         self.assertTrue(first["started"])
+        self.assertTrue(status["running"])
         self.assertFalse(second["started"])
         self.assertEqual(second["error"], "already running")
         gate.set()
@@ -418,7 +420,8 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/astrbot_plugin_your_own_life/api/life_edits_rollback", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/watchlist", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/revisit_chains", routes)
-        self.assertEqual(len(routes), 35)
+        self.assertIn("/astrbot_plugin_your_own_life/api/run_status", routes)
+        self.assertEqual(len(routes), 36)
 
     async def test_share_note_invalid_body_returns_error(self):
         handlers = build_handlers(self.db, service=None, share_gate=None,

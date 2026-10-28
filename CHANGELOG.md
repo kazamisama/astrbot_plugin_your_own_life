@@ -2,6 +2,20 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.29] - 2026-10-28
+
+### Fixed
+
+- 故地重游链：新增 `list_revisit_chain_originals` / `list_revisit_follow_ups`；先取“确实有后续”的原短记，再按 id 取全部后续，不再被最近 500 条时间窗口截断。
+- 手动漫游：新增 `GET /run_status`，页面在 `/run` 启动后每 3 秒轮询，直到任务结束才刷新，不再固定 3 秒显示旧数据（上限约 5 分钟）。
+- 实体图：加载失败或返回 `error` 时显示错误横幅，不再只把 host 标成 error。
+- 回顾来源引用：`_review_source_refs` 改用 `list_diaries_between`，不再全量载入日记后过滤。
+
+### Notes
+
+- 测试：331 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 仍未修：页面 `archive` / `interests` 独立视图；结构性重复（两套 persona 解析、10 个 Tool 类、review/quarterly 同构）；统一记忆宿主孤儿无删除 API；工具 add 无 ESM 精力 gate。
+
 ## [0.5.28] - 2026-10-28
 
 ### Fixed
