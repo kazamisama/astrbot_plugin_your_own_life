@@ -688,6 +688,19 @@ class LifeDB:
             (persona_id, limit),
         )
 
+    def list_notes_by_ids(
+        self, persona_id: str, note_ids: Sequence[int]
+    ) -> list[dict]:
+        ids = [int(n) for n in note_ids]
+        if not ids:
+            return []
+        placeholders = ",".join("?" for _ in ids)
+        return self._rows(
+            f"SELECT * FROM notes WHERE persona_id = ? AND deleted_at = '' "
+            f"AND id IN ({placeholders})",
+            (persona_id, *ids),
+        )
+
     def list_watched_notes(self, persona_id: str, limit: int = 50) -> list[dict]:
         return self._rows(
             "SELECT * FROM notes WHERE persona_id = ? AND deleted_at = '' "
@@ -733,6 +746,21 @@ class LifeDB:
             (original_id, note_id),
         )
         return cur.rowcount > 0
+
+    def mark_revisits(self, pairs: list[tuple[int, int]]) -> int:
+        """Mark follow-up notes in one transaction (new_id, original_id)."""
+        if not pairs:
+            return 0
+        with self._transaction():
+            changed = 0
+            for note_id, original_id in pairs:
+                cur = self._execute(
+                    "UPDATE notes SET revisit_of = ? WHERE id = ?",
+                    (int(original_id), int(note_id)),
+                    commit=False,
+                )
+                changed += max(0, cur.rowcount)
+        return changed
 
     def list_revisit_chains(
         self, persona_id: str, limit: int = 50
@@ -1214,7 +1242,9 @@ class LifeDB:
                 "FROM staging_seen WHERE persona_id = ? AND "
                 "(session_id = ? OR (session_id IS NULL AND ? IS NULL)) "
                 "ON CONFLICT(persona_id, url_hash) DO UPDATE SET "
-                "digest = excluded.digest, last_seen_at = excluded.last_seen_at",
+                "digest = CASE WHEN excluded.digest != '' THEN excluded.digest "
+                "ELSE seen_items.digest END, "
+                "last_seen_at = excluded.last_seen_at",
                 (persona_id, session_id, session_id),
             )
             interest_rows = self._conn.execute(

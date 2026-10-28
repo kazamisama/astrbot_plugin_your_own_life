@@ -2,6 +2,20 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.27] - 2026-10-28
+
+### Fixed
+
+- 关注指纹回归：`commit_staged` 的 `ON CONFLICT ... DO UPDATE` 只在 `excluded.digest != ''` 时覆盖 `seen_items.digest`；故地重游的 `stage_seen`（默认空 digest）不会再把关注项的内容指纹擦掉。
+- 重访链：新增 `LifeDB.mark_revisits(pairs)`，在同一事务里批量写 `revisit_of`；`run_revisit` 不再逐条在提交事务外标记。
+- 实体平台：`entity_appears_on` 按 `(name, dimension)` 去重，同一平台多条边只返回一次。
+- 胶囊性能：`webui.capsules` 新增 `list_notes_by_ids`，只为当前胶囊引用的短记建索引，不再 `list_notes(limit=100000)`。
+
+### Notes
+
+- 测试：328 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 仍未修：`commit_staged` 的 session UPDATE 无 `status='running'` 守卫；`run_review` / `run_quarterly_review` 统计仍是全量载入后过滤；页面 `archive` / `interests` 独立视图；结构性重复与 `chat_hooks` 时间戳事件键。
+
 ## [0.5.26] - 2026-10-28
 
 ### Fixed

@@ -2,6 +2,17 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-28 审计收尾：指纹回归与重访事务（v0.5.27）
+- 目标：检查 v0.5.26 后是否引入新问题；发现并修 v0.5.24 的 digest 回归，同时收口重访标记与两处 N+1/全表扫描。
+- 已确认决策：
+  - `staging_seen.digest` 为空表示“这次不提供新指纹”，不能当成“清空指纹”；SQL 用 CASE 保留旧值。
+  - 重访链的 `revisit_of` 是多行同一语义，批量单事务比逐条提交更难留下半完成状态。
+  - 同一实体到同一平台的重复边只展示一次；胶囊只查引用短记，避免 10 万行字典。
+- 改动：`life/db.py`、`life/browser.py`、`life/webui.py`、`tests/test_db.py`、`README.md`、`CHANGELOG.md`、`metadata.yaml`、`life/__init__.py`；版本 v0.5.26 → v0.5.27。
+- 验证：db 72、browser 64、webui 25 全绿；全量与 ruff/compileall/页面 node --check 提交前执行。
+- 遗留：见 CHANGELOG v0.5.27 Notes；下一批若要继续，优先 `commit_staged` 的 running 守卫、review 聚合 SQL、页面 archive/interests。
+- 下一步：提交 `chore(release): v0.5.27 ...`。
+
 ## 2026-10-28 审计第四批：事务收口与胶囊单飞（v0.5.26）
 - 目标：把审计里“改数据 + 写账本”的非原子写路径收口，并处理 WebUI 的重复开销与文档基线。
 - 已确认决策：

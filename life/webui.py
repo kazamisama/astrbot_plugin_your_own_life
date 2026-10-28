@@ -172,7 +172,9 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         rows = db.list_capsules(persona, limit=200)
         notes = {
             note["id"]: note
-            for note in db.list_notes(persona, limit=100000)
+            for note in db.list_notes_by_ids(
+                persona, [row["note_id"] for row in rows]
+            )
         }
         items = []
         for row in rows:
@@ -358,15 +360,19 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
                 e["id"] for e in entities if e.get("entity_id") == entity_id
             }
             platforms = []
+            seen_platforms = set()
             for link in memory_adapter.list_links(persona):
                 if (link["src_entity_id"] in src_ids
                         and link["relation"] == "appears_on"):
                     dst = by_id.get(link["dst_entity_id"], {})
-                    platforms.append({
-                        "name": dst.get("name") or dst.get("entity_id")
-                        or link["dst_entity_id"],
-                        "dimension": dst.get("dimension") or "",
-                    })
+                    name = (dst.get("name") or dst.get("entity_id")
+                            or link["dst_entity_id"])
+                    dimension = dst.get("dimension") or ""
+                    key = (name, dimension)
+                    if key in seen_platforms:
+                        continue
+                    seen_platforms.add(key)
+                    platforms.append({"name": name, "dimension": dimension})
             return {"platforms": platforms}
         except MemoryHostError as exc:
             return {"platforms": [], "error": f"memory_host: {exc}"}

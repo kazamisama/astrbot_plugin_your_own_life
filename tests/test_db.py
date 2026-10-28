@@ -744,6 +744,17 @@ class LifeDBTest(unittest.TestCase):
         self.assertTrue(self.db.restore_diary("shelly", "2026-08-12", reason="undo"))
         self.assertEqual(self.db.get_diary("shelly", "2026-08-12")["content"], "d")
 
+    def test_empty_seen_digest_does_not_wipe_watched_fingerprint(self):
+        sid = self.db.start_browse_session("shelly", "scheduled")
+        self.db.stage_seen("shelly", sid, "watch-hash", "digest-a")
+        self.db.commit_staged("shelly", sid, status="completed")
+        self.assertTrue(self.db.is_seen("shelly", "watch-hash", "digest-a"))
+
+        revisit_sid = self.db.start_browse_session("shelly", "scheduled")
+        self.db.stage_seen("shelly", revisit_sid, "watch-hash")
+        self.db.commit_staged("shelly", revisit_sid, status="completed")
+        self.assertTrue(self.db.is_seen("shelly", "watch-hash", "digest-a"))
+
     def test_commit_staged_interest_applies_delta_over_owner_edits(self):
         self.db.upsert_interest("shelly", "ai", "AI", 0.5, seen_count=0)
         sid = self.db.start_browse_session("shelly", "scheduled")
