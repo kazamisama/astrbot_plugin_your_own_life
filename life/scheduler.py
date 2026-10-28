@@ -394,14 +394,15 @@ class LifeScheduler:
             break
 
     async def _run_loop(self) -> None:
-        personas = list(self.config.life_personas or [])
         while not self._stop.is_set():
-            if not self.config.enabled:
-                await self._stop.wait()
-                break
-            if not personas:
-                await self._stop.wait()
-                break
+            # 每轮重读 personas/enabled：运行中改配置不应要求重启插件。
+            personas = list(self.config.life_personas or [])
+            if not self.config.enabled or not personas:
+                try:
+                    await asyncio.wait_for(self._stop.wait(), timeout=60)
+                except asyncio.TimeoutError:
+                    pass
+                continue
             if self.db is not None:
                 try:
                     self.db.cleanup_expired_leases()

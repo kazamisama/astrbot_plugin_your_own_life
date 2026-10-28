@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from life.chat_hooks import (
+    _event_key,
     build_presence_block,
     handle_llm_request,
     handle_llm_response,
@@ -19,6 +20,15 @@ from life.config import LifeConfig
 from life.db import LifeDB
 from life.presence import LifePresence
 from life.timeutil import local_now
+
+
+class ChatEventKeyTest(unittest.TestCase):
+    def test_event_key_ignores_time_for_retry_idempotency(self):
+        first = _event_key("in", "shelly", "sid", "hello")
+        second = _event_key("in", "shelly", "sid", "hello")
+        other = _event_key("in", "shelly", "sid", "hello2")
+        self.assertEqual(first, second)
+        self.assertNotEqual(first, other)
 
 
 class _FakeEvent:

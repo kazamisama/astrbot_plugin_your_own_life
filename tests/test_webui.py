@@ -81,14 +81,19 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(started, ["shelly"])
 
     async def test_memory_search_handler(self):
-        self.db.add_note("shelly", None, "hn", "https://x", "AI story", "s",
-                         category="opinion", tags=["ai"], url_hash="h1")
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://x", "AI story", "s",
+            category="opinion", tags=["ai"], url_hash="h1",
+        )
+        before = self.db.get_note(note_id)["temperature"]
         handlers = build_handlers(self.db, service=None, share_gate=None,
                                   personas=None, config=self.config)
         result = await handlers["memory_search"]()
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["items"][0]["title"], "AI story")
         self.assertIn("temperature", result["items"][0])
+        # GET 搜索是只读的，不能像 recall 工具那样 rehydrate 升温。
+        self.assertEqual(self.db.get_note(note_id)["temperature"], before)
 
     async def test_entities_handlers(self):
         config = load_config({
@@ -235,6 +240,20 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
                    new=AsyncMock(return_value={"entity": "note", "id": True})):
             deleted = await handlers["trash_add"]()
         self.assertFalse(deleted["ok"])
+
+    async def test_manual_share_without_target_does_not_drop_note(self):
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://share", "S", "s", url_hash="share1"
+        )
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=None, config=self.config)
+        with patch("life.webui._json_body",
+                   new=AsyncMock(return_value={"persona": "shelly",
+                                               "note_id": note_id})):
+            result = await handlers["share_note"]()
+        self.assertFalse(result["ok"])
+        self.assertIn("no share target", result["error"])
+        self.assertNotEqual(self.db.get_note(note_id).get("share_status"), "dropped")
 
     async def test_capsules_open_is_single_flight(self):
         note_id = self.db.add_note(

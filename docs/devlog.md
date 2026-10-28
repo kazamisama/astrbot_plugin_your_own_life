@@ -2,6 +2,20 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-28 审计第五批：竞态、聚合与只读搜索（v0.5.28）
+- 目标：处理 v0.5.27 后仍能确认的竞态与语义问题，而不是继续做结构性重构。
+- 已确认决策：
+  - `commit_staged` 只有 session 行仍是 `running` 才能写终态；行存在但已不是 running 属于跨实例竞态，必须回滚。测试/匿名 staging 没有行，仍允许提交。
+  - 回顾统计应在 SQL 里按日期范围聚合；只把区间内日记（30/90 条）取出来算首尾兴趣，不再全库载入。
+  - 聊天事件键只由内容决定；时间戳会让重试变成新事件。
+  - 调度器禁用/空名单是“暂停”不是“终止”，等待 60 秒并重读配置。
+  - 手动分享没有目标时不能调用 `attempt_share`，否则 `invalid_target` 会把短记标 dropped。
+  - WebUI 搜索是 GET，只读；需要升温的场景由 LLM 召回工具负责。
+- 改动：`life/db.py`、`life/browser.py`、`life/chat_hooks.py`、`life/scheduler.py`、`life/webui.py`、`tests/test_db.py`、`tests/test_webui.py`、`tests/test_chat_hooks.py`、`README.md`、`CHANGELOG.md`、`metadata.yaml`、`life/__init__.py`；版本 v0.5.27 → v0.5.28。
+- 验证：db 73、webui 26、chat_hooks 10、browser 64、scheduler 31 全绿；全量与 ruff/compileall/页面 node --check 提交前执行。
+- 遗留：页面 archive/interests、结构性重复、统一记忆孤儿、工具 add 无 ESM gate、revisit_chains 500 窗口。
+- 下一步：提交 `chore(release): v0.5.28 ...`。
+
 ## 2026-10-28 审计收尾：指纹回归与重访事务（v0.5.27）
 - 目标：检查 v0.5.26 后是否引入新问题；发现并修 v0.5.24 的 digest 回归，同时收口重访标记与两处 N+1/全表扫描。
 - 已确认决策：

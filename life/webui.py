@@ -8,7 +8,7 @@ import logging
 from typing import Any, Callable, Optional
 
 from life.config import persona_allowed
-from life.life_tool import _merge_unified, query_life_plans, recall_life_memory
+from life.life_tool import _merge_unified, query_life_plans, search_life_memory
 from life.memory_adapter import MemoryHostError
 from life.timeutil import DEFAULT_TIMEZONE, local_today
 
@@ -154,7 +154,8 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
             k = max(1, min(int(args.get("k", 10)), 10))
         except (TypeError, ValueError):
             k = 10
-        result = recall_life_memory(db, persona, query, category, date, k)
+        # 搜索是 GET：只读，不调用 recall_life_memory 的 rehydrate 写回温。
+        result = search_life_memory(db, persona, query, category, date, k)
         if memory_adapter is not None and getattr(config, "memory_host", ""):
             try:
                 host_items = memory_adapter.query_memory(
@@ -550,14 +551,20 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         note = db.get_note(note_id) if note_id else None
         if note is None or note.get("persona_id") != persona:
             return {"ok": False, "error": "note not found"}
+        sessions = getattr(config, "share_sessions", {}).get(persona, [])
+        if not sessions:
+            # 没有目标时不能落到 attempt_share：invalid_target 会把短记永久标 dropped。
+            return {"ok": False, "error": "no share target configured"}
         try:
             decision = json.loads(note.get("share_decision") or "{}")
         except (ValueError, TypeError):
             decision = {}
-        if not decision.get("should_share"):
-            sessions = getattr(config, "share_sessions", {}).get(persona, [])
+        if not isinstance(decision, dict):
+            decision = {}
+        target = str(decision.get("target") or "").strip()
+        if not decision.get("should_share") or target not in sessions:
             decision = {"should_share": True, "reason": "manual",
-                        "target": sessions[0] if sessions else ""}
+                        "target": sessions[0]}
         if share_gate is None:
             return {"ok": False, "error": "share gate disabled"}
         result = await share_gate.attempt_share(persona, note, decision, force=True)

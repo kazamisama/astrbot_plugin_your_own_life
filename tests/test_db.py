@@ -576,6 +576,14 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(self.db._rows("SELECT COUNT(*) AS n FROM staging_notes")[0]["n"], 0)
         self.assertEqual(self.db._rows("SELECT COUNT(*) AS n FROM staging_seen")[0]["n"], 0)
 
+    def test_commit_refuses_terminal_session(self):
+        sid = self.db.start_browse_session("shelly", "scheduled")
+        self.db.finish_browse_session(sid, "failed", 0, "stale")
+        self.db.stage_note("shelly", sid, "hn", "https://late", "Late", "s", url_hash="late")
+        with self.assertRaises(RuntimeError):
+            self.db.commit_staged("shelly", sid, status="completed")
+        self.assertEqual(self.db.list_notes("shelly"), [])
+
     def test_staging_commit_null_session_returns_only_new_notes(self):
         self.db.add_note("shelly", None, "hn", "https://pre", "Pre", "s", url_hash="pre-null")
         self.db.stage_note("shelly", None, "hn", "https://new", "New", "s", url_hash="new-null")

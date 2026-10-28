@@ -2,6 +2,22 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.28] - 2026-10-28
+
+### Fixed
+
+- 提交竞态：`commit_staged` 的 `browse_sessions` UPDATE 加 `AND status = 'running'`；若行已存在但已是终态，抛 `RuntimeError` 并回滚，不再把别的实例标 failed 的 session 改回 completed。
+- 回顾性能：新增 `count_completed_sessions_between` / `count_session_days_between` / `count_diaries_between` / `list_diaries_between` / `count_sent_shares_between`；月度/季度回顾不再 `list_sessions/list_diaries/list_share_log(limit=100000)` 全量载入后过滤。
+- 聊天幂等：`_event_key` 去掉 `now.timestamp()`，同一会话同一条消息重试命中同一键，不再依赖 event extra 才能去重。
+- 调度器：禁用或 `life_personas` 为空时不再 `break` 退出循环，改为 60 秒等待并每轮重读配置；运行中启用/增加人格无需重启插件。
+- 手动分享：没有配置 `share_sessions` 时 `/share_note` 直接返回 `no share target configured`，不再走 `attempt_share` 的 `invalid_target` 把短记永久标 dropped；已有 decision 的目标不在白名单时回落到第一个合法目标。
+- 记忆搜索：WebUI `memory_search` 改用只读的 `search_life_memory`，GET 不再通过 `recall_life_memory` rehydrate 升温。
+
+### Notes
+
+- 测试：331 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 仍未修：页面 `archive` / `interests` 独立视图；结构性重复（两套 persona 解析、10 个 Tool 类、review/quarterly 同构）；统一记忆宿主孤儿无删除 API；工具 add 无 ESM 精力 gate；`revisit_chains` 的 500 条窗口。
+
 ## [0.5.27] - 2026-10-28
 
 ### Fixed

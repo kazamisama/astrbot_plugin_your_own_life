@@ -1071,42 +1071,35 @@ class LifeService:
         period_end: str,
         period: str,
     ) -> dict[str, Any]:
-        sessions = [
-            session for session in self.db.list_sessions(persona_id, limit=100000)
-            if (session.get("kind") or "browse") == "browse"
-            and period_start <= (session.get("started_at") or "")[:10] <= period_end
-        ]
-        completed = [s for s in sessions if s.get("status") == "completed"]
-        browse_days = len({s["started_at"][:10] for s in completed})
+        browse_count = self.db.count_completed_sessions_between(
+            persona_id, period_start, period_end
+        )
+        browse_days = self.db.count_session_days_between(
+            persona_id, period_start, period_end
+        )
         start_dt = datetime.strptime(period_start, "%Y-%m-%d")
         end_dt = datetime.strptime(period_end, "%Y-%m-%d")
         total_days = (end_dt - start_dt).days + 1
-        diaries = sorted(
-            (
-                d for d in self.db.list_diaries(persona_id, limit=100000)
-                if period_start <= d.get("date", "") <= period_end
-            ),
-            key=lambda d: d["date"],
+        diaries = self.db.list_diaries_between(
+            persona_id, period_start, period_end
         )
-        share_logs = [
-            log for log in self.db.list_share_log(persona_id, limit=100000)
-            if log.get("status") == "sent"
-            and period_start <= (log.get("attempted_at") or "")[:10] <= period_end
-        ]
+        share_count = self.db.count_sent_shares_between(
+            persona_id, period_start, period_end
+        )
         interest_start = diaries[0].get("interest_top") if diaries else ""
         interest_end = diaries[-1].get("interest_top") if diaries else ""
         return {
             "period": period,
             "period_start": period_start,
             "period_end": period_end,
-            "browse_count": len(completed),
+            "browse_count": browse_count,
             "browse_days": browse_days,
             "days_without_browse": max(0, total_days - browse_days),
             "note_count": self.db.count_notes_between(
                 persona_id, period_start, period_end
             ),
             "diary_count": len(diaries),
-            "share_count": len(share_logs),
+            "share_count": share_count,
             "interest_start": _first_topic(interest_start),
             "interest_end": _first_topic(interest_end),
             "top_categories": [

@@ -115,11 +115,9 @@ def _inject_presence(request: Any, text: str) -> bool:
     return False
 
 
-def _event_key(prefix: str, persona_id: str, session: str, text: str,
-               now: datetime) -> str:
-    digest = hashlib.sha256(
-        f"{text}|{now.timestamp()}".encode("utf-8")
-    ).hexdigest()
+def _event_key(prefix: str, persona_id: str, session: str, text: str) -> str:
+    # 不含时间戳：同一会话里的同一条消息重试时仍应命中同一幂等键。
+    digest = hashlib.sha256(str(text).encode("utf-8")).hexdigest()
     return f"chat/{prefix}/{persona_id}/{session}/{digest}"
 
 
@@ -157,7 +155,7 @@ async def handle_llm_request(
             "deferred": bool(busy),
         },
         [],
-        _event_key("in", persona_id, session, text, now),
+        _event_key("in", persona_id, session, text),
         ts=now.strftime("%Y-%m-%d %H:%M:%S"),
     )
     extra_set = getattr(event, "set_extra", None)
@@ -215,7 +213,7 @@ async def handle_llm_response(
             "ts": now.isoformat(),
         },
         [],
-        _event_key("out", persona_id, session, text, now),
+        _event_key("out", persona_id, session, text),
         ts=now.strftime("%Y-%m-%d %H:%M:%S"),
     )
     extra_set = getattr(event, "set_extra", None)

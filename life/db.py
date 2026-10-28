@@ -1291,11 +1291,21 @@ class LifeDB:
                     (row["name"], weight, seen_count, row["last_seen_at"],
                      persona_id, key),
                 )
-            self._conn.execute(
+            cur = self._conn.execute(
                 "UPDATE browse_sessions SET ended_at = ?, status = ?, notes_count = ?, reason = ?, error = ? "
-                "WHERE id = ?",
+                "WHERE id = ? AND status = 'running'",
                 (self._now(), status, notes_count, reason, error, session_id),
             )
+            if cur.rowcount == 0:
+                # session_id 可能来自测试/匿名 staging（没有 browse_sessions 行），
+                # 这种情况允许继续；只有“行存在但已被别人置为终态”才是竞态。
+                exists = self._conn.execute(
+                    "SELECT 1 FROM browse_sessions WHERE id = ?", (session_id,)
+                ).fetchone()
+                if exists is not None:
+                    raise RuntimeError(
+                        f"browse session {session_id} is no longer running"
+                    )
             self._delete_staging(persona_id, session_id)
         if not new_note_ids:
             return []
@@ -1467,6 +1477,57 @@ class LifeDB:
             "GROUP BY category ORDER BY n DESC",
             (persona_id, start, end),
         )
+
+    def count_completed_sessions_between(
+        self, persona_id: str, start: str, end: str, kind: str = "browse"
+    ) -> int:
+        row = self._one(
+            "SELECT COUNT(*) AS n FROM browse_sessions WHERE persona_id = ? "
+            "AND kind = ? AND status = 'completed' "
+            "AND date(started_at) BETWEEN ? AND ?",
+            (persona_id, kind, start, end),
+        )
+        return int(row["n"] or 0) if row else 0
+
+    def count_session_days_between(
+        self, persona_id: str, start: str, end: str, kind: str = "browse"
+    ) -> int:
+        row = self._one(
+            "SELECT COUNT(DISTINCT substr(started_at, 1, 10)) AS n "
+            "FROM browse_sessions WHERE persona_id = ? AND kind = ? "
+            "AND status = 'completed' AND date(started_at) BETWEEN ? AND ?",
+            (persona_id, kind, start, end),
+        )
+        return int(row["n"] or 0) if row else 0
+
+    def count_diaries_between(
+        self, persona_id: str, start: str, end: str
+    ) -> int:
+        row = self._one(
+            "SELECT COUNT(*) AS n FROM diary_entries WHERE persona_id = ? "
+            "AND deleted_at = '' AND date BETWEEN ? AND ?",
+            (persona_id, start, end),
+        )
+        return int(row["n"] or 0) if row else 0
+
+    def list_diaries_between(
+        self, persona_id: str, start: str, end: str
+    ) -> list[dict]:
+        return self._rows(
+            "SELECT * FROM diary_entries WHERE persona_id = ? "
+            "AND deleted_at = '' AND date BETWEEN ? AND ? ORDER BY date ASC",
+            (persona_id, start, end),
+        )
+
+    def count_sent_shares_between(
+        self, persona_id: str, start: str, end: str
+    ) -> int:
+        row = self._one(
+            "SELECT COUNT(*) AS n FROM share_log WHERE persona_id = ? "
+            "AND status = 'sent' AND date(attempted_at) BETWEEN ? AND ?",
+            (persona_id, start, end),
+        )
+        return int(row["n"] or 0) if row else 0
 
     # ----- time capsules -----
 
