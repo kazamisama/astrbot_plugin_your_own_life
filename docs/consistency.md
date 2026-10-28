@@ -1,5 +1,7 @@
 # 功能实现与设计目标一致性审计
 
+> **历史基线，已过期。** 本文的逐项状态与 P2/P3 清单停留在 v0.5.12；其中多数条目已在 v0.5.13–v0.5.25 修复（睡眠窗口、热力图点击、`register_web_routes` 文档、`_plan_time`、拒绝事件 kind、rollback actor、兴趣 seen_count、实体图转义、沉默率、租约续租、胶囊级联、回收站回滚、关注更新、故地重游轮转等）。当前行为以代码、`CHANGELOG.md` 和 `docs/devlog.md` 为准；本表仅用于追溯当时的审计结论。
+
 审计基线：2026-08-12，版本 v0.5.12（HEAD `54e58b6`），工作树干净。
 方法：4 个只读 subagent 分域审查（行为层 / 记忆档案 / 人格安全 / WebUI 适配），主 agent 复核高影响结论；单测基线 `python -m unittest discover -s tests` 246 passed（skipped=1，网络冒烟按配置跳过）。
 
