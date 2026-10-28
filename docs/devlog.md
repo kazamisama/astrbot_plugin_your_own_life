@@ -2,6 +2,18 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-28 审计第三批：兴趣增量、事务与页面视图（v0.5.25）
+- 目标：处理审计里“写入正确性”和“能力与 UI 脱节”两类剩余项，不再扩大重构范围。
+- 已确认决策：
+  - 兴趣 staging 必须记录基线；提交时用“当前值 + (staged - base)”合并，才对运行期间的外部修改友好。同一 key 的多次 stage 只取最后一行，避免累加。
+  - 计划交换是两步写，必须用同一事务；行未命中就回滚，不能留下半交换。
+  - WebUI 已有 `usage` / `injection_log` 接口，只差页面使用；在生活页和改动页补齐，不新增接口。
+  - 日记的 `interest_updates` 只是权重反思，不是“又见到一条内容”；`stage_updates` 不再增加 `seen_count`，与 `apply_updates` 对齐。
+- 改动：`life/db.py`、`life/interests.py`、`pages/life/index.html`、`tests/test_db.py`、`README.md`、`CHANGELOG.md`、`metadata.yaml`、`life/__init__.py`；版本 v0.5.24 → v0.5.25。
+- 验证：全量 `unittest discover -s tests` 326 条，仅 `test_config` 已知环境错误，skipped=1；db 71、browser 64 全绿；ruff F,E9、compileall、页面 `node --check` 通过。
+- 遗留：`apply_change` / `rollback_change` / 软删除仍非单事务；页面 `archive` / `interests` 独立视图；结构性重复；consistency.md 基线。
+- 下一步：提交 `chore(release): v0.5.25 ...`；再决定是否做事务重构与 consistency 文档收口。
+
 ## 2026-10-28 第二轮审计收尾：关注更新、回滚与边界（v0.5.24）
 - 目标：继续修第二轮审计中不涉及大重构的 P2/P3，优先真实用户可见的断链与错误状态。
 - 已确认决策：

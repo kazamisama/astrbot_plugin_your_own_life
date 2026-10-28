@@ -261,7 +261,9 @@ CREATE TABLE IF NOT EXISTS staging_interests (
     name TEXT NOT NULL,
     weight REAL NOT NULL DEFAULT 0.5,
     seen_count INTEGER NOT NULL DEFAULT 0,
-    last_seen_at TEXT DEFAULT ''
+    last_seen_at TEXT DEFAULT '',
+    base_weight REAL,
+    base_seen_count INTEGER
 );
 CREATE TABLE IF NOT EXISTS daily_usage (
     persona_id TEXT NOT NULL,
@@ -365,6 +367,8 @@ class LifeDB:
             self._ensure_column("staging_snapshots", "extra", "extra TEXT DEFAULT ''")
             self._ensure_column("staging_wishlist", "interest_key", "interest_key TEXT DEFAULT ''")
             self._ensure_column("staging_interests", "last_seen_at", "last_seen_at TEXT DEFAULT ''")
+            self._ensure_column("staging_interests", "base_weight", "base_weight REAL")
+            self._ensure_column("staging_interests", "base_seen_count", "base_seen_count INTEGER")
             self._ensure_column("staging_seen", "digest", "digest TEXT DEFAULT ''")
             self._ensure_column("seen_items", "digest", "digest TEXT DEFAULT ''")
             self._ensure_column("seen_items", "last_seen_at", "last_seen_at TEXT DEFAULT ''")
@@ -1087,12 +1091,16 @@ class LifeDB:
         weight: float,
         seen_count: int,
         last_seen_at: Optional[str] = None,
+        base_weight: Optional[float] = None,
+        base_seen_count: Optional[int] = None,
     ) -> int:
         cur = self._execute(
             "INSERT INTO staging_interests "
-            "(persona_id, session_id, key, name, weight, seen_count, last_seen_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (persona_id, session_id, key, name, weight, seen_count, last_seen_at or self._now()),
+            "(persona_id, session_id, key, name, weight, seen_count, last_seen_at, "
+            "base_weight, base_seen_count) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (persona_id, session_id, key, name, weight, seen_count,
+             last_seen_at or self._now(), base_weight, base_seen_count),
         )
         return int(cur.lastrowid)
 
@@ -1206,18 +1214,48 @@ class LifeDB:
                 (persona_id, session_id, session_id),
             )
             interest_rows = self._conn.execute(
-                "SELECT persona_id, key, name, weight, seen_count, last_seen_at "
-                "FROM staging_interests WHERE persona_id = ? AND "
-                "(session_id = ? OR (session_id IS NULL AND ? IS NULL))",
+                "SELECT persona_id, key, name, weight, seen_count, last_seen_at, "
+                "base_weight, base_seen_count FROM staging_interests "
+                "WHERE persona_id = ? AND "
+                "(session_id = ? OR (session_id IS NULL AND ? IS NULL)) "
+                "ORDER BY id ASC",
                 (persona_id, session_id, session_id),
             ).fetchall()
+            # 同一 key 可能被 stage 多次；取最后一行（累计后的终值），只应用一次。
+            latest: dict[str, sqlite3.Row] = {}
             for row in interest_rows:
+                latest[str(row["key"])] = row
+            for key, row in latest.items():
+                current = self._conn.execute(
+                    "SELECT weight, seen_count FROM interests "
+                    "WHERE persona_id = ? AND key = ?",
+                    (persona_id, key),
+                ).fetchone()
+                if current is None:
+                    self._conn.execute(
+                        "INSERT INTO interests "
+                        "(persona_id, key, name, weight, seen_count, last_seen_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        (row["persona_id"], key, row["name"], row["weight"],
+                         row["seen_count"], row["last_seen_at"]),
+                    )
+                    continue
+                weight = float(row["weight"])
+                seen_count = int(row["seen_count"] or 0)
+                if row["base_weight"] is not None:
+                    weight = float(current["weight"] or 0.0) + (
+                        float(row["weight"]) - float(row["base_weight"])
+                    )
+                if row["base_seen_count"] is not None:
+                    seen_count = int(current["seen_count"] or 0) + (
+                        int(row["seen_count"] or 0) - int(row["base_seen_count"] or 0)
+                    )
+                weight = max(0.0, min(1.0, weight))
                 self._conn.execute(
-                    "INSERT INTO interests (persona_id, key, name, weight, seen_count, last_seen_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?) "
-                    "ON CONFLICT(persona_id, key) DO UPDATE SET name = excluded.name, weight = excluded.weight, "
-                    "seen_count = excluded.seen_count, last_seen_at = excluded.last_seen_at",
-                    (row["persona_id"], row["key"], row["name"], row["weight"], row["seen_count"], row["last_seen_at"]),
+                    "UPDATE interests SET name = ?, weight = ?, seen_count = ?, "
+                    "last_seen_at = ? WHERE persona_id = ? AND key = ?",
+                    (row["name"], weight, seen_count, row["last_seen_at"],
+                     persona_id, key),
                 )
             self._conn.execute(
                 "UPDATE browse_sessions SET ended_at = ?, status = ?, notes_count = ?, reason = ?, error = ? "
@@ -2109,18 +2147,28 @@ class LifeDB:
         if (current_row.get("scheduled_at") or "") == (neighbor.get("scheduled_at") or ""):
             # 交换相同 scheduled_at 不会改变顺序；不能报成功并写一条假 change 事件。
             return False
-        cur = self._execute(
-            "UPDATE life_plans SET scheduled_at = ? "
-            "WHERE persona_id = ? AND plan_date = ? AND task_id = ?",
-            (neighbor.get("scheduled_at") or "", persona_id, plan_date, task_id),
-        )
-        self._execute(
-            "UPDATE life_plans SET scheduled_at = ? "
-            "WHERE persona_id = ? AND plan_date = ? AND task_id = ?",
-            (rows[current].get("scheduled_at") or "", persona_id, plan_date, neighbor["task_id"]),
-        )
-        if cur.rowcount == 0:
-            return False
+        # 两次交换必须在同一事务里；否则第二次失败会留下半交换的顺序。
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                cur = self._conn.execute(
+                    "UPDATE life_plans SET scheduled_at = ? "
+                    "WHERE persona_id = ? AND plan_date = ? AND task_id = ?",
+                    (neighbor.get("scheduled_at") or "", persona_id, plan_date, task_id),
+                )
+                other = self._conn.execute(
+                    "UPDATE life_plans SET scheduled_at = ? "
+                    "WHERE persona_id = ? AND plan_date = ? AND task_id = ?",
+                    (rows[current].get("scheduled_at") or "", persona_id,
+                     plan_date, neighbor["task_id"]),
+                )
+                if cur.rowcount == 0 or other.rowcount == 0:
+                    self._conn.rollback()
+                    return False
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
         self.append_event(
             persona_id,
             "change",

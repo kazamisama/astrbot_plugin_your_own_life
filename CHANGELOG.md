@@ -2,6 +2,20 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.25] - 2026-10-28
+
+### Fixed
+
+- 兴趣快照覆盖：`staging_interests` 增加 `base_weight` / `base_seen_count`，提交时按“当前值 + 运行增量”合并，不再用运行开始时的快照覆盖运行期间的 owner/LLM 编辑；同一 key 的多次 stage 取最后一行且只应用一次。
+- 计划交换：`reorder_plan` 的两次 `UPDATE` 放进同一 `BEGIN IMMEDIATE` 事务，任一行未命中就回滚，不再留下半交换的 `scheduled_at`。
+- WebUI：生活页新增近 7 天 LLM 用量面板；改动页新增注入审计列表，页面开始使用 `usage` / `injection_log` 两个已有接口。
+- 兴趣计数：日记里的 `interest_updates` 只调整权重，不再把 `seen_count` +1；与 `apply_updates` 的语义一致。
+
+### Notes
+
+- 测试：326 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 仍未修：`apply_change` / `rollback_change` / 软删除的“改数据 + 写账本”仍非单事务；页面 `archive` / `interests` 仍无独立视图；结构性重复（两套 persona 解析、10 个 Tool 类、review/quarterly 同构）；`docs/consistency.md` 仍是 v0.5.12 基线。
+
 ## [0.5.24] - 2026-10-28
 
 ### Fixed

@@ -70,6 +70,18 @@ class InterestsTest(unittest.TestCase):
         self.assertEqual(row["seen_count"], 2)
         self.assertGreater(row["weight"], 0.5)
 
+    def test_staged_updates_do_not_bump_seen_count(self):
+        store = InterestStore(self.db, [("ai", "人工智能")])
+        store.seed(self.persona)
+        store.stage_updates(
+            self.persona, 2, {"ai": {"name": "人工智能", "delta": 0.1}},
+            now=datetime(2026, 8, 10, 12, 0),
+        )
+        self.db.commit_staged(self.persona, 2, status="completed")
+        row = next(r for r in self.db.get_interests(self.persona) if r["key"] == "ai")
+        self.assertEqual(row["seen_count"], 0)
+        self.assertAlmostEqual(row["weight"], 0.6)
+
     def test_daily_decay(self):
         store = InterestStore(self.db, [("ai", "人工智能")])
         self.db.upsert_interest(self.persona, "ai", "人工智能", 1.0, seen_count=3)

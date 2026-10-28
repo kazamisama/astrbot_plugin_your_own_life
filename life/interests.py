@@ -110,9 +110,13 @@ class InterestStore:
         if cache_key not in self._staged:
             current = self.db.get_interests(persona_id)
             row = next((item for item in current if item["key"] == key), None)
+            base_weight = float(row["weight"] if row else 0.5)
+            base_seen = int(row["seen_count"] or 0) if row else 0
             self._staged[cache_key] = {
-                "weight": float(row["weight"] if row else 0.5),
-                "seen_count": int(row["seen_count"] or 0) if row else 0,
+                "weight": base_weight,
+                "seen_count": base_seen,
+                "base_weight": base_weight,
+                "base_seen_count": base_seen,
             }
         return self._staged[cache_key]
 
@@ -140,6 +144,8 @@ class InterestStore:
             weight,
             seen_count,
             last_seen_at=now.strftime("%Y-%m-%d %H:%M:%S") if now else None,
+            base_weight=state["base_weight"],
+            base_seen_count=state["base_seen_count"],
         )
 
     def stage_updates(
@@ -161,9 +167,10 @@ class InterestStore:
                 delta = 0.0
             state = self._staged_state(persona_id, session_id, key)
             weight = clamp(state["weight"] + delta)
-            seen_count = int(state["seen_count"]) + 1
+            # 日记里的兴趣更新只是调整权重，不代表又“见过”一条新内容；
+            # 与 apply_updates 保持一致，不增加 seen_count。
+            seen_count = int(state["seen_count"])
             state["weight"] = weight
-            state["seen_count"] = seen_count
             self.db.stage_interest(
                 persona_id,
                 session_id,
@@ -172,6 +179,8 @@ class InterestStore:
                 weight,
                 seen_count,
                 last_seen_at=now.strftime("%Y-%m-%d %H:%M:%S") if now else None,
+                base_weight=state["base_weight"],
+                base_seen_count=state["base_seen_count"],
             )
 
     def clear_staging(self, persona_id: str, session_id: Optional[int]) -> None:

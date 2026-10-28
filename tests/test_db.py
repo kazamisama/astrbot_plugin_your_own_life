@@ -744,6 +744,23 @@ class LifeDBTest(unittest.TestCase):
         self.assertTrue(self.db.restore_diary("shelly", "2026-08-12", reason="undo"))
         self.assertEqual(self.db.get_diary("shelly", "2026-08-12")["content"], "d")
 
+    def test_commit_staged_interest_applies_delta_over_owner_edits(self):
+        self.db.upsert_interest("shelly", "ai", "AI", 0.5, seen_count=0)
+        sid = self.db.start_browse_session("shelly", "scheduled")
+        self.db.stage_interest(
+            "shelly", sid, "ai", "AI", 0.6, 1,
+            base_weight=0.5, base_seen_count=0,
+        )
+        self.db.stage_interest(
+            "shelly", sid, "ai", "AI", 0.7, 2,
+            base_weight=0.5, base_seen_count=0,
+        )
+        self.db.upsert_interest("shelly", "ai", "AI owner", 0.6, seen_count=5)
+        self.db.commit_staged("shelly", sid, status="completed")
+        rows = {row["key"]: row for row in self.db.get_interests("shelly")}
+        self.assertAlmostEqual(rows["ai"]["weight"], 0.8)
+        self.assertEqual(rows["ai"]["seen_count"], 7)
+
     def test_rollback_soft_delete_restores_note_and_diary(self):
         note_id = self.db.add_note(
             "shelly", None, "hn", "https://rb", "RB", "s", url_hash="rb1"

@@ -283,6 +283,10 @@ select, input[type="date"], input[type="text"] {
         <h2>人格缓存</h2>
         <ul class="note-list" id="personaList"></ul>
       </section>
+      <section class="panel usage-panel">
+        <h2>LLM 用量</h2>
+        <ul class="note-list" id="usageList"></ul>
+      </section>
     </div>
   </section>
 
@@ -417,6 +421,11 @@ select, input[type="date"], input[type="text"] {
     <div class="panel">
       <ul class="note-list" id="editList"></ul>
       <div id="editEmpty" class="empty" hidden>还没有 LLM / owner 改动记录。</div>
+    </div>
+    <div class="panel">
+      <h2>注入审计</h2>
+      <ul class="note-list" id="injectionList"></ul>
+      <div id="injectionEmpty" class="empty" hidden>没有检测到可疑注入内容。</div>
     </div>
   </section>
 
@@ -871,6 +880,30 @@ function loadLife() {
   apiGet("timeline/heatmap", { persona: state.persona, month: date.slice(0, 7) })
     .then(renderHeatmap)
     .catch(function () {});
+  loadUsage();
+}
+
+function loadUsage() {
+  var list = document.getElementById("usageList");
+  apiGet("usage", { persona: state.persona })
+    .then(function (data) {
+      var rows = (data.usage || []).slice(-7).reverse();
+      list.textContent = "";
+      if (!rows.length) {
+        var empty = document.createElement("li");
+        empty.className = "empty";
+        empty.textContent = "还没有 LLM 用量记录。";
+        list.appendChild(empty);
+        return;
+      }
+      rows.forEach(function (row) {
+        var li = document.createElement("li");
+        li.textContent = (row.date || "-") + " · " + (row.llm_calls || 0) +
+          " 次调用 · " + (row.tokens || 0) + " tokens";
+        list.appendChild(li);
+      });
+    })
+    .catch(function () { showError("用量数据加载失败。"); });
 }
 
 function renderMemoryChips(data) {
@@ -1502,8 +1535,27 @@ function showReviewDiff(period, periodStart) {
     .catch(function () { showError("diff 加载失败。"); });
 }
 
+function loadInjectionLog() {
+  var list = document.getElementById("injectionList");
+  apiGet("injection_log", { persona: state.persona })
+    .then(function (data) {
+      var logs = data.logs || [];
+      document.getElementById("injectionEmpty").hidden = logs.length > 0;
+      list.textContent = "";
+      logs.forEach(function (log) {
+        var li = document.createElement("li");
+        li.textContent = (log.ts || "") + " · " + (log.source || "-") +
+          " · " + (log.context || "-") + " · " + (log.field || "-") +
+          " · " + (log.preview || "");
+        list.appendChild(li);
+      });
+    })
+    .catch(function () { showError("注入审计加载失败。"); });
+}
+
 function loadLifeEdits() {
   var list = document.getElementById("editList");
+  loadInjectionLog();
   apiGet("life_edits", { persona: state.persona })
     .then(function (data) {
       var items = data.edits || [];
