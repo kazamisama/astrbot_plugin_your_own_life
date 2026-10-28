@@ -2,6 +2,19 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.32] - 2026-10-28
+
+### Changed
+
+- 结构重构：5 个 LLM 工具（query_life_memory / query_life_plans / query_life_status / edit_life_plan / edit_life_memory）改为继承同一个 `_LifeToolBase`。基类统一处理 AstrBot `FunctionTool` 的字段构造，以及在无 AstrBot 环境下的鸭子类型降级；原先 10 个按 `_HAS_ASTRBOT_TOOL` 分支的近似类被删除。
+- 工具 schema、参数名、默认值、返回结构与调用行为不变；`LifeEditTool.allowed` 与 `LifeMemoryTool.memory` 的注入方式保持原样。
+
+### Notes
+
+- 全量测试 340 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 额外验证了无 AstrBot 时的降级分支：5 个工具类仍可实例化并暴露 name/description/parameters。
+- 结构重构第二批；review/quarterly 同构主体、`life_plans.started_at` 死列与兼容端点仍未动。
+
 ## [0.5.31] - 2026-10-28
 
 ### Changed

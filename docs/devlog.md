@@ -2,6 +2,17 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-28 结构重构第二批：工具类收敛（v0.5.32）
+- 目标：把 5 个 LLM 工具在“有 AstrBot / 无 AstrBot”两种环境下的 10 个近似类收敛为每个工具一个类，减少条件分支重复，同时保持 FunctionTool 字段与降级调用面不变。
+- 已确认决策：
+  - 只把构造差异放进 `_LifeToolBase`：有 AstrBot 时调用 `FunctionTool.__init__` 注入 name/description/parameters/handler，无 AstrBot 时只保存 duck-typed 字段。
+  - 工具 schema、参数与执行函数不搬动；每个工具仍显式保留自己的 `call` 签名，避免动态生成影响 AstrBot 的 schema 反射与可读性。
+  - `LifeMemoryTool.memory` 与 `LifeEditTool.allowed` 继续在子类构造器注入，不塞进基类。
+- 改动：`life/life_tool.py`、`README.md`、`CHANGELOG.md`、`metadata.yaml`、`life/__init__.py`；版本 v0.5.31 → v0.5.32。
+- 验证：全量 340 条，仅 `test_config` 已知环境错误（skipped=1）；test_life_tool 17 全绿；额外用 import blocker 模拟无 AstrBot 环境，5 个降级类可实例化并暴露 name/description/parameters；ruff F,E9、compileall、`git diff --check` 通过。
+- 遗留：review/quarterly 同构主体、`life_plans.started_at` 死列、`change_log`/`life_edits` 兼容端点仍未重构。
+- 下一步：提交 `chore(release): v0.5.32 ...`；随后评估 review/quarterly 同构主体收敛。
+
 ## 2026-10-28 结构重构第一批：persona 解析收敛（v0.5.31）
 - 目标：把聊天钩子与 LLM 工具各自维护的 persona 解析收敛成一份实现，作为结构重构的低风险起点；不改变调度、数据模型与提示词。
 - 已确认决策：

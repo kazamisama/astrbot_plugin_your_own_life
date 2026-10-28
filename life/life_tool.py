@@ -818,228 +818,135 @@ class _LifeMemoryToolMixin:
         return False
 
 
-if _HAS_ASTRBOT_TOOL:
+_ToolBase = FunctionTool[AstrAgentContext] if _HAS_ASTRBOT_TOOL else object
 
-    class LifeMemoryTool(_LifeMemoryToolMixin, FunctionTool[AstrAgentContext]):
-        """AstrBot-native FunctionTool: handler field + call(context, **kwargs)."""
 
-        def __init__(self, db: LifeDB, personas: PersonaService,
-                     memory: Optional[Any] = None):
+class _LifeToolBase(_LifeMemoryToolMixin, _ToolBase):
+    """Shared FunctionTool/fallback base for the five life tools.
+
+    AstrBot needs the FunctionTool dataclass fields at construction time;
+    unit tests and non-AstrBot environments only need the duck-typed call
+    surface.  Keeping the conditional here removes the ten near-identical
+    class definitions that used to sit below.
+    """
+
+    name = ""
+    description = ""
+    parameters: dict[str, Any] = {}
+
+    def __init__(self, db: LifeDB, personas: PersonaService) -> None:
+        if _HAS_ASTRBOT_TOOL:
             super().__init__(
-                name=TOOL_NAME,
-                description=TOOL_DESCRIPTION,
-                parameters=TOOL_PARAMETERS,
+                name=self.name,
+                description=self.description,
+                parameters=self.parameters,
                 handler=None,
             )
-            self._init(db, personas, memory)
-
-        async def call(
-            self,
-            context: ContextWrapper[AstrAgentContext],
-            query: str = "",
-            category: str = "",
-            date: str = "",
-            k: int = 5,
-        ) -> ToolExecResult:
-            return await _execute_tool(self, context, query, category, date, k)
-
-else:
-
-    class LifeMemoryTool(_LifeMemoryToolMixin):
-        """Duck-typed fallback used by unit tests outside AstrBot."""
-
-        name = TOOL_NAME
-        description = TOOL_DESCRIPTION
-        parameters = TOOL_PARAMETERS
-
-        def __init__(self, db: LifeDB, personas: PersonaService,
-                     memory: Optional[Any] = None):
-            self._init(db, personas, memory)
-
-        async def call(self, context: Any, query: str = "", category: str = "",
-                       date: str = "", k: int = 5) -> str:
-            return await _execute_tool(self, context, query, category, date, k)
+        self._init(db, personas)
 
 
-if _HAS_ASTRBOT_TOOL:
+class LifeMemoryTool(_LifeToolBase):
+    """Query the current persona's life archive."""
 
-    class LifePlansTool(_LifeMemoryToolMixin, FunctionTool[AstrAgentContext]):
-        """AstrBot-native read-only plan board tool."""
+    name = TOOL_NAME
+    description = TOOL_DESCRIPTION
+    parameters = TOOL_PARAMETERS
 
-        def __init__(self, db: LifeDB, personas: PersonaService):
-            super().__init__(
-                name=PLANS_TOOL_NAME,
-                description=PLANS_TOOL_DESCRIPTION,
-                parameters=PLANS_TOOL_PARAMETERS,
-                handler=None,
-            )
-            self._init(db, personas)
+    def __init__(self, db: LifeDB, personas: PersonaService,
+                 memory: Optional[Any] = None):
+        super().__init__(db, personas)
+        self.memory = memory
 
-        async def call(
-            self,
-            context: ContextWrapper[AstrAgentContext],
-            date: str = "",
-            status: str = "",
-        ) -> ToolExecResult:
-            return await _execute_plans_tool(self, context, date, status)
-
-else:
-
-    class LifePlansTool(_LifeMemoryToolMixin):
-        """Duck-typed fallback used by unit tests outside AstrBot."""
-
-        name = PLANS_TOOL_NAME
-        description = PLANS_TOOL_DESCRIPTION
-        parameters = PLANS_TOOL_PARAMETERS
-
-        def __init__(self, db: LifeDB, personas: PersonaService):
-            self._init(db, personas)
-
-        async def call(self, context: Any, date: str = "", status: str = "") -> str:
-            return await _execute_plans_tool(self, context, date, status)
+    async def call(
+        self,
+        context: ContextWrapper[AstrAgentContext],
+        query: str = "",
+        category: str = "",
+        date: str = "",
+        k: int = 5,
+    ) -> ToolExecResult:
+        return await _execute_tool(self, context, query, category, date, k)
 
 
-if _HAS_ASTRBOT_TOOL:
+class LifePlansTool(_LifeToolBase):
+    """Read the current persona's daily plan board."""
 
-    class LifeStatusTool(_LifeMemoryToolMixin, FunctionTool[AstrAgentContext]):
-        """AstrBot-native read-only recent life activity tool."""
+    name = PLANS_TOOL_NAME
+    description = PLANS_TOOL_DESCRIPTION
+    parameters = PLANS_TOOL_PARAMETERS
 
-        def __init__(self, db: LifeDB, personas: PersonaService):
-            super().__init__(
-                name=STATUS_TOOL_NAME,
-                description=STATUS_TOOL_DESCRIPTION,
-                parameters=STATUS_TOOL_PARAMETERS,
-                handler=None,
-            )
-            self._init(db, personas)
-
-        async def call(
-            self,
-            context: ContextWrapper[AstrAgentContext],
-            date: str = "",
-            limit: int = 10,
-        ) -> ToolExecResult:
-            return await _execute_status_tool(self, context, date, limit)
-
-else:
-
-    class LifeStatusTool(_LifeMemoryToolMixin):
-        """Duck-typed fallback used by unit tests outside AstrBot."""
-
-        name = STATUS_TOOL_NAME
-        description = STATUS_TOOL_DESCRIPTION
-        parameters = STATUS_TOOL_PARAMETERS
-
-        def __init__(self, db: LifeDB, personas: PersonaService):
-            self._init(db, personas)
-
-        async def call(self, context: Any, date: str = "", limit: int = 10) -> str:
-            return await _execute_status_tool(self, context, date, limit)
+    async def call(
+        self,
+        context: ContextWrapper[AstrAgentContext],
+        date: str = "",
+        status: str = "",
+    ) -> ToolExecResult:
+        return await _execute_plans_tool(self, context, date, status)
 
 
-if _HAS_ASTRBOT_TOOL:
+class LifeStatusTool(_LifeToolBase):
+    """Read the current persona's recent life activity."""
 
-    class LifePlanEditTool(_LifeMemoryToolMixin, FunctionTool[AstrAgentContext]):
-        """AstrBot-native optional plan mutation tool."""
+    name = STATUS_TOOL_NAME
+    description = STATUS_TOOL_DESCRIPTION
+    parameters = STATUS_TOOL_PARAMETERS
 
-        def __init__(self, db: LifeDB, personas: PersonaService):
-            super().__init__(
-                name=EDIT_PLAN_TOOL_NAME,
-                description=EDIT_PLAN_TOOL_DESCRIPTION,
-                parameters=EDIT_PLAN_TOOL_PARAMETERS,
-                handler=None,
-            )
-            self._init(db, personas)
-
-        async def call(
-            self,
-            context: ContextWrapper[AstrAgentContext],
-            action: str,
-            task_id: str,
-            date: str = "",
-            kind: str = "",
-            time: str = "",
-            position: int = 1,
-            reason: str = "",
-        ) -> ToolExecResult:
-            return await _execute_edit_plan_tool(
-                self, context, action, task_id, date, kind, time, position, reason,
-            )
-
-else:
-
-    class LifePlanEditTool(_LifeMemoryToolMixin):
-        """Duck-typed fallback used by unit tests outside AstrBot."""
-
-        name = EDIT_PLAN_TOOL_NAME
-        description = EDIT_PLAN_TOOL_DESCRIPTION
-        parameters = EDIT_PLAN_TOOL_PARAMETERS
-
-        def __init__(self, db: LifeDB, personas: PersonaService):
-            self._init(db, personas)
-
-        async def call(
-            self, context: Any, action: str, task_id: str,
-            date: str = "", kind: str = "", time: str = "", position: int = 1,
-            reason: str = "",
-        ) -> str:
-            return await _execute_edit_plan_tool(
-                self, context, action, task_id, date, kind, time, position, reason,
-            )
+    async def call(
+        self,
+        context: ContextWrapper[AstrAgentContext],
+        date: str = "",
+        limit: int = 10,
+    ) -> ToolExecResult:
+        return await _execute_status_tool(self, context, date, limit)
 
 
-if _HAS_ASTRBOT_TOOL:
+class LifePlanEditTool(_LifeToolBase):
+    """Add, reorder, defer or skip optional plan tasks."""
 
-    class LifeEditTool(_LifeMemoryToolMixin, FunctionTool[AstrAgentContext]):
-        """AstrBot-native life memory edit / rollback tool."""
+    name = EDIT_PLAN_TOOL_NAME
+    description = EDIT_PLAN_TOOL_DESCRIPTION
+    parameters = EDIT_PLAN_TOOL_PARAMETERS
 
-        def __init__(self, db: LifeDB, personas: PersonaService,
-                     allowed: Optional[list] = None):
-            super().__init__(
-                name=EDIT_MEMORY_TOOL_NAME,
-                description=EDIT_MEMORY_TOOL_DESCRIPTION,
-                parameters=EDIT_MEMORY_TOOL_PARAMETERS,
-                handler=None,
-            )
-            self._init(db, personas)
-            self.allowed = list(allowed or [])
+    async def call(
+        self,
+        context: ContextWrapper[AstrAgentContext],
+        action: str,
+        task_id: str,
+        date: str = "",
+        kind: str = "",
+        time: str = "",
+        position: int = 1,
+        reason: str = "",
+    ) -> ToolExecResult:
+        return await _execute_edit_plan_tool(
+            self, context, action, task_id, date, kind, time, position, reason,
+        )
 
-        async def call(
-            self,
-            context: ContextWrapper[AstrAgentContext],
-            action: str,
-            entity: str = "",
-            entity_id: str = "",
-            field: str = "",
-            value: str = "",
-            change_id: int = 0,
-            reason: str = "",
-        ) -> ToolExecResult:
-            return await _execute_edit_memory_tool(
-                self, context, action, entity, entity_id, field, value,
-                change_id, reason,
-            )
 
-else:
+class LifeEditTool(_LifeToolBase):
+    """Edit or roll back the current persona's memory/interests."""
 
-    class LifeEditTool(_LifeMemoryToolMixin):
-        """Duck-typed fallback used by unit tests outside AstrBot."""
+    name = EDIT_MEMORY_TOOL_NAME
+    description = EDIT_MEMORY_TOOL_DESCRIPTION
+    parameters = EDIT_MEMORY_TOOL_PARAMETERS
 
-        name = EDIT_MEMORY_TOOL_NAME
-        description = EDIT_MEMORY_TOOL_DESCRIPTION
-        parameters = EDIT_MEMORY_TOOL_PARAMETERS
+    def __init__(self, db: LifeDB, personas: PersonaService,
+                 allowed: Optional[list] = None):
+        super().__init__(db, personas)
+        self.allowed = list(allowed or [])
 
-        def __init__(self, db: LifeDB, personas: PersonaService,
-                     allowed: Optional[list] = None):
-            self._init(db, personas)
-            self.allowed = list(allowed or [])
-
-        async def call(
-            self, context: Any, action: str, entity: str = "",
-            entity_id: str = "", field: str = "", value: str = "",
-            change_id: int = 0, reason: str = "",
-        ) -> str:
-            return await _execute_edit_memory_tool(
-                self, context, action, entity, entity_id, field, value,
-                change_id, reason,
-            )
+    async def call(
+        self,
+        context: ContextWrapper[AstrAgentContext],
+        action: str,
+        entity: str = "",
+        entity_id: str = "",
+        field: str = "",
+        value: str = "",
+        change_id: int = 0,
+        reason: str = "",
+    ) -> ToolExecResult:
+        return await _execute_edit_memory_tool(
+            self, context, action, entity, entity_id, field, value,
+            change_id, reason,
+        )
