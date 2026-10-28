@@ -2,6 +2,20 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.26] - 2026-10-28
+
+### Fixed
+
+- 事务边界：`_execute` 在事务内不再自动 commit；`apply_change`、`rollback_change`、`soft_delete_note` / `restore_note`、`soft_delete_diary` / `restore_diary` 全部改为单事务，数据修改、change_log 和 event_chain 同生共死，不再出现“数据改了账本没写/写了一半”。
+- 胶囊打开：`/capsules_open` 增加按 persona 的单飞保护，连续点击或并发请求不会同时跑多次 `run_capsules`；service 缺失时仍只做本地解锁。
+- 页面：记忆搜索请求的 `k` 从 20 改为 10，与后端 `memory_search` 的上限一致，不再出现“请求 20 实际 10”的静默截断。
+- 文档：`docs/consistency.md` 顶部标注为 v0.5.12 历史基线，列出主要已修项，避免后续会话把旧 P2 当成现状。
+
+### Notes
+
+- 测试：327 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 仍未修：页面 `archive` / `interests` 独立视图；结构性重复（两套 persona 解析、10 个 Tool 类、review/quarterly 同构）；统一记忆宿主孤儿无删除 API；工具 add 无 ESM 精力 gate。
+
 ## [0.5.25] - 2026-10-28
 
 ### Fixed

@@ -115,6 +115,7 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         return {"interests": db.get_interests(persona)}
 
     running: dict[str, asyncio.Task] = {}
+    capsules_running: set[str] = set()
 
     async def _run_browse_task(persona: str) -> None:
         try:
@@ -195,11 +196,19 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         capsule = db.get_capsule(persona, capsule_id)
         if capsule is None:
             return {"ok": False, "error": "capsule not found"}
-        db.open_capsule_now(persona, capsule_id)
         if service is None:
+            db.open_capsule_now(persona, capsule_id)
             return {"ok": True, "capsule_id": capsule_id,
                     "status": "unlocked", "reply": ""}
-        result = await service.run_capsules(persona)
+        if persona in capsules_running:
+            return {"ok": False, "capsule_id": capsule_id,
+                    "error": "capsule run already in progress"}
+        capsules_running.add(persona)
+        try:
+            db.open_capsule_now(persona, capsule_id)
+            result = await service.run_capsules(persona)
+        finally:
+            capsules_running.discard(persona)
         row = db.get_capsule(persona, capsule_id)
         return {
             "ok": True, "capsule_id": capsule_id,

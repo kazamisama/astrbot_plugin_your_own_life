@@ -1215,7 +1215,7 @@ function loadMemory() {
     .catch(function () { showError("记忆概览加载失败。"); });
   var query = document.getElementById("memoryQuery").value;
   var date = document.getElementById("memoryDate").value;
-  apiGet("memory_search", { persona: state.persona, query: query, category: state.category, date: date, k: 20 })
+  apiGet("memory_search", { persona: state.persona, query: query, category: state.category, date: date, k: 10 })
     .then(function (data) {
       document.getElementById("memResults").textContent = data.count || 0;
       var ul = document.getElementById("memoryResults");

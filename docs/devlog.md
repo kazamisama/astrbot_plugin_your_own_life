@@ -2,6 +2,18 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-28 审计第四批：事务收口与胶囊单飞（v0.5.26）
+- 目标：把审计里“改数据 + 写账本”的非原子写路径收口，并处理 WebUI 的重复开销与文档基线。
+- 已确认决策：
+  - `_execute` 已经支持 `commit=False`，但只有事务内统一抑制自动 commit 才能让 `log_change` / `append_event` 一起回滚；在 `_transaction` 中置 `_in_transaction`，`_execute` 只在事务外 commit。
+  - `apply_change` / `rollback_change` / 软删除与恢复是“数据 + 账本 + 事件”三件事，必须同事务；单测证明成功路径不变。
+  - 胶囊手动打开会跑逐条 LLM，连点必须单飞；按 persona 记录运行集合，第二个请求直接返回明确错误。
+  - 页面请求 `k=20` 但后端上限 10 属于静默截断，统一成 10。
+- 改动：`life/db.py`、`life/webui.py`、`pages/life/index.html`、`tests/test_webui.py`、`README.md`、`CHANGELOG.md`、`metadata.yaml`、`life/__init__.py`；`docs/consistency.md` 另以 `docs:` 提交标注历史基线。
+- 验证：受影响 test_webui 25、test_db 71 全绿；全量与 ruff/compileall/页面 node --check 提交前执行。
+- 遗留：页面 archive/interests 独立视图、结构性重复、统一记忆孤儿、工具 add 无 ESM gate。
+- 下一步：提交 `chore(release): v0.5.26 ...`；剩余项属于重构或外部 API 限制，需单独评估。
+
 ## 2026-10-28 审计第三批：兴趣增量、事务与页面视图（v0.5.25）
 - 目标：处理审计里“写入正确性”和“能力与 UI 脱节”两类剩余项，不再扩大重构范围。
 - 已确认决策：

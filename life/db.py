@@ -341,6 +341,7 @@ class LifeDB:
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self._in_transaction = False
         with self._lock:
             if self._is_legacy():
                 self._migrate_legacy()
@@ -511,7 +512,7 @@ class LifeDB:
     def _execute(self, sql: str, params: tuple = (), commit: bool = True):
         with self._lock:
             cur = self._conn.execute(sql, params)
-            if commit:
+            if commit and not self._in_transaction:
                 self._conn.commit()
             return cur
 
@@ -524,12 +525,15 @@ class LifeDB:
     def _transaction(self) -> Iterator[None]:
         with self._lock:
             self._conn.execute("BEGIN IMMEDIATE")
+            self._in_transaction = True
             try:
                 yield
                 self._conn.commit()
             except BaseException:
                 self._conn.rollback()
                 raise
+            finally:
+                self._in_transaction = False
 
     def _one(self, sql: str, params: tuple = ()) -> Optional[dict]:
         rows = self._rows(sql, params)
@@ -1805,19 +1809,20 @@ class LifeDB:
             payload = json.loads(row["new_value"] or "{}")
         except (ValueError, TypeError):
             return None
-        if not self._apply_change_payload(
-            persona_id, row["entity"], row["entity_id"], payload
-        ):
-            return None
-        self._execute(
-            "UPDATE change_log SET status = 'applied' WHERE id = ?", (log_id,)
-        )
-        self.append_event(
-            persona_id, "change",
-            {"entity": "memory", "action": "apply", "change_id": log_id,
-             "target": row["entity"], "target_id": row["entity_id"]},
-            [], f"change/{log_id}/applied",
-        )
+        with self._transaction():
+            if not self._apply_change_payload(
+                persona_id, row["entity"], row["entity_id"], payload
+            ):
+                return None
+            self._execute(
+                "UPDATE change_log SET status = 'applied' WHERE id = ?", (log_id,)
+            )
+            self.append_event(
+                persona_id, "change",
+                {"entity": "memory", "action": "apply", "change_id": log_id,
+                 "target": row["entity"], "target_id": row["entity_id"]},
+                [], f"change/{log_id}/applied",
+            )
         return self.get_change_log_entry(persona_id, log_id)
 
     def rollback_change(
@@ -1830,30 +1835,32 @@ class LifeDB:
             payload = json.loads(row["old_value"] or "{}")
         except (ValueError, TypeError):
             return None
-        if not self._apply_change_payload(
-            persona_id, row["entity"], row["entity_id"], payload
-        ):
-            return None
-        self._execute(
-            "UPDATE change_log SET status = 'rolled_back' WHERE id = ?", (log_id,)
-        )
-        audit_id = self.log_change(
-            persona_id,
-            row["entity"],
-            row["entity_id"],
-            old_value=row["new_value"],
-            new_value=row["old_value"],
-            actor=actor,
-            reason=f"rollback_of:{log_id}",
-            status="rolled_back",
-        )
-        self.append_event(
-            persona_id, "rollback",
-            {"entity": "memory", "action": "rollback", "change_id": log_id,
-             "audit_id": audit_id, "target": row["entity"],
-             "target_id": row["entity_id"]},
-            [], f"change/{log_id}/rollback/{audit_id}",
-        )
+        with self._transaction():
+            if not self._apply_change_payload(
+                persona_id, row["entity"], row["entity_id"], payload
+            ):
+                return None
+            self._execute(
+                "UPDATE change_log SET status = 'rolled_back' WHERE id = ?",
+                (log_id,),
+            )
+            audit_id = self.log_change(
+                persona_id,
+                row["entity"],
+                row["entity_id"],
+                old_value=row["new_value"],
+                new_value=row["old_value"],
+                actor=actor,
+                reason=f"rollback_of:{log_id}",
+                status="rolled_back",
+            )
+            self.append_event(
+                persona_id, "rollback",
+                {"entity": "memory", "action": "rollback", "change_id": log_id,
+                 "audit_id": audit_id, "target": row["entity"],
+                 "target_id": row["entity_id"]},
+                [], f"change/{log_id}/rollback/{audit_id}",
+            )
         return self.get_change_log_entry(persona_id, log_id)
 
     def log_injection(
@@ -2250,25 +2257,26 @@ class LifeDB:
         if note is None or note.get("deleted_at"):
             return False
         now = self._now()
-        self._execute(
-            "UPDATE notes SET deleted_at = ? WHERE id = ? AND persona_id = ?",
-            (now, note_id, persona_id),
-        )
-        log_id = self.log_change(
-            persona_id, "note", note_id,
-            json.dumps(note, ensure_ascii=False, default=str),
-            json.dumps({"deleted_at": now}, ensure_ascii=False),
-            actor=actor, reason=reason, status="applied",
-        )
-        self.append_event(
-            persona_id,
-            "change",
-            {"entity": "note", "note_id": note_id, "action": "soft_delete",
-             "reason": reason, "change_id": log_id},
-            [{"note_id": note_id, "url": note.get("url") or ""}],
-            f"note/{note_id}/soft-delete/{log_id}",
-            ts=now,
-        )
+        with self._transaction():
+            self._execute(
+                "UPDATE notes SET deleted_at = ? WHERE id = ? AND persona_id = ?",
+                (now, note_id, persona_id),
+            )
+            log_id = self.log_change(
+                persona_id, "note", note_id,
+                json.dumps(note, ensure_ascii=False, default=str),
+                json.dumps({"deleted_at": now}, ensure_ascii=False),
+                actor=actor, reason=reason, status="applied",
+            )
+            self.append_event(
+                persona_id,
+                "change",
+                {"entity": "note", "note_id": note_id, "action": "soft_delete",
+                 "reason": reason, "change_id": log_id},
+                [{"note_id": note_id, "url": note.get("url") or ""}],
+                f"note/{note_id}/soft-delete/{log_id}",
+                ts=now,
+            )
         return True
 
     def restore_note(
@@ -2279,24 +2287,25 @@ class LifeDB:
         )
         if note is None or not note.get("deleted_at"):
             return False
-        self._execute(
-            "UPDATE notes SET deleted_at = '' WHERE id = ? AND persona_id = ?",
-            (note_id, persona_id),
-        )
-        log_id = self.log_change(
-            persona_id, "note", note_id,
-            json.dumps({"deleted_at": note["deleted_at"]}, ensure_ascii=False),
-            json.dumps({"deleted_at": ""}, ensure_ascii=False),
-            actor=actor, reason=reason, status="restored",
-        )
-        self.append_event(
-            persona_id,
-            "rollback",
-            {"entity": "note", "note_id": note_id, "action": "restore",
-             "reason": reason, "change_id": log_id},
-            [{"note_id": note_id, "url": note.get("url") or ""}],
-            f"note/{note_id}/restore/{log_id}",
-        )
+        with self._transaction():
+            self._execute(
+                "UPDATE notes SET deleted_at = '' WHERE id = ? AND persona_id = ?",
+                (note_id, persona_id),
+            )
+            log_id = self.log_change(
+                persona_id, "note", note_id,
+                json.dumps({"deleted_at": note["deleted_at"]}, ensure_ascii=False),
+                json.dumps({"deleted_at": ""}, ensure_ascii=False),
+                actor=actor, reason=reason, status="restored",
+            )
+            self.append_event(
+                persona_id,
+                "rollback",
+                {"entity": "note", "note_id": note_id, "action": "restore",
+                 "reason": reason, "change_id": log_id},
+                [{"note_id": note_id, "url": note.get("url") or ""}],
+                f"note/{note_id}/restore/{log_id}",
+            )
         return True
 
     def soft_delete_diary(
@@ -2309,25 +2318,27 @@ class LifeDB:
         if diary is None or diary.get("deleted_at"):
             return False
         now = self._now()
-        self._execute(
-            "UPDATE diary_entries SET deleted_at = ? WHERE persona_id = ? AND date = ?",
-            (now, persona_id, date),
-        )
-        log_id = self.log_change(
-            persona_id, "diary", date,
-            json.dumps(diary, ensure_ascii=False, default=str),
-            json.dumps({"deleted_at": now}, ensure_ascii=False),
-            actor=actor, reason=reason, status="applied",
-        )
-        self.append_event(
-            persona_id,
-            "change",
-            {"entity": "diary", "date": date, "action": "soft_delete",
-             "reason": reason, "change_id": log_id},
-            [{"entity": "diary", "date": date}],
-            f"diary/{date}/soft-delete/{log_id}",
-            ts=now,
-        )
+        with self._transaction():
+            self._execute(
+                "UPDATE diary_entries SET deleted_at = ? "
+                "WHERE persona_id = ? AND date = ?",
+                (now, persona_id, date),
+            )
+            log_id = self.log_change(
+                persona_id, "diary", date,
+                json.dumps(diary, ensure_ascii=False, default=str),
+                json.dumps({"deleted_at": now}, ensure_ascii=False),
+                actor=actor, reason=reason, status="applied",
+            )
+            self.append_event(
+                persona_id,
+                "change",
+                {"entity": "diary", "date": date, "action": "soft_delete",
+                 "reason": reason, "change_id": log_id},
+                [{"entity": "diary", "date": date}],
+                f"diary/{date}/soft-delete/{log_id}",
+                ts=now,
+            )
         return True
 
     def restore_diary(
@@ -2339,24 +2350,26 @@ class LifeDB:
         )
         if diary is None or not diary.get("deleted_at"):
             return False
-        self._execute(
-            "UPDATE diary_entries SET deleted_at = '' WHERE persona_id = ? AND date = ?",
-            (persona_id, date),
-        )
-        log_id = self.log_change(
-            persona_id, "diary", date,
-            json.dumps({"deleted_at": diary["deleted_at"]}, ensure_ascii=False),
-            json.dumps({"deleted_at": ""}, ensure_ascii=False),
-            actor=actor, reason=reason, status="restored",
-        )
-        self.append_event(
-            persona_id,
-            "rollback",
-            {"entity": "diary", "date": date, "action": "restore",
-             "reason": reason, "change_id": log_id},
-            [{"entity": "diary", "date": date}],
-            f"diary/{date}/restore/{log_id}",
-        )
+        with self._transaction():
+            self._execute(
+                "UPDATE diary_entries SET deleted_at = '' "
+                "WHERE persona_id = ? AND date = ?",
+                (persona_id, date),
+            )
+            log_id = self.log_change(
+                persona_id, "diary", date,
+                json.dumps({"deleted_at": diary["deleted_at"]}, ensure_ascii=False),
+                json.dumps({"deleted_at": ""}, ensure_ascii=False),
+                actor=actor, reason=reason, status="restored",
+            )
+            self.append_event(
+                persona_id,
+                "rollback",
+                {"entity": "diary", "date": date, "action": "restore",
+                 "reason": reason, "change_id": log_id},
+                [{"entity": "diary", "date": date}],
+                f"diary/{date}/restore/{log_id}",
+            )
         return True
 
     def list_trash(self, persona_id: str, limit: int = 100) -> dict[str, Any]:

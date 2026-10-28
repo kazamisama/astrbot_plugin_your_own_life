@@ -236,6 +236,38 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
             deleted = await handlers["trash_add"]()
         self.assertFalse(deleted["ok"])
 
+    async def test_capsules_open_is_single_flight(self):
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://cap", "C", "s", url_hash="cap1"
+        )
+        capsule_id = self.db.seal_capsule(
+            "shelly", note_id, "2099-01-01 00:00:00",
+            sealed_at="2026-01-01 00:00:00",
+        )
+        gate = asyncio.Event()
+        started = []
+
+        async def slow_capsules(persona):
+            started.append(persona)
+            await gate.wait()
+            return {"opened": 1, "replied": 0, "failed": 0}
+
+        service = SimpleNamespace(run_capsules=slow_capsules)
+        handlers = build_handlers(self.db, service=service, share_gate=None,
+                                  personas=None, config=self.config)
+        with patch("life.webui._json_body",
+                   new=AsyncMock(return_value={"persona": "shelly",
+                                               "capsule_id": capsule_id})):
+            first_task = asyncio.create_task(handlers["capsules_open"]())
+            await asyncio.sleep(0)
+            second = await handlers["capsules_open"]()
+            gate.set()
+            first = await first_task
+        self.assertTrue(first["ok"])
+        self.assertFalse(second["ok"])
+        self.assertEqual(second["error"], "capsule run already in progress")
+        self.assertEqual(started, ["shelly"])
+
     async def test_personas_list_hides_system_prompt(self):
         class _FakePersonas:
             def list_cache(self):
