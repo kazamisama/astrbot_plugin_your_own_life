@@ -2,6 +2,17 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-28 结构重构第三批：回顾生命周期收敛（v0.5.33）
+- 目标：把 `run_review`（月度/年度）与 `run_quarterly_review` 的重复生命周期收敛到一个私有实现，保留两个公开入口的错误语义与季度 confidence 字段。
+- 已确认决策：
+  - 启用开关、白名单与 persona 解析留在公开入口，错误返回结构不变；persona 解析完成后的幂等检查、统计、提示词、LLM 失败回退、预算跳过、落库与记忆镜像全部下沉到 `_run_review_common`。
+  - 用 `with_confidence` 区分季度形态：季度增加 `mood_distribution`、季度提示词、`confidence` 字段与季度记忆事件；月度/年度不输出 confidence。
+  - 月度 `upsert_review` 显式传 `confidence=0.0`（与原默认值一致），不改变存储结果。
+- 改动：`life/browser.py`、`tests/test_browser.py`、`README.md`、`CHANGELOG.md`、`metadata.yaml`、`life/__init__.py`；版本 v0.5.32 → v0.5.33。
+- 验证：test_browser 66 全绿（新增月度/季度重复回顾幂等 2 条）；全量 342 条，仅 `test_config` 已知环境错误（skipped=1）；ruff F,E9、compileall、`git diff --check` 通过。
+- 遗留：`life_plans.started_at` 死列、`change_log`/`life_edits` 兼容端点、页面 archive/interests 独立视图仍未动。
+- 下一步：提交 `chore(release): v0.5.33 ...`；随后处理死列与兼容端点，或转向页面视图。
+
 ## 2026-10-28 结构重构第二批：工具类收敛（v0.5.32）
 - 目标：把 5 个 LLM 工具在“有 AstrBot / 无 AstrBot”两种环境下的 10 个近似类收敛为每个工具一个类，减少条件分支重复，同时保持 FunctionTool 字段与降级调用面不变。
 - 已确认决策：

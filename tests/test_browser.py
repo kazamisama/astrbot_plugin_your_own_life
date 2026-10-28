@@ -486,6 +486,37 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows[0]["status"], "fallback")
         self.assertIn("这个季度", rows[0]["content"])
 
+    async def test_review_duplicate_is_idempotent(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 10, 0)
+        self.service.llm = _FakeLLM(payload={"review_text": "七月回顾。"})
+        first = await self.service.run_review("shelly", "monthly")
+        second = await self.service.run_review("shelly", "monthly")
+        self.assertTrue(first["ok"])
+        self.assertTrue(second["duplicate"])
+        self.assertEqual(second["content"], "七月回顾。")
+        self.assertNotIn("confidence", first)
+        self.assertEqual(len(self.service.llm.prompts), 1)
+        self.assertEqual(len(self.db.list_reviews("shelly")), 1)
+        self.assertEqual(
+            len(self.db.list_events("shelly", kinds=["review"])), 1
+        )
+
+    async def test_quarterly_review_duplicate_keeps_confidence(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 10, 0)
+        self.service.llm = _FakeLLM(payload={
+            "review_text": "这个季度在关注 AI。",
+            "confidence": 0.8,
+        })
+        first = await self.service.run_quarterly_review("shelly")
+        second = await self.service.run_quarterly_review("shelly")
+        self.assertTrue(first["ok"])
+        self.assertTrue(second["duplicate"])
+        self.assertAlmostEqual(second["confidence"], 0.8)
+        self.assertEqual(len(self.service.llm.prompts), 1)
+        self.assertEqual(
+            len(self.db.list_events("shelly", kinds=["review"])), 1
+        )
+
     async def test_capsules_auto_unlock_and_reply(self):
         self.service.now_fn = lambda: datetime(2026, 8, 12, 10, 0)
         note_id = self.db.add_note(

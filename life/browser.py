@@ -1147,19 +1147,22 @@ class LifeService:
             )
         return "".join(lines)
 
-    async def run_review(
-        self, persona_id: str, period: str, plan_date: Optional[str] = None
+    async def _run_review_common(
+        self,
+        persona_id: str,
+        persona: Any,
+        period: str,
+        plan_date: Optional[str],
+        *,
+        with_confidence: bool = False,
     ) -> dict[str, Any]:
-        period = "yearly" if period == "yearly" else "monthly"
-        if not self.config.enabled:
-            return {"period": period, "ok": False, "skipped": "disabled"}
-        if not persona_allowed(self.config, persona_id):
-            return {"period": period, "ok": False,
-                    "error": "persona_not_whitelisted"}
-        try:
-            persona = await self._resolve_persona(persona_id)
-        except PersonaUnavailable:
-            return {"period": period, "ok": False, "error": "persona_unavailable"}
+        """Shared body for monthly/yearly and quarterly reviews.
+
+        The two public entry points keep their own enable/whitelist checks and
+        error envelopes; everything after a persona has been resolved is the
+        same review lifecycle.  The with_confidence flag selects the quarterly
+        prompt/stats/result shape.
+        """
         now = local_now(self.config.timezone, self.now_fn())
         anchor = now
         if plan_date:
@@ -1177,30 +1180,57 @@ class LifeService:
                  if r["period"] == period and r["period_start"] == period_start),
                 None,
             )
-            return {
+            result = {
                 "period": period, "period_start": period_start,
                 "period_end": period_end, "ok": True,
                 "content": row["content"] if row else "",
                 "status": row["status"] if row else "done",
                 "duplicate": True,
             }
+            if with_confidence:
+                result["confidence"] = (
+                    float(row["confidence"] or 0) if row else 0.0
+                )
+            return result
+
         stats = self._review_stats(
             persona_id, period_start, period_end, period
         )
+        if with_confidence:
+            stats["mood_distribution"] = self._mood_distribution(
+                persona_id, period_start, period_end
+            )
         source_refs = self._review_source_refs(
             persona_id, period_start, period_end
         )
-        prompt = build_review_prompt(
-            persona.system_prompt, persona_id, period, period_start,
-            period_end, stats, source_refs,
-        )
+        if with_confidence:
+            prompt = build_quarterly_prompt(
+                persona.system_prompt, persona_id, period_start,
+                period_end, stats, source_refs,
+            )
+        else:
+            prompt = build_review_prompt(
+                persona.system_prompt, persona_id, period, period_start,
+                period_end, stats, source_refs,
+            )
         fallback = False
+        confidence = 0.0
         try:
             payload = await self._llm_call(persona_id, prompt)
             content = str(payload.get("review_text") or "").strip()
             if not content:
+                if with_confidence:
+                    raise LLMError("quarterly LLM 未返回评估正文")
                 raise LLMError("review LLM 未返回回顾正文")
             status = "done"
+            if with_confidence:
+                try:
+                    confidence = max(
+                        0.0,
+                        min(1.0, float(payload.get("confidence") or 0.0)),
+                    )
+                except (TypeError, ValueError):
+                    confidence = 0.5
         except BudgetExhausted as exc:
             self.db.add_state_snapshot(
                 persona_id, "review_skipped", self.esm.get_energy(persona_id), "",
@@ -1215,37 +1245,69 @@ class LifeService:
                 "skipped": "budget_exhausted", "error": str(exc),
             }
         except LLMError as exc:
-            self.log.warning("review LLM failed for %s: %s", persona_id, exc)
+            label = "quarterly review" if with_confidence else "review"
+            self.log.warning("%s LLM failed for %s: %s", label, persona_id, exc)
             content = self._fallback_review_text(stats)
             status = "fallback"
             fallback = True
+            confidence = 0.5 if with_confidence else 0.0
+
+        event_payload = {
+            "period": period, "period_start": period_start,
+            "period_end": period_end, "status": status,
+            "fallback": fallback, "content": content[:500],
+        }
+        if with_confidence:
+            event_payload["confidence"] = confidence
         self.db.upsert_review(
             persona_id, period, period_start, period_end, content,
-            status=status, source_refs=source_refs,
+            status=status, confidence=confidence, source_refs=source_refs,
         )
         self.db.append_event(
-            persona_id, "review",
-            {"period": period, "period_start": period_start,
-             "period_end": period_end, "status": status,
-             "fallback": fallback, "content": content[:500]},
-            source_refs, idem,
+            persona_id, "review", event_payload, source_refs, idem,
         )
         if self.memory is not None and self.config.memory_host:
+            mirror = {
+                "period": period, "period_start": period_start,
+                "period_end": period_end, "status": status,
+            }
+            if with_confidence:
+                mirror["confidence"] = confidence
             try:
                 self.memory.store_event(
                     persona_id, "internet-life", "", now.timestamp(), "review",
-                    {"period": period, "period_start": period_start,
-                     "period_end": period_end, "status": status},
+                    mirror,
                 )
             except MemoryHostError as exc:
+                label = "quarterly review" if with_confidence else "review"
                 self.log.warning(
-                    "review event mirror failed for %s: %s", persona_id, exc
+                    "%s event mirror failed for %s: %s", label, persona_id, exc
                 )
-        return {
+        result = {
             "period": period, "period_start": period_start,
             "period_end": period_end, "ok": True,
             "content": content, "status": status, "fallback": fallback,
         }
+        if with_confidence:
+            result["confidence"] = confidence
+        return result
+
+    async def run_review(
+        self, persona_id: str, period: str, plan_date: Optional[str] = None
+    ) -> dict[str, Any]:
+        period = "yearly" if period == "yearly" else "monthly"
+        if not self.config.enabled:
+            return {"period": period, "ok": False, "skipped": "disabled"}
+        if not persona_allowed(self.config, persona_id):
+            return {"period": period, "ok": False,
+                    "error": "persona_not_whitelisted"}
+        try:
+            persona = await self._resolve_persona(persona_id)
+        except PersonaUnavailable:
+            return {"period": period, "ok": False, "error": "persona_unavailable"}
+        return await self._run_review_common(
+            persona_id, persona, period, plan_date
+        )
 
     # ----- quarterly self review -----
 
@@ -1280,110 +1342,10 @@ class LifeService:
         except PersonaUnavailable:
             return {"persona_id": persona_id, "ok": False,
                     "error": "persona_unavailable"}
-        now = local_now(self.config.timezone, self.now_fn())
-        anchor = now
-        if plan_date:
-            try:
-                anchor = datetime.strptime(plan_date, "%Y-%m-%d")
-            except (TypeError, ValueError):
-                anchor = now
-        period_start, period_end = self._review_range(anchor, "quarterly")
-        idem = f"review/quarterly/{period_start}"
-        existing = self.db.find_event(persona_id, idem)
-        if existing is not None:
-            rows = self.db.list_reviews(persona_id, limit=100)
-            row = next(
-                (r for r in rows
-                 if r["period"] == "quarterly"
-                 and r["period_start"] == period_start),
-                None,
-            )
-            return {
-                "period": "quarterly", "period_start": period_start,
-                "period_end": period_end, "ok": True,
-                "content": row["content"] if row else "",
-                "status": row["status"] if row else "done",
-                "confidence": float(row["confidence"] or 0) if row else 0.0,
-                "duplicate": True,
-            }
-        stats = self._review_stats(
-            persona_id, period_start, period_end, "quarterly"
+        return await self._run_review_common(
+            persona_id, persona, "quarterly", plan_date,
+            with_confidence=True,
         )
-        stats["mood_distribution"] = self._mood_distribution(
-            persona_id, period_start, period_end
-        )
-        source_refs = self._review_source_refs(
-            persona_id, period_start, period_end
-        )
-        prompt = build_quarterly_prompt(
-            persona.system_prompt, persona_id, period_start,
-            period_end, stats, source_refs,
-        )
-        fallback = False
-        try:
-            payload = await self._llm_call(persona_id, prompt)
-            content = str(payload.get("review_text") or "").strip()
-            if not content:
-                raise LLMError("quarterly LLM 未返回评估正文")
-            try:
-                confidence = max(
-                    0.0, min(1.0, float(payload.get("confidence") or 0.0))
-                )
-            except (TypeError, ValueError):
-                confidence = 0.5
-            status = "done"
-        except BudgetExhausted as exc:
-            self.db.add_state_snapshot(
-                persona_id, "review_skipped", self.esm.get_energy(persona_id), "",
-                extra=json.dumps(
-                    {"reason": "budget_exhausted", "period": "quarterly"},
-                    ensure_ascii=False,
-                ),
-            )
-            return {
-                "period": "quarterly", "period_start": period_start,
-                "period_end": period_end, "ok": False,
-                "skipped": "budget_exhausted", "error": str(exc),
-            }
-        except LLMError as exc:
-            self.log.warning(
-                "quarterly review LLM failed for %s: %s", persona_id, exc
-            )
-            content = self._fallback_review_text(stats)
-            confidence = 0.5
-            status = "fallback"
-            fallback = True
-        self.db.upsert_review(
-            persona_id, "quarterly", period_start, period_end, content,
-            status=status, confidence=confidence, source_refs=source_refs,
-        )
-        self.db.append_event(
-            persona_id, "review",
-            {"period": "quarterly", "period_start": period_start,
-             "period_end": period_end, "status": status,
-             "confidence": confidence, "fallback": fallback,
-             "content": content[:500]},
-            source_refs, idem,
-        )
-        if self.memory is not None and self.config.memory_host:
-            try:
-                self.memory.store_event(
-                    persona_id, "internet-life", "", now.timestamp(), "review",
-                    {"period": "quarterly", "period_start": period_start,
-                     "period_end": period_end, "status": status,
-                     "confidence": confidence},
-                )
-            except MemoryHostError as exc:
-                self.log.warning(
-                    "quarterly review event mirror failed for %s: %s",
-                    persona_id, exc,
-                )
-        return {
-            "period": "quarterly", "period_start": period_start,
-            "period_end": period_end, "ok": True,
-            "content": content, "status": status,
-            "confidence": confidence, "fallback": fallback,
-        }
 
     # ----- time capsules -----
 

@@ -2,6 +2,20 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.33] - 2026-10-28
+
+### Changed
+
+- 结构重构：`run_review`（月度/年度）与 `run_quarterly_review` 改为共用 `_run_review_common`，统一幂等检查、统计与来源引用、LLM 失败回退、预算跳过、reviews/event_chain/统一记忆写入和成功返回结构。
+- 两个公开入口保留各自的 `enabled` / `quarterly_review_enabled` / 白名单 / persona 解析错误语义；季度入口继续输出 `confidence`，月度/年度不输出。
+- 重复回顾行为不变：第二次仍返回 `duplicate: true`，不重复调用 LLM、不重复写 reviews 或事件。
+
+### Notes
+
+- 全量测试 342 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 新增月度/季度重复回顾幂等测试。
+- 结构重构第三批；`life_plans.started_at` 死列与 `change_log`/`life_edits` 兼容端点仍未动。
+
 ## [0.5.32] - 2026-10-28
 
 ### Changed
