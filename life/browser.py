@@ -1661,13 +1661,14 @@ class LifeService:
                 url_hash=str(original.get("url_hash") or ""),
             )
             self.db.stage_seen(persona_id, run_token, str(original.get("url_hash") or ""))
-        committed = self.db.commit_staged(persona_id, run_token, status="completed")
+        committed = self.db.commit_staged(
+            persona_id,
+            run_token,
+            status="completed",
+            revisit_of=[int(original["id"]) for original, _ in staged],
+        )
         self.interests.clear_staging(persona_id, run_token)
-        self.db.mark_revisits([
-            (int(note["id"]), int(original["id"]))
-            for (original, _), note in zip(staged, committed)
-        ])
-        for (original, payload), note in zip(staged, committed):
+        for (original, payload), note in zip(staged, committed, strict=True):
             self.db.append_event(
                 persona_id, "revisit",
                 {"original_id": int(original["id"]),

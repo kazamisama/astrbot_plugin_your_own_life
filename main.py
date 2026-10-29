@@ -108,7 +108,9 @@ class LifeStar(Star):
         self.life_tool = LifeMemoryTool(self.db, self.personas, memory=self.memory)
         self.life_plans_tool = LifePlansTool(self.db, self.personas)
         self.life_status_tool = LifeStatusTool(self.db, self.personas)
-        self.life_plan_edit_tool = LifePlanEditTool(self.db, self.personas)
+        self.life_plan_edit_tool = LifePlanEditTool(
+            self.db, self.personas, esm=self.esm
+        )
         self.life_edit_tool = LifeEditTool(
             self.db, self.personas, allowed=self._cfg.life_edit_allowed
         )

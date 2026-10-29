@@ -2,6 +2,20 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.39] - 2026-10-29
+
+### Fixed
+
+- 回收站过期清理不再只挂在夜间复盘路径上：调度器每个本地日至少执行一次 `purge_trash`，日记被跳过、预算耗尽或 LLM 失败时也会清理；夜间复盘保留一次兜底调用。
+- 重访标记不再在 `commit_staged` 之后单独写：新增 `revisit_of` 参数，在同一事务内写入新短记的 `revisit_of`；数量不匹配时整体回滚，崩溃窗口不会留下已落库但未标记的后续短记。
+- `purge_trash` 在删除短记/日记时同步擦除 `event_chain` 中对应的 `payload` 与 `source_refs`，不在事件链继续保留正文/标题。
+- LLM 工具通道 `edit_life_plan` 的 `add` 现在也检查 ESM 精力门槛，与自主排期保持一致；低精力时返回 `energy_gate`，不创建计划。
+
+### Notes
+
+- 全量测试 350 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 统一记忆宿主仍是“先写宿主、后本地提交”的跨系统边界：宿主已写而本地失败时，engram_core 没有删除 API，无法本地补偿；已在 `docs/design.md` 记录为外部限制。
+
 ## [0.5.38] - 2026-10-29
 
 ### Changed

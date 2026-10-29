@@ -567,6 +567,32 @@ class SchedulerPlansTest(unittest.TestCase):
         self.assertEqual(row["status"], "pending")
         self.assertEqual(service.calls, ["skip"])
 
+    def test_wait_for_target_purges_expired_trash_without_diary(self):
+        def old_trash(url_hash):
+            note_id = self.db.add_note(
+                "shelly", None, "hn", "https://" + url_hash, "Trash", "s",
+                url_hash=url_hash,
+            )
+            self.assertTrue(self.db.soft_delete_note("shelly", note_id))
+            self.db._execute(
+                "UPDATE notes SET deleted_at = '2020-01-01 00:00:00' WHERE id = ?",
+                (note_id,),
+            )
+
+        old_trash("trash-a")
+        cfg = LifeConfig(
+            browse_times=[], diary_time="", peek_times=[],
+            life_personas=["shelly"], trash_retention_days=30,
+        )
+        scheduler = LifeScheduler(service=_FakeService(self.db), config=cfg)
+        scheduler._stop.set()
+        asyncio.run(scheduler._wait_for_target())
+        self.assertEqual(self.db.list_trash("shelly")["notes"], [])
+
+        old_trash("trash-b")
+        asyncio.run(scheduler._wait_for_target())
+        self.assertEqual(len(self.db.list_trash("shelly")["notes"]), 1)
+
     def test_scheduler_loop_exits_when_disabled(self):
         class _TrackingService(_FakeService):
             def __init__(self, db):

@@ -249,6 +249,24 @@ class LifeToolTest(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(data["ok"])
             self.assertIn("HH:MM", data["error"])
 
+    async def test_edit_plan_tool_checks_esm_energy(self):
+        class _BlockedESM:
+            def gate_energy(self, persona_id):
+                return True, 0.1, "energy_gate"
+
+        tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        tool = LifePlanEditTool(
+            self.db, _FakePersonas(), esm=_BlockedESM()
+        )
+        raw = await tool.call(
+            _FakeWrapper(), action="add", task_id="tool-esm",
+            date=tomorrow, kind="peek", time="09:00",
+        )
+        data = json.loads(raw)
+        self.assertFalse(data["ok"])
+        self.assertEqual(data["error"], "energy_gate")
+        self.assertEqual(self.db.list_plans("shelly", tomorrow), [])
+
     def test_query_life_status_returns_sections(self):
         sid = self.db.start_browse_session(
             "shelly", "scheduled", 0.6, "curious"
@@ -342,6 +360,21 @@ class LifeToolTest(unittest.IsolatedAsyncioTestCase):
             kind="peek", time="12:00", config=config,
         )
         self.assertEqual(past["error"], "past_window")
+
+    def test_add_plan_respects_esm_energy_gate(self):
+        class _BlockedESM:
+            def gate_energy(self, persona_id):
+                return True, 0.1, "energy_gate"
+
+        tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        config = LifeConfig(life_personas=["shelly"])
+        data = edit_life_plan(
+            self.db, "shelly", "add", "esm-plan", date=tomorrow,
+            kind="peek", time="09:00", config=config, esm=_BlockedESM(),
+        )
+        self.assertFalse(data["ok"])
+        self.assertEqual(data["error"], "energy_gate")
+        self.assertEqual(self.db.list_plans("shelly", tomorrow), [])
 
     def test_status_tool_reads_events_for_historical_date(self):
         self.db.append_event(

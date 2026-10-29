@@ -1234,6 +1234,7 @@ class LifeDB:
         notes_count: int = 0,
         reason: str = "",
         error: str = "",
+        revisit_of: Optional[list[int]] = None,
     ) -> list[dict]:
         with self._transaction():
             inserted = self._conn.execute(
@@ -1248,6 +1249,18 @@ class LifeDB:
                 (persona_id, session_id, session_id),
             )
             new_note_ids = [int(row[0]) for row in inserted.fetchall()]
+            if revisit_of is not None:
+                if len(revisit_of) != len(new_note_ids):
+                    raise ValueError(
+                        "revisit_of must have one entry per committed note"
+                    )
+                for note_id, original_id in zip(
+                    new_note_ids, revisit_of, strict=True
+                ):
+                    self._conn.execute(
+                        "UPDATE notes SET revisit_of = ? WHERE id = ?",
+                        (int(original_id), note_id),
+                    )
             self._conn.execute(
                 "INSERT INTO diary_entries "
                 "(persona_id, date, content, signature, mood, energy, interest_top, created_at) "
@@ -2532,6 +2545,17 @@ class LifeDB:
                 "AND deleted_at <= ?",
                 (persona_id, cutoff),
             ).fetchall()
+
+            def scrub_event_refs(field: str, value: Any) -> None:
+                needle = f'"{field}": {json.dumps(value, ensure_ascii=False)}'
+                pattern = f"%{needle}%"
+                self._conn.execute(
+                    "UPDATE event_chain SET payload = '{}', source_refs = '[]' "
+                    "WHERE persona_id = ? AND "
+                    "(payload LIKE ? OR source_refs LIKE ?)",
+                    (persona_id, pattern, pattern),
+                )
+
             for row in note_rows:
                 note_id = int(row["id"])
                 self._conn.execute(
@@ -2543,6 +2567,7 @@ class LifeDB:
                     "WHERE persona_id = ? AND entity = 'note' AND entity_id = ?",
                     (persona_id, str(note_id)),
                 )
+                scrub_event_refs("note_id", note_id)
                 self._conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
             for row in diary_rows:
                 self._conn.execute(
@@ -2550,6 +2575,7 @@ class LifeDB:
                     "WHERE persona_id = ? AND entity = 'diary' AND entity_id = ?",
                     (persona_id, str(row["date"])),
                 )
+                scrub_event_refs("date", str(row["date"]))
                 self._conn.execute(
                     "DELETE FROM diary_entries WHERE persona_id = ? AND date = ?",
                     (persona_id, row["date"]),

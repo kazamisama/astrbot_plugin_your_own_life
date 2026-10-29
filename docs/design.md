@@ -188,6 +188,7 @@ hunger = 0（触发一次意外后清空）
 - 预算全部可配置：`daily_llm_call_limit` 与 `daily_token_budget` 默认 `0`（无上限）；达到上限后当天剩余任务跳过并记录 `budget_exhausted`，WebUI 展示用量。多轮联想每轮召回候选上限 5（第 1 轮 5、第 2 轮 3、brainstorm 3-5），`hop_limit` 默认 2（brainstorm 5）。`daily_token_budget` 的计量依赖 provider 是否返回 usage；拿不到 token 用量时只执行调用次数上限。用量落点：`daily_usage` 表（persona_id / date / llm_calls / tokens / energy_used）承载每日计数，WebUI 用量视图读取该表。
 - 重试：LLM 调用失败重试上限 `llm_retry_limit` 默认 3，带指数退避；重试耗尽后该任务标记 `failed` 并报 error（WebUI 错误区 + 命令 + 日志），不生成确定性伪造内容。
 - 崩溃：每个漫游/复盘 run 采用暂存区（staging）优先，SQLite 写事务只包住最终落库阶段；进程崩溃或异常中断时丢弃该 run 全部未提交数据，不写半成品 note/diary，`browse_sessions` 标记 `failed` 并记录 error；不自动重放，可 `/life_now` 手动重跑。
+- 统一记忆宿主边界：宿主写入与本地 SQLite 提交不是同一事务。宿主成功而本地提交失败会留下无法从宿主删除的孤儿（engram_core 当前无删除 API），只能记录 warning；本地成功而宿主失败只丢镜像。该限制属于外部 API 边界，不通过本地补偿伪造一致性。
 
 ## 生活节奏与频率（方向，部分已排期 L1：peek/频率模型）
 
@@ -397,7 +398,7 @@ LLM 可自主更改生活数据/计划/记忆，按事件链自主排期，并�
 
 ### 回收站与回滚
 
-- 删除走软删除（`deleted_at` + tombstone），进回收站，保留 N 天后可彻底清除。
+- 删除走软删除（`deleted_at` + tombstone），进回收站，保留 N 天后可彻底清除；过期清理由调度器按本地日期每日执行一次，不依赖夜间复盘是否成功。
 - 回滚 = 反向应用账本或恢复实体快照；必须级联处理派生数据（entity_mentions/links/兴趣权重/日记引用），或标记 stale 重新推导。
 - owner 可覆盖任何 LLM 撤销/恢复操作。
 

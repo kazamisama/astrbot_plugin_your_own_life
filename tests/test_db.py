@@ -311,6 +311,38 @@ class LifeDBTest(unittest.TestCase):
         self.assertTrue(logs)
         self.assertTrue(all(row["old_value"] == "" for row in logs))
 
+    def test_purge_trash_scrubs_event_references(self):
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://scrub", "Scrub", "s",
+            url_hash="scrub",
+        )
+        self.assertTrue(self.db.soft_delete_note("shelly", note_id))
+        date = "2026-08-01"
+        self.db.add_diary("shelly", date, "hidden diary")
+        self.assertTrue(self.db.soft_delete_diary("shelly", date))
+        self.db._execute(
+            "UPDATE notes SET deleted_at = '2020-01-01 00:00:00' WHERE id = ?",
+            (note_id,),
+        )
+        self.db._execute(
+            "UPDATE diary_entries SET deleted_at = '2020-01-01 00:00:00' "
+            "WHERE persona_id = ? AND date = ?",
+            ("shelly", date),
+        )
+        self.assertEqual(self.db.purge_trash("shelly", 0), 2)
+        events = self.db.list_events("shelly")
+        note_event = next(
+            row for row in events
+            if row["idempotency_key"].startswith(f"note/{note_id}/soft-delete/")
+        )
+        diary_event = next(
+            row for row in events
+            if row["idempotency_key"].startswith(f"diary/{date}/soft-delete/")
+        )
+        for row in (note_event, diary_event):
+            self.assertEqual(row["payload"], "{}")
+            self.assertEqual(row["source_refs"], "[]")
+
     def test_delete_restore_delete_keeps_distinct_events(self):
         note_id = self.db.add_note(
             "shelly", None, "hn", "https://cycle", "Cycle", "s",
@@ -575,6 +607,43 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(self.db.list_sessions("shelly")[0]["status"], "completed")
         self.assertEqual(self.db._rows("SELECT COUNT(*) AS n FROM staging_notes")[0]["n"], 0)
         self.assertEqual(self.db._rows("SELECT COUNT(*) AS n FROM staging_seen")[0]["n"], 0)
+
+    def test_commit_staged_marks_revisits_atomically(self):
+        original_id = self.db.add_note(
+            "shelly", None, "hn", "https://old", "Old", "s", url_hash="rv-a"
+        )
+        sid = self.db.start_browse_session("shelly", "scheduled")
+        self.db.stage_note(
+            "shelly", sid, "revisit/hn", "https://old", "Later", "s",
+            url_hash="rv-a",
+        )
+        notes = self.db.commit_staged(
+            "shelly", sid, status="completed", revisit_of=[original_id]
+        )
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(notes[0]["revisit_of"], original_id)
+        self.assertEqual(self.db.get_note(original_id)["revisit_of"], 0)
+
+    def test_commit_staged_revisit_length_mismatch_rolls_back(self):
+        original_id = self.db.add_note(
+            "shelly", None, "hn", "https://old2", "Old2", "s", url_hash="rv-b"
+        )
+        sid = self.db.start_browse_session("shelly", "scheduled")
+        self.db.stage_note(
+            "shelly", sid, "revisit/hn", "https://old2", "Later2", "s",
+            url_hash="rv-b",
+        )
+        with self.assertRaisesRegex(ValueError, "revisit_of"):
+            self.db.commit_staged("shelly", sid, revisit_of=[])
+        self.assertEqual(len(self.db.list_notes("shelly")), 1)
+        self.assertEqual(
+            self.db._rows(
+                "SELECT COUNT(*) AS n FROM staging_notes WHERE session_id = ?",
+                (sid,),
+            )[0]["n"],
+            1,
+        )
+        self.assertEqual(self.db.get_note(original_id)["revisit_of"], 0)
 
     def test_commit_refuses_terminal_session(self):
         sid = self.db.start_browse_session("shelly", "scheduled")

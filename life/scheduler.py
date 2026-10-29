@@ -53,6 +53,7 @@ class LifeScheduler:
         self._lock = asyncio.Lock()
         self._done_keys: set[str] = set()
         self._seeded_dates: set[str] = set()
+        self._purged_trash_dates: set[str] = set()
 
     def start(self) -> bool:
         if self._task is not None and not self._task.done():
@@ -235,6 +236,37 @@ class LifeScheduler:
             scheduled_at=slot.strftime("%Y-%m-%d %H:%M:%S"),
             fixed=True,
         )
+
+    def _purge_expired_trash(
+        self, personas: Sequence[str], day_key: str
+    ) -> None:
+        """Purge each persona's expired trash once per local day.
+
+        Trash used to be purged only after a successful nightly diary, so a
+        skipped or failed diary left expired rows until the next successful
+        one.  The scheduler owns the daily maintenance independently of any
+        target result.
+        """
+        if self.db is None:
+            return
+        for persona_id in personas:
+            key = f"{persona_id}:{day_key}"
+            if key in self._purged_trash_dates:
+                continue
+            self._purged_trash_dates.add(key)
+            try:
+                purged = self.db.purge_trash(
+                    persona_id, self.config.trash_retention_days
+                )
+            except Exception as exc:
+                self.log.warning(
+                    "trash purge failed for %s: %s", persona_id, exc
+                )
+                continue
+            if purged:
+                self.log.info(
+                    "purged %s expired trash rows for %s", purged, persona_id
+                )
 
     async def _await_plan_slot(
         self, slot: datetime, persona_id: str, task_id: str, plan_date: str
@@ -422,6 +454,7 @@ class LifeScheduler:
                 self.log.warning("lease cleanup failed: %s", exc)
         today_local = local_now(self.config.timezone, self.now_fn()).date()
         today_key = today_local.isoformat()
+        self._purge_expired_trash(personas, today_key)
         if today_key not in self._seeded_dates:
             self.seed_plans(personas, today_local)
             self._seeded_dates.add(today_key)

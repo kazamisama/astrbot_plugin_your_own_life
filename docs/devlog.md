@@ -2,6 +2,24 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-29 剩余风险收口：回收站清理、重访事务与工具精力门槛（v0.5.39）
+- 目标：处理上一轮审计剩余问题中可独立闭环的三项：回收站清理不能依赖日记成功、重访标记的崩溃窗口、工具通道排期绕过 ESM 精力门槛；同时把 `purge_trash` 对事件链正文的残留一并清掉。
+- 已确认决策：
+  - 回收站清理由调度器按本地日执行一次，夜间复盘保留一次兜底；不把清理绑在 `run_nightly_diary` 的返回结构上。
+  - 重访标记跟随 `commit_staged` 的同一事务，不新增 staging 列；`revisit_of` 列表与本次新短记一一对应，长度不符直接抛错回滚。
+  - `purge_trash` 清 `event_chain.payload/source_refs` 时保留事件记录本身（kind/ts/幂等键），只去掉正文引用。
+  - 工具基类增加可选 ESM 依赖，仅 `edit_life_plan(add)` 使用；不放宽任何现有校验。
+  - 统一记忆宿主“宿主成功、本地失败”的孤儿仍无法补偿：engram_core 没有删除 API，本轮只补文档说明，不写假的回滚。
+- 改动：
+  - `life/db.py`：`commit_staged` 增加 `revisit_of` 参数并在事务内更新 `notes.revisit_of`；`purge_trash` 擦除 `event_chain` 中匹配的 `payload/source_refs`。
+  - `life/browser.py`：`run_revisit` 把原短记 id 列表交给 `commit_staged`，删除提交后的 `mark_revisits` 调用，后续 zip 加 `strict=True`。
+  - `life/scheduler.py`：新增 `_purge_expired_trash`，在 `_wait_for_target` 播种前按 persona/日期每日执行一次；`_purged_trash_dates` 防重复。
+  - `life/life_tool.py` / `main.py`：工具基类与 `edit_life_plan` 接收可选 `esm`，`add` 在创建前调用 `gate_energy`；主插件把 ESM 注入 `LifePlanEditTool`。
+  - `docs/design.md`：补充回收站调度语义与统一记忆宿主的跨系统边界。
+- 验证：新增 DB 重访事务/长度回滚/事件擦除、调度器无日记清理、工具 ESM 门槛测试；全量 350 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外），test_db 77、test_scheduler 32、test_life_tool 19、test_browser 66；ruff F,E9、compileall、`git diff --check`、UTF-8 读回通过。
+- 遗留：统一记忆宿主孤儿仍受 engram_core 无删除 API 限制；`build_handlers` 等结构性长度问题未在本轮处理；真实 AstrBot 端到端未重跑。
+- 下一步：提交 `chore(release): v0.5.39 ...` 并推送。
+
 ## 2026-10-29 结构重构第七批：按通用规则收敛主函数（v0.5.38）
 - 目标：按用户提供的 8 条通用代码规则审计后，先做低风险、纯提取的结构调整：主函数只保留正常流程，提交后副作用与调度阶段各自成组；同时消除计划校验里重复的拒绝分支与一层冗余防御。
 - 已确认决策：

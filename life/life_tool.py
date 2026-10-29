@@ -524,6 +524,7 @@ def edit_life_plan(
     position: int = 1,
     reason: str = "",
     config: Optional[Any] = None,
+    esm: Optional[Any] = None,
 ) -> dict[str, Any]:
     plan_date = date or local_today(getattr(db, "timezone", DEFAULT_TIMEZONE))
     try:
@@ -560,6 +561,10 @@ def edit_life_plan(
         invalid = slot_error(scheduled_at)
         if invalid:
             return {"ok": False, "error": invalid}
+        if esm is not None:
+            blocked, _energy, gate_reason = esm.gate_energy(persona_id)
+            if blocked:
+                return {"ok": False, "error": gate_reason or "energy_gate"}
         if config is not None:
             cap = int(getattr(config, "plan_daily_action_cap", 0) or 0)
             optional = [
@@ -624,6 +629,7 @@ async def _execute_edit_plan_tool(
         tool.db, persona_id, action, task_id, date=date, kind=kind,
         time=time, position=position, reason=reason,
         config=getattr(tool.personas, "config", None),
+        esm=getattr(tool, "esm", None),
     )
     return json.dumps(data, ensure_ascii=False)
 
@@ -797,10 +803,12 @@ async def _execute_edit_memory_tool(
 
 class _LifeMemoryToolMixin:
     def _init(self, db: LifeDB, personas: PersonaService,
-              memory: Optional[Any] = None) -> None:
+              memory: Optional[Any] = None,
+              esm: Optional[Any] = None) -> None:
         self.db = db
         self.personas = personas
         self.memory = memory
+        self.esm = esm
 
     async def _resolve_persona(self, context: Any) -> Optional[str]:
         persona_id = await resolve_persona_id(context)
@@ -834,7 +842,8 @@ class _LifeToolBase(_LifeMemoryToolMixin, _ToolBase):
     description = ""
     parameters: dict[str, Any] = {}
 
-    def __init__(self, db: LifeDB, personas: PersonaService) -> None:
+    def __init__(self, db: LifeDB, personas: PersonaService,
+                 esm: Optional[Any] = None) -> None:
         if _HAS_ASTRBOT_TOOL:
             super().__init__(
                 name=self.name,
@@ -842,7 +851,7 @@ class _LifeToolBase(_LifeMemoryToolMixin, _ToolBase):
                 parameters=self.parameters,
                 handler=None,
             )
-        self._init(db, personas)
+        self._init(db, personas, esm=esm)
 
 
 class LifeMemoryTool(_LifeToolBase):
