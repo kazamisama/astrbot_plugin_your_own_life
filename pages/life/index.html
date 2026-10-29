@@ -56,6 +56,31 @@ body {
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.small { padding: 4px 9px; min-height: 26px; font-size: 12px; }
 .btn svg { width: 15px; height: 15px; flex: none; }
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.42);
+}
+.confirm-dialog {
+  width: 100%;
+  max-width: 360px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.2);
+  padding: 18px;
+}
+.confirm-dialog p {
+  margin: 0 0 16px;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
 select, input[type="date"], input[type="text"] {
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -613,6 +638,55 @@ function showError(msg) {
   banner.hidden = false;
 }
 
+// 插件页运行在 AstrBot 的 sandbox iframe 中，默认没有 allow-modals，
+// window.confirm 会被浏览器忽略并返回 false，确认按钮等于永远取消。
+// 这里用页面内的确认框代替原生 confirm，保证删除/恢复等操作可用。
+function askConfirm(message) {
+  return new Promise(function (resolve) {
+    var previous = document.activeElement;
+    var overlay = document.createElement("div");
+    overlay.className = "confirm-overlay";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    var dialog = document.createElement("div");
+    dialog.className = "confirm-dialog";
+    var text = document.createElement("p");
+    text.textContent = message;
+    var actions = document.createElement("div");
+    actions.className = "confirm-actions";
+    var cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "btn";
+    cancel.textContent = "取消";
+    var ok = document.createElement("button");
+    ok.type = "button";
+    ok.className = "btn primary";
+    ok.textContent = "确定";
+    function finish(value) {
+      document.removeEventListener("keydown", onKey);
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      if (previous && previous.focus) previous.focus();
+      resolve(value);
+    }
+    function onKey(event) {
+      if (event.key === "Escape") finish(false);
+    }
+    cancel.addEventListener("click", function () { finish(false); });
+    ok.addEventListener("click", function () { finish(true); });
+    overlay.addEventListener("click", function (event) {
+      if (event.target === overlay) finish(false);
+    });
+    document.addEventListener("keydown", onKey);
+    actions.appendChild(cancel);
+    actions.appendChild(ok);
+    dialog.appendChild(text);
+    dialog.appendChild(actions);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+    cancel.focus();
+  });
+}
+
 function renderStatus(status) {
   document.getElementById("statusMood").textContent = status.mood || "未知";
   document.getElementById("statusEnergy").textContent =
@@ -802,13 +876,15 @@ function renderDiary(overview) {
     delBtn.hidden = false;
     delBtn.onclick = function () {
       var date = (overview && overview.date) || dateInput.value || today();
-      if (!window.confirm("把 " + date + " 的日记移入回收站？")) return;
-      apiPostChecked("trash_add", {
-        persona: state.persona, entity: "diary", date: date
-      }).then(function (res) {
-        if (res && res.ok === false) showError(res.error || "删除失败");
-        loadLife();
-      }).catch(function () { showError("删除日记失败。"); });
+      askConfirm("把 " + date + " 的日记移入回收站？").then(function (ok) {
+        if (!ok) return;
+        apiPostChecked("trash_add", {
+          persona: state.persona, entity: "diary", date: date
+        }).then(function (res) {
+          if (res && res.ok === false) showError(res.error || "删除失败");
+          loadLife();
+        }).catch(function () { showError("删除日记失败。"); });
+      });
     };
   } else {
     el.textContent = "暂无日记。夜间复盘后会出现。";
@@ -1496,13 +1572,15 @@ function loadMemory() {
           del.className = "btn small";
           del.textContent = "移入回收站";
           del.addEventListener("click", function () {
-            if (!window.confirm("把这条短记移入回收站？")) return;
-            apiPostChecked("trash_add", {
-              persona: state.persona, entity: "note", id: item.id
-            }).then(function (res) {
-              if (res && res.ok === false) showError(res.error || "删除失败");
-              loadMemory();
-            }).catch(function () { showError("删除短记失败。"); });
+            askConfirm("把这条短记移入回收站？").then(function (ok) {
+              if (!ok) return;
+              apiPostChecked("trash_add", {
+                persona: state.persona, entity: "note", id: item.id
+              }).then(function (res) {
+                if (res && res.ok === false) showError(res.error || "删除失败");
+                loadMemory();
+              }).catch(function () { showError("删除短记失败。"); });
+            });
           });
           li.appendChild(del);
         }

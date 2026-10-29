@@ -432,6 +432,14 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["ok"])
         self.assertIn("integer", result["error"])
 
+    def test_plugin_page_avoids_native_confirm(self):
+        page = (Path(__file__).resolve().parents[1] / "pages" / "life" / "index.html")
+        html = page.read_text(encoding="utf-8")
+        # AstrBot 的插件 iframe 没有 allow-modals，原生 confirm 会被静默忽略。
+        self.assertNotIn("window.confirm(", html)
+        self.assertIn("function askConfirm", html)
+        self.assertIn("confirm-overlay", html)
+
 
 if __name__ == "__main__":
     unittest.main()

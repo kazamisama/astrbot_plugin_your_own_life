@@ -2,6 +2,17 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.37] - 2026-10-29
+
+### Fixed
+
+- 修复真实 AstrBot 网页中回收站删除按钮永远不生效：插件页运行在 sandbox iframe 中，AstrBot 默认未启用 `allow-modals`，`window.confirm` 被浏览器静默忽略并返回 `false`。短记与日记的删除确认改为页面内对话框，支持取消、确定、Esc 和点击遮罩关闭。
+
+### Notes
+
+- 在 AstrBot 4.29.3 + Edge/Chromium 中完成真实浏览器验收：15 个 tab 均可打开，档案与兴趣页正常渲染；通过页面确认框实际删除并恢复一条短记，`trash_add` / `trash_restore` 均返回 200。
+- 全量测试 344 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）；新增页面回归测试，禁止再次出现 `window.confirm(`。
+
 ## [0.5.36] - 2026-10-29
 
 ### Added

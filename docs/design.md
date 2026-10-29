@@ -454,9 +454,9 @@ LLM 可自主更改生活数据/计划/记忆，按事件链自主排期，并�
 
 ## WebUI 与 API
 
-页面由 AstrBot Dashboard 自动发现（`pages/life/index.html`），数据接口统一挂在 `/api/plug/astrbot_plugin_your_own_life/api/...`：overview、status、timeline/heatmap、archive、interests、run、memory、memory_search、usage、trash、trash_restore、life_edits、injection_log、personas、persona_refresh、share、share_note、revisit_chains，访问需要 Dashboard 登录态。
+页面由 AstrBot Dashboard 自动发现（`pages/life/index.html`），数据接口统一挂在 `/api/plug/astrbot_plugin_your_own_life/api/...`：overview、status、timeline/heatmap、archive、interests、run、memory、memory_search、usage、trash、trash_add、trash_restore、life_edits、injection_log、personas、persona_refresh、share、share_note、revisit_chains，访问需要 Dashboard 登录态。
 
-页面视觉层（v0.3.1；v0.5.36 补齐档案/兴趣视图）：状态卡行、月历热力图、全局错误横幅、空态提示与加载态已落地；档案页按日期展示日记/见闻/会话/分享/快照，兴趣页展示完整排行与见过次数；桌面/移动视口均无元素重叠，保持 vanilla HTML/CSS/JS，不引入外部前端依赖。
+页面视觉层（v0.3.1；v0.5.36 补齐档案/兴趣视图；v0.5.37 删除确认改页面内对话框）：状态卡行、月历热力图、全局错误横幅、空态提示与加载态已落地；档案页按日期展示日记/见闻/会话/分享/快照，兴趣页展示完整排行与见过次数；AstrBot 插件 iframe 的 sandbox 未启用 `allow-modals`，原生 `window.confirm` 会被忽略，因此删除确认使用页面内对话框；桌面/移动视口均无元素重叠，保持 vanilla HTML/CSS/JS，不引入外部前端依赖。
 
 ## 可被看见（方向，L1/L1.5/L2 分档）
 

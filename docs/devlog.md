@@ -2,6 +2,18 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-29 真实浏览器验收与回收站确认修复（v0.5.37）
+- 目标：用真实 AstrBot Dashboard + Chromium 验收 WebUI，重点检查 v0.5.36 新增的「档案」「兴趣」视图，并覆盖 v0.5.20 的回收站交互。
+- 环境：AstrBot 4.29.3 production backend（`C:\application\AstrBot\backend\python`）+ 同版本 `webui`，`ASTRBOT_ROOT` 指向临时 staged root；插件 v0.5.36 干净副本；Playwright + Edge headless；Dashboard 登录态写入 localStorage。
+- 已确认决策：
+  - 不使用测试 kit 自带的 AstrBot 4.25.5 前端：其 dashboard 资产缺失，借用生产 4.29.3 前端会因 `/api/v1` 契约不匹配而整页 401，不能作为验收依据。
+  - 真实浏览器验收以 AstrBot 4.29.3 全栈为准；插件 iframe 由 AstrBot 注入 sandbox，页面不能依赖原生浏览器模态框。
+- 发现并修复：插件 iframe 的 sandbox 只有 `allow-scripts allow-forms allow-downloads`，没有 `allow-modals`，`window.confirm` 被忽略并返回 false，导致回收站两条删除入口永远不执行。改为页面内 `askConfirm` 对话框（overlay + 取消/确定 + Esc + 点遮罩），替换仅有的两处 `window.confirm`。
+- 验收结果：登录后进入 `/#/plugin-page/astrbot_plugin_your_own_life/life`，iframe 正常加载；15 个 tab 全部可见且切换无 JS 错误、无 4xx；档案页按日期显示日记/见闻/会话/分享/快照；兴趣页显示 4 条兴趣、权重条、见过次数与最近时间；通过页面确认框删除一条短记（回收站 1 条）并恢复（0 条），接口均 200。
+- 改动：`pages/life/index.html`、`tests/test_webui.py`、`README.md`、`CHANGELOG.md`、`docs/design.md`、`docs/devlog.md`、`metadata.yaml`、`life/__init__.py`；版本 v0.5.36 → v0.5.37。
+- 验证：真实浏览器（AstrBot 4.29.3 + Edge）通过；新增 `test_plugin_page_avoids_native_confirm`；全量 344 条，仅 `test_config` 已知环境错误（skipped=1）；页面内联脚本 `node --check`、ruff F,E9、compileall、`git diff --check` 待本轮收尾执行。
+- 遗留：页面仍无 DOM 自动化测试，本次验收脚本在临时目录；AstrBot 4.25.5 测试 kit 前端资产缺失，未做该版本浏览器验收。
+
 ## 2026-10-29 结构重构第六批：补齐档案/兴趣页面视图（v0.5.36）
 - 目标：把已有后端 `GET /archive` 与 `GET /interests` 接到 WebUI，消除“接口存在但页面没有视图”的空缺；顺带收敛页面内重复的笔记渲染与 tab 分派。
 - 已确认决策：
