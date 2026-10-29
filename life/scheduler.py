@@ -495,6 +495,10 @@ class LifeScheduler:
             f"{slot.strftime('%Y-%m-%d %H:%M')}:{persona_id}:{kind}:{task_id}"
         )
         if key in self._done_keys:
+            # The key is added by _finalize_plan before update_plan. If that
+            # write failed, the plan is still pending and next_target will
+            # return it again; sleep instead of spinning on the same key.
+            await self._sleep_or_stop(5.0)
             return None
         return slot, persona_id, kind, task_id, plan_date, key
 

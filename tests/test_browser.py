@@ -539,6 +539,34 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         events = self.db.list_events("shelly")
         self.assertEqual(events[0]["kind"], "capsule")
 
+    async def test_capsules_only_process_selected_id(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 10, 0)
+        first_note = self.db.add_note(
+            "shelly", None, "hn", "https://cap-a", "Capsule A", "s",
+            url_hash="cb-a",
+        )
+        second_note = self.db.add_note(
+            "shelly", None, "hn", "https://cap-b", "Capsule B", "s",
+            url_hash="cb-b",
+        )
+        first = self.db.seal_capsule(
+            "shelly", first_note, "2026-08-12 09:00:00",
+            sealed_at="2026-07-13 09:00:00",
+        )
+        second = self.db.seal_capsule(
+            "shelly", second_note, "2026-08-12 09:00:00",
+            sealed_at="2026-07-13 09:00:00",
+        )
+        self.service.llm = _FakeLLM(payload={
+            "reply_text": "当时记下的 A。", "mood": "calm",
+        })
+        result = await self.service.run_capsules("shelly", only_id=first)
+        self.assertEqual(result["opened"], 1)
+        self.assertEqual(result["replied"], 1)
+        rows = {row["id"]: row for row in self.db.list_capsules("shelly")}
+        self.assertEqual(rows[first]["status"], "replied")
+        self.assertEqual(rows[second]["status"], "sealed")
+
     async def test_capsules_llm_failure_marks_unlocked(self):
         self.service.now_fn = lambda: datetime(2026, 8, 12, 10, 0)
         note_id = self.db.add_note(

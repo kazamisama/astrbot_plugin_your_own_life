@@ -2,6 +2,26 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-29 交互与清除边界修复（v0.5.41）
+- 目标：处理上一轮审计列出的五项可修问题——热力图点击闭包、胶囊手动打开连带运行全部到期项、调度器最终写库失败忙循环、回收站未清理 injection_log 预览、同会话同文消息被幂等键吞掉。
+- 已确认决策：
+  - 热力图循环变量改用块级 `let`，不引入新的页面框架或 DOM 测试依赖；现有页面测试只能做源码级回归。
+  - WebUI 手动打开胶囊只处理指定 `capsule_id`，不改变夜间复盘“处理全部到期胶囊”的语义。
+  - 调度器命中 `_done_keys` 后等待 5 秒，覆盖“最终写库失败但 key 已记”的失败路径，不改变正常终态分支。
+  - `purge_trash` 只清空与被删短记标题/摘要/观点完全匹配的 `injection_log.preview`，保留无关审计记录；SQLite 开启 `secure_delete`，但不自动 VACUUM 全库，历史 freelist 页仍属外部操作。
+  - 聊天事件键优先使用 AstrBot 上游 `message_obj.message_id`；没有消息 ID 的测试/旧平台仍回退到文本哈希。
+- 改动：
+  - `pages/life/index.html`：热力图 `var key` 改为 `let key`。
+  - `life/browser.py`、`life/webui.py`：`run_capsules` 增加 `only_id`，`capsules_open` 传入当前胶囊 id。
+  - `life/scheduler.py`：`_wait_for_target` 的 `_done_keys` 分支增加 5 秒退避。
+  - `life/db.py`：连接开启 `secure_delete`；`purge_trash` 增加 injection preview 脱敏。
+  - `life/chat_hooks.py`：新增 `_event_message_id`，`_event_key` 接受消息 ID。
+  - 测试：热力图源码回归、胶囊 only_id、调度器退避、injection preview、secure_delete、聊天键与同文消息。
+  - 文档/版本：metadata、`life/__init__.py`、README、CHANGELOG、design.md、devlog 升 v0.5.41。
+- 验证：test_db 79、test_browser 67、test_webui 28、test_scheduler 34、test_chat_hooks 12 全绿；全量 358 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 遗留：页面日期初始值仍用浏览器本地日期；统一记忆宿主跨系统孤儿仍受 engram_core 无删除 API 限制；真实浏览器 E2E 未重跑。
+- 下一步：提交并推送 v0.5.41；页面时区与 E2E 视需要另开工作段。
+
 ## 2026-10-29 回收站彻底清除边界与清理重试（v0.5.40）
 - 目标：按“目光放长远、不为旧数据打补丁”的原则，明确回收站彻底清除的派生数据边界，并让调度器清理失败可重试；顺带清掉 v0.5.39 后失去调用者的 `mark_revisits`。
 - 已确认决策：

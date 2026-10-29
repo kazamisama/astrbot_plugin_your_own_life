@@ -475,7 +475,7 @@ def _build_action_handlers(
         capsules_running.add(persona)
         try:
             db.open_capsule_now(persona, capsule_id)
-            result = await service.run_capsules(persona)
+            result = await service.run_capsules(persona, capsule_id)
         finally:
             capsules_running.discard(persona)
         row = db.get_capsule(persona, capsule_id)

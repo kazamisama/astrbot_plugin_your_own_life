@@ -1464,7 +1464,9 @@ class LifeService:
         )
         return 1
 
-    async def run_capsules(self, persona_id: str) -> dict[str, Any]:
+    async def run_capsules(
+        self, persona_id: str, only_id: Optional[int] = None
+    ) -> dict[str, Any]:
         if not self.config.enabled:
             return {"persona_id": persona_id, "ok": False, "error": "disabled"}
         if not persona_allowed(self.config, persona_id):
@@ -1479,6 +1481,8 @@ class LifeService:
         due = self.db.capsules_due(
             persona_id, now.strftime("%Y-%m-%d %H:%M:%S")
         )
+        if only_id is not None:
+            due = [row for row in due if int(row["id"]) == int(only_id)]
         opened = 0
         replied = 0
         failed = 0

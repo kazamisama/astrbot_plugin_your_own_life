@@ -715,7 +715,7 @@ function renderHeatmap(data) {
     box.appendChild(pad);
   }
   for (var d = 1; d <= count; d++) {
-    var key = month + "-" + String(d).padStart(2, "0");
+    let key = month + "-" + String(d).padStart(2, "0");
     var info = days[key] || {};
     var total = (info.notes || 0) + (info.diaries || 0) +
       (info.shares || 0) + (info.browse || 0) + (info.peeks || 0);

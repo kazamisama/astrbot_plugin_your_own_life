@@ -84,9 +84,18 @@ def _inject_presence(request: Any, text: str) -> bool:
     return False
 
 
-def _event_key(prefix: str, persona_id: str, session: str, text: str) -> str:
+def _event_message_id(event: Any) -> str:
+    obj = getattr(event, "message_obj", None)
+    return str(getattr(obj, "message_id", "") or "")
+
+
+def _event_key(
+    prefix: str, persona_id: str, session: str, text: str, message_id: str = ""
+) -> str:
     # 不含时间戳：同一会话里的同一条消息重试时仍应命中同一幂等键。
-    digest = hashlib.sha256(str(text).encode("utf-8")).hexdigest()
+    # 有上游消息 ID 时一并纳入，避免同会话里两次相同文本被当成重试。
+    raw = f"{message_id}\n{text}" if message_id else str(text)
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     return f"chat/{prefix}/{persona_id}/{session}/{digest}"
 
 
@@ -113,6 +122,7 @@ async def handle_llm_request(
         return False
     now = (now_fn or datetime.now)()
     session = str(getattr(event, "unified_msg_origin", "") or "")
+    message_id = _event_message_id(event)
     busy = presence.is_busy(persona_id) if presence is not None else None
     db.append_event(
         persona_id,
@@ -124,7 +134,7 @@ async def handle_llm_request(
             "deferred": bool(busy),
         },
         [],
-        _event_key("in", persona_id, session, text),
+        _event_key("in", persona_id, session, text, message_id),
         ts=now.strftime("%Y-%m-%d %H:%M:%S"),
     )
     extra_set = getattr(event, "set_extra", None)
@@ -173,6 +183,7 @@ async def handle_llm_response(
         return False
     now = (now_fn or datetime.now)()
     session = str(getattr(event, "unified_msg_origin", "") or "")
+    message_id = _event_message_id(event)
     db.append_event(
         persona_id,
         "reply_out",
@@ -182,7 +193,7 @@ async def handle_llm_response(
             "ts": now.isoformat(),
         },
         [],
-        _event_key("out", persona_id, session, text),
+        _event_key("out", persona_id, session, text, message_id),
         ts=now.strftime("%Y-%m-%d %H:%M:%S"),
     )
     extra_set = getattr(event, "set_extra", None)

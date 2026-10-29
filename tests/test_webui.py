@@ -268,8 +268,8 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         gate = asyncio.Event()
         started = []
 
-        async def slow_capsules(persona):
-            started.append(persona)
+        async def slow_capsules(persona, capsule_id=None):
+            started.append((persona, capsule_id))
             await gate.wait()
             return {"opened": 1, "replied": 0, "failed": 0}
 
@@ -287,7 +287,7 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(first["ok"])
         self.assertFalse(second["ok"])
         self.assertEqual(second["error"], "capsule run already in progress")
-        self.assertEqual(started, ["shelly"])
+        self.assertEqual(started, [("shelly", capsule_id)])
 
     async def test_personas_list_hides_system_prompt(self):
         class _FakePersonas:
@@ -439,6 +439,12 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("window.confirm(", html)
         self.assertIn("function askConfirm", html)
         self.assertIn("confirm-overlay", html)
+
+    def test_plugin_page_heatmap_captures_clicked_day(self):
+        page = (Path(__file__).resolve().parents[1] / "pages" / "life" / "index.html")
+        html = page.read_text(encoding="utf-8")
+        # var 在 for 循环里是函数作用域，所有点击回调会捕获最后一个 key。
+        self.assertIn('let key = month + "-" + String(d).padStart(2, "0");', html)
 
 
 if __name__ == "__main__":

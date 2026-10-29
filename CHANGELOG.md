@@ -2,6 +2,22 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.41] - 2026-10-29
+
+### Fixed
+
+- 页面月历热力图的点击回调改用块级 `let key`：此前 `var key` 在 `for` 循环里是函数作用域，所有格子都会跳到当月最后一天。
+- WebUI 手动打开胶囊只处理指定的 `capsule_id`，不再顺带运行所有到期胶囊；避免一次点击触发多条 LLM 调用并拖到请求超时。
+- 调度器命中 `_done_keys` 后等待 5 秒再重试：`_finalize_plan` 写库失败时计划仍是 pending，此前会立即重跑同一目标形成忙循环。
+- 回收站彻底清除时同步清空 `injection_log` 中与被删短记标题/摘要/观点匹配的 `preview`；SQLite 连接开启 `secure_delete`，后续删除的页内容会被覆盖。历史 freelist 页仍需外部 VACUUM，文档已写明。
+- 聊天事件键优先使用 AstrBot 上游 `message_obj.message_id`：同一会话两次内容相同的独立消息不再被当成重试吞掉；没有消息 ID 时仍回退到文本哈希。
+
+### Notes
+
+- 全量测试 358 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 页面日期初始值仍使用浏览器本地日期；后端按配置时区解释日期，跨时区/午夜附近可能默认查询错日，尚未改。
+- 统一记忆宿主“宿主已写、本地失败”的跨系统孤儿仍受 engram_core 无删除 API 限制。
+
 ## [0.5.40] - 2026-10-29
 
 ### Changed

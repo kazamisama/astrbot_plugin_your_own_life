@@ -30,6 +30,13 @@ class ChatEventKeyTest(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertNotEqual(first, other)
 
+    def test_event_key_uses_message_id_when_available(self):
+        first = _event_key("in", "shelly", "sid", "hello", "m1")
+        retry = _event_key("in", "shelly", "sid", "hello", "m1")
+        second = _event_key("in", "shelly", "sid", "hello", "m2")
+        self.assertEqual(first, retry)
+        self.assertNotEqual(first, second)
+
 
 class _FakeEvent:
     unified_msg_origin = "aiocqhttp:GroupMessage:123"
@@ -166,6 +173,31 @@ class ChatHooksTest(unittest.IsolatedAsyncioTestCase):
             if e["kind"] == "message_in"
         ]
         self.assertEqual(len(events), 1)
+
+    async def test_request_uses_message_id_for_distinct_messages(self):
+        class _Message:
+            def __init__(self, message_id):
+                self.message_id = message_id
+
+        class _EventWithId(_FakeEvent):
+            def __init__(self, message_id):
+                super().__init__()
+                self.message_obj = _Message(message_id)
+
+        request = _FakeRequest()
+        await handle_llm_request(
+            self.context, self.presence, self.db, self.config,
+            _EventWithId("m1"), request,
+        )
+        await handle_llm_request(
+            self.context, self.presence, self.db, self.config,
+            _EventWithId("m2"), request,
+        )
+        events = [
+            e for e in self.db.list_events("shelly")
+            if e["kind"] == "message_in"
+        ]
+        self.assertEqual(len(events), 2)
 
     async def test_disabled_presence_does_nothing(self):
         config = LifeConfig(

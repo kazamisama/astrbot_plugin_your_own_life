@@ -925,6 +925,34 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(rows[0]["detected"], 1)
         self.assertEqual(rows[0]["field"], "summary")
 
+    def test_purge_trash_scrubs_injection_previews(self):
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://inj", "Suspicious title",
+            "Suspicious summary", opinion="Suspicious opinion",
+            url_hash="inj",
+        )
+        self.db.log_injection(
+            "shelly", source="hn", context="browse", field="summary",
+            preview="Suspicious title",
+        )
+        self.db.log_injection(
+            "shelly", source="hn", context="browse", field="summary",
+            preview="unrelated audit preview",
+        )
+        self.assertTrue(self.db.soft_delete_note("shelly", note_id))
+        self.db._execute(
+            "UPDATE notes SET deleted_at = '2020-01-01 00:00:00' WHERE id = ?",
+            (note_id,),
+        )
+        self.assertEqual(self.db.purge_trash("shelly", 0), 1)
+        previews = [row["preview"] for row in self.db.list_injection_log("shelly")]
+        self.assertNotIn("Suspicious title", previews)
+        self.assertIn("unrelated audit preview", previews)
+
+    def test_secure_delete_pragma_is_enabled(self):
+        row = self.db._conn.execute("PRAGMA secure_delete").fetchone()
+        self.assertEqual(int(row[0]), 1)
+
     def test_lease_exclusivity_and_renewal(self):
         key = "browse:2026-08-12 10:00"
         self.assertTrue(self.db.acquire_lease("shelly", key, "inst-a", ttl_seconds=300))

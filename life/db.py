@@ -343,6 +343,10 @@ class LifeDB:
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        # Overwrite deleted page content for rows removed from here on. Old
+        # freelist pages need an external VACUUM; this only protects future
+        # purge_trash runs.
+        self._conn.execute("PRAGMA secure_delete = ON")
         self._in_transaction = False
         with self._lock:
             if self._is_legacy():
@@ -2521,8 +2525,8 @@ class LifeDB:
         ).strftime("%Y-%m-%d %H:%M:%S")
         with self._transaction():
             note_rows = self._conn.execute(
-                "SELECT id FROM notes WHERE persona_id = ? AND deleted_at != '' "
-                "AND deleted_at <= ?",
+                "SELECT id, title, summary, opinion FROM notes "
+                "WHERE persona_id = ? AND deleted_at != '' AND deleted_at <= ?",
                 (persona_id, cutoff),
             ).fetchall()
             diary_rows = self._conn.execute(
@@ -2572,6 +2576,17 @@ class LifeDB:
 
             for row in note_rows:
                 note_id = int(row["id"])
+                previews = {
+                    str(row[field] or "")[:200]
+                    for field in ("title", "summary", "opinion")
+                }
+                previews.discard("")
+                for preview in previews:
+                    self._conn.execute(
+                        "UPDATE injection_log SET preview = '' "
+                        "WHERE persona_id = ? AND preview = ?",
+                        (persona_id, preview),
+                    )
                 self._conn.execute(
                     "DELETE FROM time_capsules WHERE persona_id = ? AND note_id = ?",
                     (persona_id, note_id),

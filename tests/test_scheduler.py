@@ -593,6 +593,29 @@ class SchedulerPlansTest(unittest.TestCase):
         asyncio.run(scheduler._wait_for_target())
         self.assertEqual(len(self.db.list_trash("shelly")["notes"]), 1)
 
+    def test_wait_for_target_backs_off_when_done_key_is_still_pending(self):
+        cfg = LifeConfig(
+            browse_times=[], diary_time="", peek_times=[],
+            life_personas=["shelly"],
+        )
+        scheduler = LifeScheduler(
+            service=_FakeService(self.db), config=cfg,
+            now_fn=lambda: datetime(2026, 8, 12, 12, 0),
+        )
+        self.db.ensure_plan(
+            "shelly", "2026-08-12", "browse-10-00", "browse",
+            scheduled_at="2026-08-12 10:00:00", fixed=True,
+        )
+        scheduler._done_keys.add("2026-08-12 10:00:shelly:browse:browse-10-00")
+        sleeps = []
+
+        async def fake_sleep(timeout):
+            sleeps.append(timeout)
+
+        scheduler._sleep_or_stop = fake_sleep
+        self.assertIsNone(asyncio.run(scheduler._wait_for_target()))
+        self.assertEqual(sleeps, [5.0])
+
     def test_trash_purge_failure_is_retried(self):
         class _FlakyDB:
             def __init__(self):
