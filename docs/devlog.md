@@ -2,6 +2,21 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-29 结构重构第七批：按通用规则收敛主函数（v0.5.38）
+- 目标：按用户提供的 8 条通用代码规则审计后，先做低风险、纯提取的结构调整：主函数只保留正常流程，提交后副作用与调度阶段各自成组；同时消除计划校验里重复的拒绝分支与一层冗余防御。
+- 已确认决策：
+  - 只做纯提取，不改变数据库 schema、WebUI 接口、调度状态机或返回结构。
+  - 不按“禁止提前抽只用一次的函数”去全量内联 65 个单调用点 helper；这些多为清楚概念或复杂迁移，保留。
+  - 不使用“通用规则”去删除租约、事务等边界守卫：多实例单写者是 `docs/design.md` 的明确设计要求，不是猜测出来的竞态。
+  - 本次不引入 Playwright/新工具到仓库测试流程；真实浏览器验收仍是一次性人工流程。
+- 改动：
+  - `life/browser.py`：`run_browse_session` 的提交后副作用抽成 `_after_browse_commit`；`run_nightly_diary` 的提交后副作用抽成 `_after_diary_commit` 与 `_after_diary_followups`，主函数只保留正常流程与错误返回。
+  - `life/scheduler.py`：`_run_loop` 拆成 `_wait_for_target` / `_run_target` / `_finalize_plan`；任务分派抽成 `_dispatch_plan`；等待停止的重复模式收敛到 `_sleep_or_stop`。
+  - `life/browser.py`：`_apply_plan_payload` 增加局部 `reject()`，替代 7 处“追加 rejected + 记录拒绝 + continue”；删除 `esm.gate_energy` 外层永远不会触发的 try/except。
+- 验证：test_browser 66、test_scheduler 31、test_life_tool 17 全绿；全量 344 条，仅 `test_config` 与生产 AstrBot 混装的已知环境错误（skipped=1）；ruff F,E9、compileall、`git diff --check` 通过。
+- 遗留：`build_handlers`（534 行）、`run_review` 同构主体、`run_revisit` 等仍可继续拆分；页面仍无 DOM 自动化测试；真实 AstrBot 端到端未在本轮重跑。
+- 下一步：提交 `chore(release): v0.5.38 ...`；之后按需继续结构审查或新功能。
+
 ## 2026-10-29 真实浏览器验收与回收站确认修复（v0.5.37）
 - 目标：用真实 AstrBot Dashboard + Chromium 验收 WebUI，重点检查 v0.5.36 新增的「档案」「兴趣」视图，并覆盖 v0.5.20 的回收站交互。
 - 环境：AstrBot 4.29.3 production backend（`C:\application\AstrBot\backend\python`）+ 同版本 `webui`，`ASTRBOT_ROOT` 指向临时 staged root；插件 v0.5.36 干净副本；Playwright + Edge headless；Dashboard 登录态写入 localStorage。

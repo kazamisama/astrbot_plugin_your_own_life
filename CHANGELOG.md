@@ -2,6 +2,21 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.38] - 2026-10-29
+
+### Changed
+
+- 按“主函数只写正常流程”的规则重构，不改变行为与返回结构：
+  - `run_browse_session` 的提交后副作用抽成 `_after_browse_commit`。
+  - `run_nightly_diary` 的提交后副作用抽成 `_after_diary_commit` 与 `_after_diary_followups`。
+  - 调度器 `_run_loop` 拆为 `_wait_for_target` / `_run_target` / `_finalize_plan`，任务分派抽成 `_dispatch_plan`。
+  - `_apply_plan_payload` 用局部 `reject()` 消除 7 处重复的“记录拒绝 + continue”；删除 `esm.gate_energy` 外层永远不会触发的 try/except。
+
+### Notes
+
+- 全量测试 344 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 纯提取重构：不新增运行时依赖，不改变数据库 schema、接口或调度状态机。
+
 ## [0.5.37] - 2026-10-29
 
 ### Fixed

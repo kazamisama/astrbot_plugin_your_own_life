@@ -428,121 +428,13 @@ class LifeService:
                 persona_id, sid, status="completed",
                 notes_count=len(selected), reason="",
             )
-            try:
-                self.interests.clear_staging(persona_id, sid)
-            except Exception as exc:
-                self.log.warning(
-                    "browse staging clear failed after commit for %s: %s",
-                    persona_id, exc,
-                )
-            note_refs = [
-                {"note_id": note["id"], "url": note.get("url") or ""}
-                for note in notes
-            ]
-            try:
-                self.db.append_event(
-                    persona_id, "observe",
-                    {"entity": "browse", "session_id": sid,
-                     "notes_count": len(notes)},
-                    note_refs,
-                    f"session/{sid}/observe",
-                )
-                self.db.append_event(
-                    persona_id, "change",
-                    {"entity": "note", "session_id": sid,
-                     "note_ids": [note["id"] for note in notes]},
-                    note_refs,
-                    f"session/{sid}/commit",
-                )
-            except Exception as exc:
-                self.log.warning(
-                    "browse event write failed after commit for %s: %s",
-                    persona_id, exc,
-                )
-            if self.memory is not None and self.config.memory_host:
-                try:
-                    self.memory.store_event(
-                        persona_id, "internet-life", str(sid), now.timestamp(),
-                        "observe",
-                        {"entity": "browse", "session_id": sid,
-                         "notes_count": len(notes)},
-                    )
-                    self.memory.store_event(
-                        persona_id, "internet-life", str(sid), now.timestamp(),
-                        "change",
-                        {"entity": "note", "session_id": sid,
-                         "note_ids": [note["id"] for note in notes]},
-                    )
-                except Exception as exc:
-                    self.log.warning(
-                        "browse event mirror failed for %s: %s", persona_id, exc
-                    )
-            if self.memory is not None and self.config.memory_host:
-                try:
-                    platform_ids: dict[str, str] = {}
-                    for note in notes:
-                        src = str(note.get("source") or "").strip()
-                        url = str(note.get("url") or "").strip()
-                        if src and src not in platform_ids:
-                            platform_ids[src] = self.memory.upsert_entity(
-                                persona_id,
-                                {"dimension": "platform", "entity_id": src,
-                                 "name": src, "canonical_url": ""},
-                            )
-                        if url:
-                            url_entity = {
-                                "dimension": "url",
-                                "entity_id": str(note.get("url_hash") or url),
-                                "name": str(note.get("title") or "")[:120] or url,
-                                "canonical_url": url,
-                            }
-                            if str(note.get("source") or "").startswith("watchlist/"):
-                                url_entity["watched"] = True
-                            url_ent = self.memory.upsert_entity(
-                                persona_id, url_entity
-                            )
-                            if src and url_ent and platform_ids.get(src):
-                                self.memory.link_entities(
-                                    persona_id, url_ent, "appears_on",
-                                    platform_ids[src], weight=1.0,
-                                )
-                except Exception as exc:
-                    self.log.warning(
-                        "entity sync failed for %s: %s", persona_id, exc
-                    )
-            try:
-                _, energy_mode = self._consume_energy(
-                    persona_id, ENERGY_COST_BROWSE, "internet_life:browse"
-                )
-                if energy_mode == "local_estimate":
-                    self.db.add_state_snapshot(
-                        persona_id, "browse_energy_fallback", energy_before,
-                        session_mood,
-                        extra=json.dumps(
-                            {"trigger": trigger, "energy_mode": "local_estimate"},
-                            ensure_ascii=False,
-                        ),
-                    )
-            except Exception as exc:
-                # 短记已提交，后置副作用失败不能把整个 session 标成 error。
-                self.log.warning(
-                    "browse energy bookkeeping failed after commit for %s: %s",
-                    persona_id, exc,
-                )
-            try:
-                self.esm.apply_browse_signal(persona_id, session_mood, intensity=0.3)
-            except Exception as exc:
-                self.log.warning("browse signal failed for %s: %s", persona_id, exc)
-            for note in notes:
-                try:
-                    decision = json.loads(note.get("share_decision") or "{}")
-                except (ValueError, TypeError):
-                    decision = {}
-                if self.share_gate is not None and decision.get("should_share"):
-                    try:
-                        await self.share_gate.attempt_share(persona_id, note, decision)
-                    except Exception as exc:
-                        self.log.warning("share attempt failed for note %s: %s", note.get("id"), exc)
+            await self._after_browse_commit(
+                persona_id, sid, notes,
+                energy_before=energy_before,
+                session_mood=session_mood,
+                trigger=trigger,
+                now=now,
+            )
             return BrowseResult(sid, "completed", len(notes), "")
         except Exception as exc:
             self.log.exception("browse session failed for %s", persona_id)
@@ -553,6 +445,133 @@ class LifeService:
                 extra=json.dumps({"error": repr(exc)}, ensure_ascii=False),
             )
             return BrowseResult(sid, "error", 0, "", repr(exc))
+
+    async def _after_browse_commit(
+        self,
+        persona_id: str,
+        sid: int,
+        notes: list[dict],
+        *,
+        energy_before: Optional[float],
+        session_mood: str,
+        trigger: str,
+        now: datetime,
+    ) -> None:
+        try:
+            self.interests.clear_staging(persona_id, sid)
+        except Exception as exc:
+            self.log.warning(
+                "browse staging clear failed after commit for %s: %s",
+                persona_id, exc,
+            )
+        note_refs = [
+            {"note_id": note["id"], "url": note.get("url") or ""}
+            for note in notes
+        ]
+        try:
+            self.db.append_event(
+                persona_id, "observe",
+                {"entity": "browse", "session_id": sid,
+                 "notes_count": len(notes)},
+                note_refs,
+                f"session/{sid}/observe",
+            )
+            self.db.append_event(
+                persona_id, "change",
+                {"entity": "note", "session_id": sid,
+                 "note_ids": [note["id"] for note in notes]},
+                note_refs,
+                f"session/{sid}/commit",
+            )
+        except Exception as exc:
+            self.log.warning(
+                "browse event write failed after commit for %s: %s",
+                persona_id, exc,
+            )
+        if self.memory is not None and self.config.memory_host:
+            try:
+                self.memory.store_event(
+                    persona_id, "internet-life", str(sid), now.timestamp(),
+                    "observe",
+                    {"entity": "browse", "session_id": sid,
+                     "notes_count": len(notes)},
+                )
+                self.memory.store_event(
+                    persona_id, "internet-life", str(sid), now.timestamp(),
+                    "change",
+                    {"entity": "note", "session_id": sid,
+                     "note_ids": [note["id"] for note in notes]},
+                )
+            except Exception as exc:
+                self.log.warning(
+                    "browse event mirror failed for %s: %s", persona_id, exc
+                )
+        if self.memory is not None and self.config.memory_host:
+            try:
+                platform_ids: dict[str, str] = {}
+                for note in notes:
+                    src = str(note.get("source") or "").strip()
+                    url = str(note.get("url") or "").strip()
+                    if src and src not in platform_ids:
+                        platform_ids[src] = self.memory.upsert_entity(
+                            persona_id,
+                            {"dimension": "platform", "entity_id": src,
+                             "name": src, "canonical_url": ""},
+                        )
+                    if url:
+                        url_entity = {
+                            "dimension": "url",
+                            "entity_id": str(note.get("url_hash") or url),
+                            "name": str(note.get("title") or "")[:120] or url,
+                            "canonical_url": url,
+                        }
+                        if str(note.get("source") or "").startswith("watchlist/"):
+                            url_entity["watched"] = True
+                        url_ent = self.memory.upsert_entity(
+                            persona_id, url_entity
+                        )
+                        if src and url_ent and platform_ids.get(src):
+                            self.memory.link_entities(
+                                persona_id, url_ent, "appears_on",
+                                platform_ids[src], weight=1.0,
+                            )
+            except Exception as exc:
+                self.log.warning(
+                    "entity sync failed for %s: %s", persona_id, exc
+                )
+        try:
+            _, energy_mode = self._consume_energy(
+                persona_id, ENERGY_COST_BROWSE, "internet_life:browse"
+            )
+            if energy_mode == "local_estimate":
+                self.db.add_state_snapshot(
+                    persona_id, "browse_energy_fallback", energy_before,
+                    session_mood,
+                    extra=json.dumps(
+                        {"trigger": trigger, "energy_mode": "local_estimate"},
+                        ensure_ascii=False,
+                    ),
+                )
+        except Exception as exc:
+            # 短记已提交，后置副作用失败不能把整个 session 标成 error。
+            self.log.warning(
+                "browse energy bookkeeping failed after commit for %s: %s",
+                persona_id, exc,
+            )
+        try:
+            self.esm.apply_browse_signal(persona_id, session_mood, intensity=0.3)
+        except Exception as exc:
+            self.log.warning("browse signal failed for %s: %s", persona_id, exc)
+        for note in notes:
+            try:
+                decision = json.loads(note.get("share_decision") or "{}")
+            except (ValueError, TypeError):
+                decision = {}
+            if self.share_gate is not None and decision.get("should_share"):
+                try:
+                    await self.share_gate.attempt_share(persona_id, note, decision)
+                except Exception as exc:
+                    self.log.warning("share attempt failed for note %s: %s", note.get("id"), exc)
 
     def _validate_selected(self, payload: Any, candidates: Sequence[FetchedItem]) -> list:
         if not isinstance(payload, dict):
@@ -908,74 +927,12 @@ class LifeService:
             if notes and interest_updates:
                 self.interests.stage_updates(persona_id, run_token, interest_updates, now=now)
             self.db.commit_staged(persona_id, run_token, status="completed")
-            try:
-                self.interests.clear_staging(persona_id, run_token)
-            except Exception as exc:
-                self.log.warning(
-                    "diary staging clear failed after commit for %s: %s",
-                    persona_id, exc,
-                )
-            if notes or raw_revisit_notes:
-                try:
-                    _, energy_mode = self._consume_energy(
-                        persona_id, ENERGY_COST_DIARY, "internet_life:diary"
-                    )
-                    if energy_mode == "local_estimate":
-                        self.db.add_state_snapshot(
-                            persona_id, "diary_energy_fallback", energy, mood,
-                            extra=json.dumps(
-                                {"energy_mode": "local_estimate"},
-                                ensure_ascii=False,
-                            ),
-                        )
-                except Exception as exc:
-                    self.log.warning(
-                        "diary energy bookkeeping failed after commit for %s: %s",
-                        persona_id, exc,
-                    )
-            source_refs = [
-                {"note_id": note["id"], "url": note.get("url") or ""}
-                for note in notes
-            ]
-            source_refs += [
-                {"note_id": note["id"], "url": note.get("url") or ""}
-                for note in raw_revisit_notes
-            ]
-            try:
-                self.db.append_event(
-                    persona_id, "think",
-                    {"entity": "diary", "date": date, "mood": mood,
-                     "signature": signature, "notes_count": len(notes),
-                     "revisit_day": revisit_day,
-                     "revisit_notes": len(raw_revisit_notes),
-                     "unified_memory_id": memory_ref},
-                    source_refs,
-                    f"diary/{date}",
-                )
-            except Exception as exc:
-                self.log.warning(
-                    "diary event write failed after commit for %s: %s",
-                    persona_id, exc,
-                )
-            if self.memory is not None and self.config.memory_host:
-                try:
-                    self.memory.store_event(
-                        persona_id, "internet-life", "", now.timestamp(), "think",
-                        {"entity": "diary", "date": date,
-                         "notes_count": len(notes),
-                         "unified_memory_id": memory_ref},
-                    )
-                except Exception as exc:
-                    self.log.warning(
-                        "diary event mirror failed for %s: %s", persona_id, exc
-                    )
-            try:
-                self.interests.daily_decay(persona_id)
-            except Exception as exc:
-                self.log.warning(
-                    "interest decay failed after diary commit for %s: %s",
-                    persona_id, exc,
-                )
+            self._after_diary_commit(
+                persona_id, date, notes, raw_revisit_notes,
+                run_token=run_token,
+                mood=mood, signature=signature, memory_ref=memory_ref,
+                energy=energy, revisit_day=revisit_day, now=now,
+            )
         except Exception as exc:
             self.log.exception("nightly diary failed for %s", persona_id)
             self.db.discard_staged(persona_id, run_token, repr(exc))
@@ -986,6 +943,109 @@ class LifeService:
             )
             return {"date": date, "notes": len(notes), "fallback": False, "error": repr(exc)}
 
+        followups = await self._after_diary_followups(
+            persona_id, notes, date, persona
+        )
+        return {
+            "date": date,
+            "notes": len(notes),
+            "fallback": False,
+            "revisit_day": revisit_day,
+            "revisit_notes": len(raw_revisit_notes),
+            **followups,
+        }
+
+    def _after_diary_commit(
+        self,
+        persona_id: str,
+        date: str,
+        notes: list[dict],
+        revisit_notes: list[dict],
+        *,
+        run_token: int,
+        mood: str,
+        signature: str,
+        memory_ref: str,
+        energy: Optional[float],
+        revisit_day: int,
+        now: datetime,
+    ) -> None:
+        try:
+            self.interests.clear_staging(persona_id, run_token)
+        except Exception as exc:
+            self.log.warning(
+                "diary staging clear failed after commit for %s: %s",
+                persona_id, exc,
+            )
+        if notes or revisit_notes:
+            try:
+                _, energy_mode = self._consume_energy(
+                    persona_id, ENERGY_COST_DIARY, "internet_life:diary"
+                )
+                if energy_mode == "local_estimate":
+                    self.db.add_state_snapshot(
+                        persona_id, "diary_energy_fallback", energy, mood,
+                        extra=json.dumps(
+                            {"energy_mode": "local_estimate"},
+                            ensure_ascii=False,
+                        ),
+                    )
+            except Exception as exc:
+                self.log.warning(
+                    "diary energy bookkeeping failed after commit for %s: %s",
+                    persona_id, exc,
+                )
+        source_refs = [
+            {"note_id": note["id"], "url": note.get("url") or ""}
+            for note in notes
+        ]
+        source_refs += [
+            {"note_id": note["id"], "url": note.get("url") or ""}
+            for note in revisit_notes
+        ]
+        try:
+            self.db.append_event(
+                persona_id, "think",
+                {"entity": "diary", "date": date, "mood": mood,
+                 "signature": signature, "notes_count": len(notes),
+                 "revisit_day": revisit_day,
+                 "revisit_notes": len(revisit_notes),
+                 "unified_memory_id": memory_ref},
+                source_refs,
+                f"diary/{date}",
+            )
+        except Exception as exc:
+            self.log.warning(
+                "diary event write failed after commit for %s: %s",
+                persona_id, exc,
+            )
+        if self.memory is not None and self.config.memory_host:
+            try:
+                self.memory.store_event(
+                    persona_id, "internet-life", "", now.timestamp(), "think",
+                    {"entity": "diary", "date": date,
+                     "notes_count": len(notes),
+                     "unified_memory_id": memory_ref},
+                )
+            except Exception as exc:
+                self.log.warning(
+                    "diary event mirror failed for %s: %s", persona_id, exc
+                )
+        try:
+            self.interests.daily_decay(persona_id)
+        except Exception as exc:
+            self.log.warning(
+                "interest decay failed after diary commit for %s: %s",
+                persona_id, exc,
+            )
+
+    async def _after_diary_followups(
+        self,
+        persona_id: str,
+        notes: list[dict],
+        date: str,
+        persona: Any,
+    ) -> dict[str, Any]:
         aux_errors: list[str] = []
         capsules_sealed = 0
         wishlist_eval = {"promoted": 0, "discarded": 0}
@@ -1024,19 +1084,18 @@ class LifeService:
                 "nightly trash purge failed for %s: %s", persona_id, exc
             )
             aux_errors.append(f"purge_trash: {exc!r}")
-        aux_error = "; ".join(aux_errors)
-        return {"date": date, "notes": len(notes), "fallback": False,
-                "revisit_day": revisit_day, "revisit_notes": len(raw_revisit_notes),
-                "wishlist_promoted": wishlist_eval["promoted"],
-                "wishlist_discarded": wishlist_eval["discarded"],
-                "capsules_sealed": capsules_sealed,
-                "capsules_opened": capsule_result["opened"],
-                "capsules_replied": capsule_result["replied"],
-                "purged_trash": purged_trash,
-                "revisit_candidates": revisit_result.get("candidates", 0),
-                "revisited": revisit_result.get("revisited", 0),
-                "revisit_failed": revisit_result.get("failed", 0),
-                "aux_error": aux_error}
+        return {
+            "wishlist_promoted": wishlist_eval["promoted"],
+            "wishlist_discarded": wishlist_eval["discarded"],
+            "capsules_sealed": capsules_sealed,
+            "capsules_opened": capsule_result["opened"],
+            "capsules_replied": capsule_result["replied"],
+            "purged_trash": purged_trash,
+            "revisit_candidates": revisit_result.get("candidates", 0),
+            "revisited": revisit_result.get("revisited", 0),
+            "revisit_failed": revisit_result.get("failed", 0),
+            "aux_error": "; ".join(aux_errors),
+        }
 
     # ----- reviews -----
 
@@ -1714,64 +1773,43 @@ class LifeService:
                 1 for row in self.db.list_plans(persona_id, date)
                 if not row.get("fixed")
             )
-        energy_blocked = False
-        energy_reason = ""
-        try:
-            energy_blocked, _, energy_reason = self.esm.gate_energy(persona_id)
-        except Exception:
-            energy_blocked = False
+        energy_blocked, _, energy_reason = self.esm.gate_energy(persona_id)
         now_local = local_now(self.config.timezone, self.now_fn())
+
+        def reject(index: int, action: str, reason: str) -> None:
+            rejected.append({"action": action, "reason": reason})
+            self._record_plan_rejection(persona_id, date, action, index, reason)
+
         for index, entry in enumerate(raw_actions):
             if not isinstance(entry, dict):
-                action = str(entry)[:40] or "unknown"
-                reason = "invalid_entry"
-                rejected.append({"action": action, "reason": reason})
-                self._record_plan_rejection(persona_id, date, action, index, reason)
+                reject(index, str(entry)[:40] or "unknown", "invalid_entry")
                 continue
             action = str(entry.get("action") or "").strip().lower()
             if action not in PLAN_ACTION_VOCABULARY:
-                reason = "unknown_action"
-                rejected.append({"action": action or "unknown", "reason": reason})
-                self._record_plan_rejection(
-                    persona_id, date, action or "unknown", index, reason,
-                )
+                reject(index, action or "unknown", "unknown_action")
                 continue
             if action not in ("browse", "diary"):
-                reason = "not_supported_yet"
-                rejected.append({"action": action, "reason": reason})
-                self._record_plan_rejection(persona_id, date, action, index, reason)
+                reject(index, action, "not_supported_yet")
                 continue
             if cap > 0 and existing_optional + len(accepted) >= cap:
-                reason = "daily_action_cap"
-                rejected.append({"action": action, "reason": reason})
-                self._record_plan_rejection(persona_id, date, action, index, reason)
+                reject(index, action, "daily_action_cap")
                 continue
             if not self._plan_dependency_ok(persona_id, date, action):
-                reason = "dependency_not_met"
-                rejected.append({"action": action, "reason": reason})
-                self._record_plan_rejection(persona_id, date, action, index, reason)
+                reject(index, action, "dependency_not_met")
                 continue
             scheduled = self._plan_window_time(date, entry)
             if scheduled is None:
-                reason = "invalid_window"
-                rejected.append({"action": action, "reason": reason})
-                self._record_plan_rejection(persona_id, date, action, index, reason)
+                reject(index, action, "invalid_window")
                 continue
             scheduled_dt = datetime.strptime(scheduled, "%Y-%m-%d %H:%M:%S")
             if scheduled_dt <= now_local:
-                reason = "past_window"
-                rejected.append({"action": action, "reason": reason})
-                self._record_plan_rejection(persona_id, date, action, index, reason)
+                reject(index, action, "past_window")
                 continue
             if self.config.sleep_window.contains(scheduled_dt):
-                reason = "sleep_window"
-                rejected.append({"action": action, "reason": reason})
-                self._record_plan_rejection(persona_id, date, action, index, reason)
+                reject(index, action, "sleep_window")
                 continue
             if energy_blocked:
-                reason = f"energy_gate: {energy_reason}"
-                rejected.append({"action": action, "reason": reason})
-                self._record_plan_rejection(persona_id, date, action, index, reason)
+                reject(index, action, f"energy_gate: {energy_reason}")
                 continue
             plan_reason = sanitize_text(entry.get("reason"), 200)
             task_id = f"{action}-plan-{index + 1}"
@@ -1779,9 +1817,7 @@ class LifeService:
                 persona_id, date, task_id, action, scheduled, reason=plan_reason,
             )
             if plan_id is None:
-                reason = "duplicate"
-                rejected.append({"action": action, "reason": reason})
-                self._record_plan_rejection(persona_id, date, action, index, reason)
+                reject(index, action, "duplicate")
                 continue
             accepted.append({"action": action, "task_id": task_id,
                              "scheduled_at": scheduled, "reason": plan_reason})

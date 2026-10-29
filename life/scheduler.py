@@ -395,180 +395,205 @@ class LifeScheduler:
 
     async def _run_loop(self) -> None:
         while not self._stop.is_set():
-            # 每轮重读 personas/enabled：运行中改配置不应要求重启插件。
-            personas = list(self.config.life_personas or [])
-            if not self.config.enabled or not personas:
-                try:
-                    await asyncio.wait_for(self._stop.wait(), timeout=60)
-                except asyncio.TimeoutError:
-                    pass
-                continue
-            if self.db is not None:
-                try:
-                    self.db.cleanup_expired_leases()
-                except Exception as exc:
-                    self.log.warning("lease cleanup failed: %s", exc)
-            today_local = local_now(self.config.timezone, self.now_fn()).date()
-            today_key = today_local.isoformat()
-            if today_key not in self._seeded_dates:
-                self.seed_plans(personas, today_local)
-                self._seeded_dates.add(today_key)
-            now_local = local_now(self.config.timezone, self.now_fn())
-            personas_ready = self._available_personas(personas, now_local)
-            if not personas_ready:
-                wait_seconds = (
-                    self.presence._conversation_wait_seconds(
-                        personas, now_local
-                    )
-                    if self.presence is not None else None
-                )
-                await asyncio.sleep(
-                    max(0.5, min((wait_seconds or 0.0) + 0.5, 60.0))
-                )
-                continue
-            target = self._current_target(personas_ready)
+            target = await self._wait_for_target()
             if target is None:
-                try:
-                    await asyncio.wait_for(self._stop.wait(), timeout=60)
-                except asyncio.TimeoutError:
-                    pass
                 continue
-            slot, persona_id, kind, task_id, plan_date = target
-            # 目标可能落在次日（尚未播种）；先补齐计划行，finally 才不会落空。
-            self._ensure_target_plan(slot, persona_id, kind, task_id, plan_date)
-            awaited_slot, plan_row = await self._await_plan_slot(
-                slot, persona_id, task_id, plan_date
-            )
-            if self._stop.is_set():
-                break
-            if awaited_slot is None:
-                if plan_row is not None:
-                    self._done_keys.add(
-                        f"{slot.strftime('%Y-%m-%d %H:%M')}:{persona_id}:{kind}:{task_id}"
-                    )
-                continue
-            slot = awaited_slot
-            key = (
-                f"{slot.strftime('%Y-%m-%d %H:%M')}:{persona_id}:{kind}:{task_id}"
-            )
-            if key in self._done_keys:
-                continue
-            lease = self._acquire_lease(persona_id, key)
-            if lease is None:
-                # 租约服务临时不可用不是"别人占着"；保留 pending，稍后重试。
-                self.log.warning(
-                    "lease backend unavailable for %s %s; will retry", persona_id, key
-                )
-                try:
-                    await asyncio.wait_for(self._stop.wait(), timeout=5)
-                except asyncio.TimeoutError:
-                    pass
-                continue
-            if lease is False:
-                self.log.warning(
-                    "lease for %s %s held by another instance, retrying later",
-                    persona_id, key,
-                )
-                self.service.record_skipped_duplicate(persona_id, kind, slot)
-                # 不把共享 plan 行改成 skipped：赢家随后要回写 done；若赢家失败，
-                # 租约 TTL 过期后这个 pending 计划还能再被捡起来。
-                wait_retry = min(60.0, max(1.0, float(self._lease_ttl())))
-                try:
-                    await asyncio.wait_for(self._stop.wait(), timeout=wait_retry)
-                except asyncio.TimeoutError:
-                    pass
-                continue
-            usage_before = (
-                self.db.get_daily_usage(persona_id, plan_date)
-                if self.db is not None else None
-            )
-            keepalive: Optional[asyncio.Task] = None
+            await self._run_target(target)
 
-            async def _keepalive(p: str = persona_id, k: str = key) -> None:
-                while True:
-                    await asyncio.sleep(self._renew_interval())
-                    try:
-                        renewed = self._renew_lease(p, k)
-                    except Exception:
-                        self.log.exception(
-                            "keepalive renew failed for %s %s", p, k
-                        )
-                        return
-                    if not renewed:
-                        self.log.warning(
-                            "keepalive renew returned false for %s %s", p, k
-                        )
+    async def _sleep_or_stop(self, timeout: float) -> None:
+        try:
+            await asyncio.wait_for(self._stop.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            pass
 
-            async with self._lock:
-                status = "failed"
-                reason = ""
-                if self.presence is not None:
-                    self.presence.mark_busy(persona_id, kind)
+    async def _wait_for_target(
+        self,
+    ) -> Optional[tuple[datetime, str, str, str, str, str]]:
+        """Return the next runnable target, or None to wait/stop."""
+        # 每轮重读 personas/enabled：运行中改配置不应要求重启插件。
+        personas = list(self.config.life_personas or [])
+        if not self.config.enabled or not personas:
+            await self._sleep_or_stop(60)
+            return None
+        if self.db is not None:
+            try:
+                self.db.cleanup_expired_leases()
+            except Exception as exc:
+                self.log.warning("lease cleanup failed: %s", exc)
+        today_local = local_now(self.config.timezone, self.now_fn()).date()
+        today_key = today_local.isoformat()
+        if today_key not in self._seeded_dates:
+            self.seed_plans(personas, today_local)
+            self._seeded_dates.add(today_key)
+        now_local = local_now(self.config.timezone, self.now_fn())
+        personas_ready = self._available_personas(personas, now_local)
+        if not personas_ready:
+            wait_seconds = (
+                self.presence._conversation_wait_seconds(
+                    personas, now_local
+                )
+                if self.presence is not None else None
+            )
+            await asyncio.sleep(
+                max(0.5, min((wait_seconds or 0.0) + 0.5, 60.0))
+            )
+            return None
+        target = self._current_target(personas_ready)
+        if target is None:
+            await self._sleep_or_stop(60)
+            return None
+        slot, persona_id, kind, task_id, plan_date = target
+        # 目标可能落在次日（尚未播种）；先补齐计划行，finally 才不会落空。
+        self._ensure_target_plan(slot, persona_id, kind, task_id, plan_date)
+        awaited_slot, plan_row = await self._await_plan_slot(
+            slot, persona_id, task_id, plan_date
+        )
+        if self._stop.is_set():
+            return None
+        if awaited_slot is None:
+            if plan_row is not None:
+                self._done_keys.add(
+                    f"{slot.strftime('%Y-%m-%d %H:%M')}:{persona_id}:{kind}:{task_id}"
+                )
+            return None
+        slot = awaited_slot
+        key = (
+            f"{slot.strftime('%Y-%m-%d %H:%M')}:{persona_id}:{kind}:{task_id}"
+        )
+        if key in self._done_keys:
+            return None
+        return slot, persona_id, kind, task_id, plan_date, key
+
+    async def _run_target(
+        self,
+        target: tuple[datetime, str, str, str, str, str],
+    ) -> None:
+        slot, persona_id, kind, task_id, plan_date, key = target
+        lease = self._acquire_lease(persona_id, key)
+        if lease is None:
+            # 租约服务临时不可用不是"别人占着"；保留 pending，稍后重试。
+            self.log.warning(
+                "lease backend unavailable for %s %s; will retry", persona_id, key
+            )
+            await self._sleep_or_stop(5)
+            return
+        if lease is False:
+            self.log.warning(
+                "lease for %s %s held by another instance, retrying later",
+                persona_id, key,
+            )
+            self.service.record_skipped_duplicate(persona_id, kind, slot)
+            # 不把共享 plan 行改成 skipped：赢家随后要回写 done；若赢家失败，
+            # 租约 TTL 过期后这个 pending 计划还能再被捡起来。
+            wait_retry = min(60.0, max(1.0, float(self._lease_ttl())))
+            await self._sleep_or_stop(wait_retry)
+            return
+        usage_before = (
+            self.db.get_daily_usage(persona_id, plan_date)
+            if self.db is not None else None
+        )
+        keepalive: Optional[asyncio.Task] = None
+
+        async def _keepalive(p: str = persona_id, k: str = key) -> None:
+            while True:
+                await asyncio.sleep(self._renew_interval())
                 try:
-                    keepalive = asyncio.create_task(_keepalive())
-                    if kind == "browse":
-                        result = await self.service.run_browse_session(persona_id, "scheduled")
-                        status, reason = self._plan_status_browse(result)
-                    elif kind == "peek":
-                        result = await self.service.run_peek(persona_id)
-                        status, reason = self._plan_status_browse(result)
-                    elif kind == "review":
-                        if task_id == "review-yearly":
-                            result = await self.service.run_review(
-                                persona_id, "yearly", plan_date
-                            )
-                        elif task_id == "review-quarterly":
-                            result = await self.service.run_quarterly_review(
-                                persona_id, plan_date
-                            )
-                        else:
-                            result = await self.service.run_review(
-                                persona_id, "monthly", plan_date
-                            )
-                        status, reason = self._plan_status_diary(result)
-                    else:
-                        result = await self.service.run_nightly_diary(
-                            persona_id, plan_date
-                        )
-                        status, reason = self._plan_status_diary(result)
-                except Exception as exc:
+                    renewed = self._renew_lease(p, k)
+                except Exception:
                     self.log.exception(
-                        "scheduled %s for %s failed: %s", kind, persona_id, exc
+                        "keepalive renew failed for %s %s", p, k
                     )
-                    status, reason = "failed", repr(exc)
-                finally:
-                    if self.presence is not None:
-                        self.presence.clear_busy(persona_id)
-                    if keepalive is not None:
-                        keepalive.cancel()
-                        try:
-                            await keepalive
-                        except asyncio.CancelledError:
-                            pass
-                        except Exception:
-                            self.log.debug(
-                                "keepalive ended with error", exc_info=True
-                            )
-                    self._done_keys.add(key)
-                    self._release_lease(persona_id, key)
-                    if self.db is not None:
-                        try:
-                            usage_after = self.db.get_daily_usage(
-                                persona_id, plan_date
-                            )
-                            self.db.update_plan(
-                                persona_id, plan_date, task_id, status,
-                                reason=reason,
-                                budget_used=self._budget_delta(
-                                    usage_before, usage_after
-                                ),
-                                finished_at=local_now(
-                                    self.config.timezone, self.now_fn()
-                                ).strftime("%Y-%m-%d %H:%M:%S"),
-                                only_if_status="pending",
-                            )
-                        except Exception:
-                            self.log.exception(
-                                "failed to finalize plan %s/%s",
-                                plan_date, task_id,
-                            )
+                    return
+                if not renewed:
+                    self.log.warning(
+                        "keepalive renew returned false for %s %s", p, k
+                    )
+
+        async with self._lock:
+            status = "failed"
+            reason = ""
+            if self.presence is not None:
+                self.presence.mark_busy(persona_id, kind)
+            try:
+                keepalive = asyncio.create_task(_keepalive())
+                status, reason = await self._dispatch_plan(
+                    persona_id, kind, task_id, plan_date
+                )
+            except Exception as exc:
+                self.log.exception(
+                    "scheduled %s for %s failed: %s", kind, persona_id, exc
+                )
+                status, reason = "failed", repr(exc)
+            finally:
+                if self.presence is not None:
+                    self.presence.clear_busy(persona_id)
+                if keepalive is not None:
+                    keepalive.cancel()
+                    try:
+                        await keepalive
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception:
+                        self.log.debug(
+                            "keepalive ended with error", exc_info=True
+                        )
+                self._finalize_plan(
+                    persona_id, plan_date, task_id, status, reason,
+                    usage_before, key,
+                )
+
+    def _finalize_plan(
+        self,
+        persona_id: str,
+        plan_date: str,
+        task_id: str,
+        status: str,
+        reason: str,
+        usage_before: Optional[dict],
+        key: str,
+    ) -> None:
+        self._done_keys.add(key)
+        self._release_lease(persona_id, key)
+        if self.db is None:
+            return
+        try:
+            usage_after = self.db.get_daily_usage(persona_id, plan_date)
+            self.db.update_plan(
+                persona_id, plan_date, task_id, status,
+                reason=reason,
+                budget_used=self._budget_delta(usage_before, usage_after),
+                finished_at=local_now(
+                    self.config.timezone, self.now_fn()
+                ).strftime("%Y-%m-%d %H:%M:%S"),
+                only_if_status="pending",
+            )
+        except Exception:
+            self.log.exception(
+                "failed to finalize plan %s/%s", plan_date, task_id
+            )
+
+    async def _dispatch_plan(
+        self, persona_id: str, kind: str, task_id: str, plan_date: str
+    ) -> tuple[str, str]:
+        if kind == "browse":
+            result = await self.service.run_browse_session(persona_id, "scheduled")
+            return self._plan_status_browse(result)
+        if kind == "peek":
+            result = await self.service.run_peek(persona_id)
+            return self._plan_status_browse(result)
+        if kind == "review":
+            if task_id == "review-yearly":
+                result = await self.service.run_review(
+                    persona_id, "yearly", plan_date
+                )
+            elif task_id == "review-quarterly":
+                result = await self.service.run_quarterly_review(
+                    persona_id, plan_date
+                )
+            else:
+                result = await self.service.run_review(
+                    persona_id, "monthly", plan_date
+                )
+            return self._plan_status_diary(result)
+        result = await self.service.run_nightly_diary(persona_id, plan_date)
+        return self._plan_status_diary(result)
