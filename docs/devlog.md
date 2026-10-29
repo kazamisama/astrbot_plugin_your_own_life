@@ -2,6 +2,19 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-29 结构重构第六批：补齐档案/兴趣页面视图（v0.5.36）
+- 目标：把已有后端 `GET /archive` 与 `GET /interests` 接到 WebUI，消除“接口存在但页面没有视图”的空缺；顺带收敛页面内重复的笔记渲染与 tab 分派。
+- 已确认决策：
+  - 不新增后端接口；档案页复用 `archive_for_date` 返回的 diary/notes/sessions/share_logs/snapshots。
+  - 档案页使用独立日期选择器，不改写顶部 `dateInput`（它仍服务生活/记忆/分享/热力图）。
+  - 状态快照最多展示最近 30 条并提示总数，避免一天几百条撑满页面；会话、分享、快照都有空态。
+  - 兴趣页使用完整 `/interests` 列表，展示权重条、见过次数与最近出现时间；生活页的“兴趣排行”保持原样。
+  - 笔记条目抽成 `noteListItem` 供生活页与档案页共用；tab 加载分派收敛为 `loadTabContent`，`switchTab` 与 `load` 不再各维护一份 if 列表。
+- 改动：`pages/life/index.html`、`docs/design.md`、`docs/features.md`、`README.md`、`CHANGELOG.md`、`metadata.yaml`、`life/__init__.py`；版本 v0.5.35 → v0.5.36。
+- 验证：页面内联脚本 `node --check` 通过；15 个 tab 与 15 个 section 一一对应，无重复 id；全量 343 条，仅 `test_config` 已知环境错误（skipped=1）；ruff F,E9、compileall、`git diff --check` 通过。
+- 遗留：未做真实浏览器视觉验收；页面没有 DOM 自动化测试，档案/兴趣渲染只经过结构、接口调用与语法检查。
+- 下一步：提交 `chore(release): v0.5.36 ...`；结构重构清单已清空，后续转入真实浏览器验收或新功能。
+
 ## 2026-10-29 结构重构第五批：收口改动记录端点（v0.5.35）
 - 目标：删除 `change_log` 与 `life_edits` 两个返回同一张表数据的兼容端点，只保留页面实际使用的 `GET /life_edits`。
 - 已确认决策：

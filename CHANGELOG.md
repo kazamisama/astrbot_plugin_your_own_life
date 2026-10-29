@@ -2,6 +2,23 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.36] - 2026-10-29
+
+### Added
+
+- WebUI 新增「档案」tab：选择日期后查看当日日记、见闻短记、漫游会话、分享记录与状态快照，对应已有 `GET /archive` 接口。
+- WebUI 新增「兴趣」tab：展示完整兴趣排行、权重条、累计见过次数与最近出现时间，对应已有 `GET /interests` 接口。
+
+### Changed
+
+- 页面笔记列表抽成 `noteListItem`，生活页与档案页共用同一套渲染；tab 加载分派收敛为 `loadTabContent`，不再在 `switchTab` 与 `load` 各维护一份 if 列表。
+
+### Notes
+
+- 全量测试 343 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 页面内联脚本 `node --check` 通过；15 个 tab 与 section 一一对应，无重复 id。
+- 未做真实浏览器视觉验收；档案页与兴趣页只验证了结构、接口调用与脚本语法。
+
 ## [0.5.35] - 2026-10-29
 
 ### Changed

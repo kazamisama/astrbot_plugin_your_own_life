@@ -230,8 +230,10 @@ select, input[type="date"], input[type="text"] {
   <nav class="tabs">
     <button class="tab active" data-tab="life">生活</button>
     <button class="tab" data-tab="memory">记忆</button>
+    <button class="tab" data-tab="interests">兴趣</button>
     <button class="tab" data-tab="share">分享</button>
     <button class="tab" data-tab="timeline">时间轴</button>
+    <button class="tab" data-tab="archive">档案</button>
     <button class="tab" data-tab="plans">排期</button>
     <button class="tab" data-tab="events">事件链</button>
     <button class="tab" data-tab="entities">实体图</button>
@@ -313,6 +315,20 @@ select, input[type="date"], input[type="text"] {
     </section>
   </section>
 
+  <section id="tab-interests" hidden>
+    <div class="stats">
+      <div class="stat"><span class="label">兴趣条目</span><span class="value" id="interestCount">-</span></div>
+      <div class="stat"><span class="label">最高权重</span><span class="value" id="interestTopWeight">-</span></div>
+      <div class="stat"><span class="label">累计见过</span><span class="value" id="interestSeenTotal">-</span></div>
+      <div class="stat"><span class="label">最近更新</span><span class="value" id="interestLatest">-</span></div>
+    </div>
+    <div class="panel">
+      <h2>兴趣演化</h2>
+      <ul class="note-list" id="interestPageList"></ul>
+      <div id="interestEmpty" class="empty" hidden>还没有兴趣数据。漫游和日记会逐步累积。</div>
+    </div>
+  </section>
+
   <section id="tab-share" hidden>
     <div class="stats">
       <div class="stat"><span class="label">今日成功</span><span class="value" id="shareSent">-</span></div>
@@ -337,6 +353,44 @@ select, input[type="date"], input[type="text"] {
       <div class="chip-row" id="timelineFilters"></div>
       <ul class="note-list timeline-list" id="timelineList"></ul>
       <button class="btn" id="timelineMore">加载更多</button>
+    </div>
+  </section>
+
+  <section id="tab-archive" hidden>
+    <div class="search-row">
+      <input type="date" id="archiveDate" title="选择档案日期">
+      <button class="btn primary" id="archiveLoadBtn">查看档案</button>
+      <span class="empty" id="archiveMeta"></span>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="label">见闻短记</span><span class="value" id="archiveNotesCount">-</span></div>
+      <div class="stat"><span class="label">漫游会话</span><span class="value" id="archiveSessionsCount">-</span></div>
+      <div class="stat"><span class="label">分享记录</span><span class="value" id="archiveSharesCount">-</span></div>
+      <div class="stat"><span class="label">状态快照</span><span class="value" id="archiveSnapshotsCount">-</span></div>
+    </div>
+    <div class="panel">
+      <h2>当日日记</h2>
+      <p class="diary-text empty" id="archiveDiary">暂无日记。</p>
+    </div>
+    <div class="grid">
+      <section class="panel diary">
+        <h2>当日见闻</h2>
+        <ul class="note-list" id="archiveNoteList"></ul>
+      </section>
+      <section class="panel notes">
+        <h2>漫游会话</h2>
+        <ul class="log-list" id="archiveSessionList"></ul>
+      </section>
+    </div>
+    <div class="grid">
+      <section class="panel diary">
+        <h2>分享记录</h2>
+        <ul class="log-list" id="archiveShareList"></ul>
+      </section>
+      <section class="panel notes">
+        <h2>状态快照</h2>
+        <ul class="log-list" id="archiveSnapshotList"></ul>
+      </section>
     </div>
   </section>
 
@@ -622,27 +676,12 @@ function qs(params) {
   return parts.join("&");
 }
 
-function switchTab(name) {
-  state.tab = name;
-  document.querySelectorAll(".tab").forEach(function (b) {
-    b.classList.toggle("active", b.dataset.tab === name);
-  });
-  document.getElementById("tab-life").hidden = name !== "life";
-  document.getElementById("tab-memory").hidden = name !== "memory";
-  document.getElementById("tab-share").hidden = name !== "share";
-  document.getElementById("tab-timeline").hidden = name !== "timeline";
-  document.getElementById("tab-plans").hidden = name !== "plans";
-  document.getElementById("tab-events").hidden = name !== "events";
-  document.getElementById("tab-entities").hidden = name !== "entities";
-  document.getElementById("tab-capsules").hidden = name !== "capsules";
-  document.getElementById("tab-reviews").hidden = name !== "reviews";
-  document.getElementById("tab-edits").hidden = name !== "edits";
-  document.getElementById("tab-watch").hidden = name !== "watch";
-  document.getElementById("tab-revisit").hidden = name !== "revisit";
-  document.getElementById("tab-trash").hidden = name !== "trash";
+function loadTabContent(name) {
   if (name === "memory") { loadMemory(); loadWishlist(); }
+  if (name === "interests") loadInterestsPage();
   if (name === "share") loadShare();
   if (name === "timeline") { renderTimelineFilters(); loadTimeline(true); }
+  if (name === "archive") loadArchive();
   if (name === "plans") { renderPlanFilters(); loadPlans(); }
   if (name === "events") { renderEventFilters(); loadEvents(true); }
   if (name === "entities") loadEntities();
@@ -652,6 +691,29 @@ function switchTab(name) {
   if (name === "watch") loadWatchlist();
   if (name === "revisit") loadRevisits();
   if (name === "trash") loadTrash();
+}
+
+function switchTab(name) {
+  state.tab = name;
+  document.querySelectorAll(".tab").forEach(function (b) {
+    b.classList.toggle("active", b.dataset.tab === name);
+  });
+  document.getElementById("tab-life").hidden = name !== "life";
+  document.getElementById("tab-memory").hidden = name !== "memory";
+  document.getElementById("tab-interests").hidden = name !== "interests";
+  document.getElementById("tab-share").hidden = name !== "share";
+  document.getElementById("tab-timeline").hidden = name !== "timeline";
+  document.getElementById("tab-archive").hidden = name !== "archive";
+  document.getElementById("tab-plans").hidden = name !== "plans";
+  document.getElementById("tab-events").hidden = name !== "events";
+  document.getElementById("tab-entities").hidden = name !== "entities";
+  document.getElementById("tab-capsules").hidden = name !== "capsules";
+  document.getElementById("tab-reviews").hidden = name !== "reviews";
+  document.getElementById("tab-edits").hidden = name !== "edits";
+  document.getElementById("tab-watch").hidden = name !== "watch";
+  document.getElementById("tab-revisit").hidden = name !== "revisit";
+  document.getElementById("tab-trash").hidden = name !== "trash";
+  loadTabContent(name);
 }
 
 function loadPersonas() {
@@ -756,6 +818,29 @@ function renderDiary(overview) {
   }
 }
 
+function noteListItem(note) {
+  var li = document.createElement("li");
+  var title = document.createElement("div");
+  title.className = "note-title";
+  title.textContent = note.title || "(无标题)";
+  var src = document.createElement("div");
+  src.className = "note-src";
+  src.textContent = (note.category || "other") + " · " + (note.mood || "neutral");
+  var summary = document.createElement("div");
+  summary.className = "note-summary";
+  summary.textContent = note.summary || "";
+  li.appendChild(title);
+  li.appendChild(src);
+  if (summary.textContent) li.appendChild(summary);
+  if (note.opinion) {
+    var opinion = document.createElement("div");
+    opinion.className = "note-opinion";
+    opinion.textContent = "想法：" + note.opinion;
+    li.appendChild(opinion);
+  }
+  return li;
+}
+
 function renderNotes(overview) {
   var ul = document.getElementById("notesList");
   ul.innerHTML = "";
@@ -768,26 +853,7 @@ function renderNotes(overview) {
     return;
   }
   notes.forEach(function (note) {
-    var li = document.createElement("li");
-    var title = document.createElement("div");
-    title.className = "note-title";
-    title.textContent = note.title || "(无标题)";
-    var src = document.createElement("div");
-    src.className = "note-src";
-    src.textContent = (note.category || "other") + " · " + (note.mood || "neutral");
-    var summary = document.createElement("div");
-    summary.className = "note-summary";
-    summary.textContent = note.summary || "";
-    li.appendChild(title);
-    li.appendChild(src);
-    if (summary.textContent) li.appendChild(summary);
-    if (note.opinion) {
-      var opinion = document.createElement("div");
-      opinion.className = "note-opinion";
-      opinion.textContent = "想法：" + note.opinion;
-      li.appendChild(opinion);
-    }
-    ul.appendChild(li);
+    ul.appendChild(noteListItem(note));
   });
 }
 
@@ -904,6 +970,187 @@ function loadUsage() {
       });
     })
     .catch(function () { showError("用量数据加载失败。"); });
+}
+
+function appendEmpty(ul, text) {
+  var li = document.createElement("li");
+  li.className = "empty";
+  li.textContent = text;
+  ul.appendChild(li);
+}
+
+function archiveDateValue() {
+  return document.getElementById("archiveDate").value || dateInput.value || today();
+}
+
+function renderArchiveSessions(rows) {
+  var ul = document.getElementById("archiveSessionList");
+  ul.innerHTML = "";
+  if (!rows.length) {
+    appendEmpty(ul, "这一天没有漫游会话。");
+    return;
+  }
+  rows.forEach(function (s) {
+    var li = document.createElement("li");
+    var title = document.createElement("div");
+    title.className = "note-title";
+    title.textContent = (s.started_at || "-") + " · " + (s.kind || "browse") +
+      " · " + (s.status || "-");
+    li.appendChild(title);
+    var meta = document.createElement("div");
+    meta.className = "note-src";
+    meta.textContent = "短记 " + (s.notes_count || 0) +
+      (s.reason ? " · " + s.reason : "") +
+      (s.error ? " · " + s.error : "");
+    li.appendChild(meta);
+    ul.appendChild(li);
+  });
+}
+
+function renderArchiveShares(rows) {
+  var ul = document.getElementById("archiveShareList");
+  ul.innerHTML = "";
+  if (!rows.length) {
+    appendEmpty(ul, "这一天没有分享记录。");
+    return;
+  }
+  rows.forEach(function (log) {
+    var li = document.createElement("li");
+    var title = document.createElement("div");
+    title.className = "note-title";
+    title.textContent = (log.attempted_at || "-") + " · " + (log.status || "-");
+    li.appendChild(title);
+    if (log.message) {
+      var msg = document.createElement("div");
+      msg.className = "note-summary";
+      msg.textContent = log.message;
+      li.appendChild(msg);
+    }
+    var meta = document.createElement("div");
+    meta.className = "note-src";
+    meta.textContent = (log.target_sid ? "目标 " + log.target_sid + " · " : "") +
+      (log.reason || "无原因");
+    li.appendChild(meta);
+    ul.appendChild(li);
+  });
+}
+
+function renderArchiveSnapshots(rows) {
+  var ul = document.getElementById("archiveSnapshotList");
+  ul.innerHTML = "";
+  if (!rows.length) {
+    appendEmpty(ul, "这一天没有状态快照。");
+    return;
+  }
+  rows.slice(0, 30).forEach(function (snap) {
+    var li = document.createElement("li");
+    var title = document.createElement("div");
+    title.className = "note-title";
+    title.textContent = (snap.ts || "-") + " · " + (snap.activity || "-");
+    li.appendChild(title);
+    var meta = document.createElement("div");
+    meta.className = "note-src";
+    meta.textContent = (snap.mood || "neutral") +
+      " · 精力 " + (typeof snap.energy === "number" ? snap.energy.toFixed(2) : "-") +
+      " · 好奇 " + (typeof snap.curiosity === "number" ? snap.curiosity.toFixed(2) : "-");
+    li.appendChild(meta);
+    ul.appendChild(li);
+  });
+  if (rows.length > 30) {
+    appendEmpty(ul, "仅显示最近 30 条，共 " + rows.length + " 条。");
+  }
+}
+
+function loadArchive() {
+  var date = archiveDateValue();
+  var meta = document.getElementById("archiveMeta");
+  meta.textContent = "加载中…";
+  apiGet("archive", { persona: state.persona, date: date })
+    .then(function (data) {
+      var notes = data.notes || [];
+      var sessions = data.sessions || [];
+      var shares = data.share_logs || [];
+      var snapshots = data.snapshots || [];
+      document.getElementById("archiveNotesCount").textContent = notes.length;
+      document.getElementById("archiveSessionsCount").textContent = sessions.length;
+      document.getElementById("archiveSharesCount").textContent = shares.length;
+      document.getElementById("archiveSnapshotsCount").textContent = snapshots.length;
+      meta.textContent = "档案 · " + date;
+      var diary = data.diary;
+      var diaryEl = document.getElementById("archiveDiary");
+      if (diary && diary.content) {
+        var extra = [];
+        if (diary.mood) extra.push("心情 " + diary.mood);
+        if (typeof diary.energy === "number") extra.push("精力 " + diary.energy.toFixed(2));
+        if (diary.interest_top) extra.push("兴趣 " + diary.interest_top);
+        diaryEl.textContent = diary.content + (extra.length ? "\n\n" + extra.join(" · ") : "");
+        diaryEl.className = "diary-text";
+      } else {
+        diaryEl.textContent = "这一天没有日记。";
+        diaryEl.className = "diary-text empty";
+      }
+      var noteUl = document.getElementById("archiveNoteList");
+      noteUl.innerHTML = "";
+      if (!notes.length) appendEmpty(noteUl, "这一天没有见闻。");
+      else notes.forEach(function (note) { noteUl.appendChild(noteListItem(note)); });
+      renderArchiveSessions(sessions);
+      renderArchiveShares(shares);
+      renderArchiveSnapshots(snapshots);
+    })
+    .catch(function () {
+      meta.textContent = "档案加载失败";
+      showError("档案加载失败，请确认后端接口可用后重试。");
+    });
+}
+
+function loadInterestsPage() {
+  apiGet("interests", { persona: state.persona })
+    .then(function (data) {
+      var rows = data.interests || [];
+      document.getElementById("interestCount").textContent = rows.length;
+      document.getElementById("interestTopWeight").textContent = rows.length
+        ? (rows[0].weight || 0).toFixed(2) : "-";
+      var seen = 0;
+      var latest = "";
+      rows.forEach(function (row) {
+        seen += Number(row.seen_count || 0);
+        if ((row.last_seen_at || "") > latest) latest = row.last_seen_at;
+      });
+      document.getElementById("interestSeenTotal").textContent = seen;
+      document.getElementById("interestLatest").textContent = latest || "-";
+      document.getElementById("interestEmpty").hidden = rows.length > 0;
+      var ul = document.getElementById("interestPageList");
+      ul.innerHTML = "";
+      rows.forEach(function (row) {
+        var li = document.createElement("li");
+        var line = document.createElement("div");
+        line.className = "interest-row";
+        var name = document.createElement("span");
+        name.className = "interest-name";
+        name.textContent = row.name || row.key;
+        name.title = row.name || row.key;
+        var bar = document.createElement("span");
+        bar.className = "interest-bar";
+        var fill = document.createElement("span");
+        fill.className = "interest-fill";
+        fill.style.width = Math.round((row.weight || 0) * 100) + "%";
+        bar.appendChild(fill);
+        var weight = document.createElement("span");
+        weight.className = "interest-weight";
+        weight.textContent = (row.weight || 0).toFixed(2);
+        line.appendChild(name);
+        line.appendChild(bar);
+        line.appendChild(weight);
+        li.appendChild(line);
+        var meta = document.createElement("div");
+        meta.className = "note-src";
+        meta.textContent = (row.key || "") + " · 见过 " + (row.seen_count || 0) + " 次" +
+          (row.last_seen_at ? " · 最近 " + row.last_seen_at : "");
+        li.appendChild(meta);
+        ul.appendChild(li);
+      });
+    })
+    .catch(function () { showError("兴趣数据加载失败。"); });
 }
 
 function renderMemoryChips(data) {
@@ -1335,18 +1582,7 @@ function loadShare() {
 function load() {
   loadPersonas().then(function () {
     loadLife();
-    if (state.tab === "memory") { loadMemory(); loadWishlist(); }
-    if (state.tab === "share") loadShare();
-    if (state.tab === "timeline") { renderTimelineFilters(); loadTimeline(true); }
-    if (state.tab === "plans") { renderPlanFilters(); loadPlans(); }
-    if (state.tab === "events") { renderEventFilters(); loadEvents(true); }
-    if (state.tab === "entities") loadEntities();
-    if (state.tab === "capsules") loadCapsules();
-    if (state.tab === "reviews") loadReviews();
-    if (state.tab === "edits") loadLifeEdits();
-    if (state.tab === "watch") loadWatchlist();
-    if (state.tab === "revisit") loadRevisits();
-    if (state.tab === "trash") loadTrash();
+    loadTabContent(state.tab);
   }).catch(function () {
     showError("页面数据加载失败，请稍后重试。");
   });
@@ -1891,6 +2127,10 @@ document.getElementById("memoryQuery").addEventListener("keydown", function (e) 
 });
 document.getElementById("timelineMore").addEventListener("click", function () { loadTimeline(false); });
 document.getElementById("eventMore").addEventListener("click", function () { loadEvents(false); });
+var archiveDateInput = document.getElementById("archiveDate");
+archiveDateInput.value = today();
+archiveDateInput.addEventListener("change", loadArchive);
+document.getElementById("archiveLoadBtn").addEventListener("click", loadArchive);
 
 dateInput.value = today();
 waitForBridge(3000).then(load);
