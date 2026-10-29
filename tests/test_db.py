@@ -297,6 +297,38 @@ class LifeDBTest(unittest.TestCase):
         )
         self.assertEqual(len(self.db.capsules_due("shelly", "2026-08-02")), 1)
 
+    def test_capsules_due_skips_deleted_note_until_restored(self):
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://cap-del", "C", "s",
+            url_hash="cap-del",
+        )
+        cid = self.db.seal_capsule(
+            "shelly", note_id, "2026-09-01 09:00:00",
+            sealed_at="2026-08-01 09:00:00",
+        )
+        now = "2026-09-02 09:00:00"
+        self.assertEqual(len(self.db.capsules_due("shelly", now)), 1)
+        self.assertTrue(self.db.soft_delete_note("shelly", note_id))
+        self.assertEqual(self.db.capsules_due("shelly", now), [])
+        self.assertTrue(self.db.restore_note("shelly", note_id))
+        self.assertEqual(len(self.db.capsules_due("shelly", now)), 1)
+        self.assertEqual(self.db.get_capsule("shelly", cid)["status"], "sealed")
+
+    def test_mood_distribution_aggregates_by_period(self):
+        self.db.add_diary("shelly", "2026-04-15", "A", mood="calm")
+        self.db.add_diary("shelly", "2026-05-15", "B", mood="curious")
+        self.db.add_diary("shelly", "2026-06-15", "C", mood="calm")
+        self.db.add_diary("shelly", "2026-07-15", "D", mood="calm")
+        self.db.add_diary("shelly", "2026-08-15", "E", mood="")
+        self.db.soft_delete_diary("shelly", "2026-06-15")
+        self.assertEqual(
+            self.db.mood_distribution("shelly", "2026-04-01", "2026-06-30"),
+            [
+                {"mood": "calm", "count": 1},
+                {"mood": "curious", "count": 1},
+            ],
+        )
+
     def test_purge_trash_cascades_time_capsules(self):
         note_id = self.db.add_note("shelly", None, "hn", "https://cap3", "C3", "s",
                                    url_hash="cap3")
@@ -695,6 +727,10 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(overview["total_notes"], 1)
         self.assertEqual(overview["diary_count"], 0)
         self.assertEqual([r["category"] for r in overview["categories"]], ["other"])
+        self.db.add_diary("shelly", "2026-08-01", "日记 A", mood="calm")
+        self.db.add_diary("shelly", "2026-08-02", "日记 B", mood="calm")
+        self.db.soft_delete_diary("shelly", "2026-08-02")
+        self.assertEqual(self.db.memory_overview("shelly")["diary_count"], 1)
 
     def test_apply_change_rejects_malformed_entity_id(self):
         self.db.log_change(

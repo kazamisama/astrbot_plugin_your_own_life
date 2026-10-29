@@ -1553,6 +1553,27 @@ class LifeDB:
         )
         return int(row["n"] or 0) if row else 0
 
+    def count_diaries(self, persona_id: str) -> int:
+        row = self._one(
+            "SELECT COUNT(*) AS n FROM diary_entries WHERE persona_id = ? "
+            "AND deleted_at = ''",
+            (persona_id,),
+        )
+        return int(row["n"] or 0) if row else 0
+
+    def mood_distribution(
+        self, persona_id: str, start: str, end: str
+    ) -> list[dict]:
+        rows = self._rows(
+            "SELECT COALESCE(NULLIF(mood, ''), 'unknown') AS mood, "
+            "COUNT(*) AS n FROM diary_entries WHERE persona_id = ? "
+            "AND deleted_at = '' AND date BETWEEN ? AND ? "
+            "GROUP BY COALESCE(NULLIF(mood, ''), 'unknown') "
+            "ORDER BY n DESC, mood ASC",
+            (persona_id, start, end),
+        )
+        return [{"mood": row["mood"], "count": int(row["n"])} for row in rows]
+
     def list_diaries_between(
         self, persona_id: str, start: str, end: str
     ) -> list[dict]:
@@ -1626,10 +1647,14 @@ class LifeDB:
         self, persona_id: str, now_str: Optional[str] = None
     ) -> list[dict]:
         # 手动提前打开的胶囊状态已是 unlocked，即使 unlock_at 仍在未来也要回信。
+        # 软删/清除的短记不进入到期队列；短记恢复后胶囊会重新可见。
         return self._rows(
-            "SELECT * FROM time_capsules WHERE persona_id = ? "
-            "AND status IN ('sealed', 'unlocked') AND reply = '' "
-            "AND (status = 'unlocked' OR unlock_at <= ?) ORDER BY unlock_at ASC",
+            "SELECT c.* FROM time_capsules c "
+            "JOIN notes n ON n.id = c.note_id AND n.persona_id = c.persona_id "
+            "WHERE c.persona_id = ? "
+            "AND c.status IN ('sealed', 'unlocked') AND c.reply = '' "
+            "AND (c.status = 'unlocked' OR c.unlock_at <= ?) "
+            "AND n.deleted_at = '' ORDER BY c.unlock_at ASC",
             (persona_id, now_str or self._now()),
         )
 
@@ -2902,7 +2927,7 @@ class LifeDB:
             "persona_id": persona_id,
             "categories": rows,
             "total_notes": sum(int(r["n"]) for r in rows),
-            "diary_count": len(self.list_diaries(persona_id, limit=100000)),
+            "diary_count": self.count_diaries(persona_id),
         }
 
     def reset_all(self, persona_id: str) -> None:

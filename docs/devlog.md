@@ -2,6 +2,17 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-29 胶囊后台化与聚合查询（v0.5.42）
+- 目标：修掉 v0.5.41 后剩下的三项：软删短记胶囊的僵尸路径、手动打开胶囊同步等 LLM、季度情绪/记忆总览的全量日记扫描。
+- 已确认决策：
+  - 胶囊是否到期由 `capsules_due` 与 `notes` JOIN 判断：短记软删期间不进入 due，也不允许手动打开；短记恢复后胶囊自动重新可见，不额外写状态、不回填旧数据。
+  - 手动打开改为后台任务，`POST /capsules_open` 只负责启动并返回 `started`；新增 `GET /capsules_status` 返回 running/status/reply，页面轮询到终态再刷新。`only_id` 路径允许打开未来解锁的胶囊，但同样要求短记存在。
+  - `_mood_distribution` 与 `memory_overview.diary_count` 改 SQL 聚合；不改变排序与 unknown 归并语义。
+- 改动：`life/db.py`（count_diaries、mood_distribution、capsules_due JOIN）、`life/browser.py`（only_id 取胶囊并校验短记、情绪统计委托 DB）、`life/webui.py`（后台任务、capsules_status、note_missing）、`pages/life/index.html`（轮询、已删除短记展示）、测试与版本文档。
+- 验证：test_db 81、test_browser 69、test_webui 30 全绿；全量 364 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 遗留：页面日期时区、统一记忆宿主跨系统孤儿、真实浏览器 E2E 尚未重跑。
+- 下一步：提交 `chore(release): v0.5.42 ...`。
+
 ## 2026-10-29 交互与清除边界修复（v0.5.41）
 - 目标：处理上一轮审计列出的五项可修问题——热力图点击闭包、胶囊手动打开连带运行全部到期项、调度器最终写库失败忙循环、回收站未清理 injection_log 预览、同会话同文消息被幂等键吞掉。
 - 已确认决策：

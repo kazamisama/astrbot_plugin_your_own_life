@@ -1373,17 +1373,7 @@ class LifeService:
     def _mood_distribution(
         self, persona_id: str, period_start: str, period_end: str
     ) -> list[dict[str, Any]]:
-        counts: dict[str, int] = {}
-        for diary in self.db.list_diaries(persona_id, limit=100000):
-            if period_start <= diary.get("date", "") <= period_end:
-                mood = diary.get("mood") or "unknown"
-                counts[mood] = counts.get(mood, 0) + 1
-        return [
-            {"mood": mood, "count": count}
-            for mood, count in sorted(
-                counts.items(), key=lambda item: (-item[1], item[0])
-            )
-        ]
+        return self.db.mood_distribution(persona_id, period_start, period_end)
 
     async def run_quarterly_review(
         self, persona_id: str, plan_date: Optional[str] = None
@@ -1478,11 +1468,20 @@ class LifeService:
             return {"persona_id": persona_id, "ok": False,
                     "error": "persona_unavailable"}
         now = local_now(self.config.timezone, self.now_fn())
-        due = self.db.capsules_due(
-            persona_id, now.strftime("%Y-%m-%d %H:%M:%S")
-        )
         if only_id is not None:
-            due = [row for row in due if int(row["id"]) == int(only_id)]
+            row = self.db.get_capsule(persona_id, int(only_id))
+            due = (
+                [row]
+                if row
+                and row.get("status") in ("sealed", "unlocked")
+                and not row.get("reply")
+                and self.db.get_note(int(row["note_id"]))
+                else []
+            )
+        else:
+            due = self.db.capsules_due(
+                persona_id, now.strftime("%Y-%m-%d %H:%M:%S")
+            )
         opened = 0
         replied = 0
         failed = 0

@@ -432,7 +432,7 @@ LLM 可自主更改生活数据/计划/记忆，按事件链自主排期，并�
 - 记忆温度（v0.5.2 已落地）：notes 带 0-1 热度，夜间按 `memory_temperature_decay` 乘性衰减（下限 0.05），召回按温度加权并在命中后回温到 1.0（rehydrate），冷记忆淡出但细节不丢失。
 - 长期：分层 cue + 多轮联想召回，带 recency/importance/图激活评分与来源回指。
 - 月度/年度回顾（v0.5.3 已落地）：按 `review_schedule` 触发，聚合漫游/日记/兴趣统计，LLM 生成回顾并带来源引用；失败回退确定性聚合；回顾本身写 `review` 事件。
-- 时间胶囊（v0.5.4 已落地）：短记按 `capsule_days` 封存，到期自动解锁，LLM 以封存素材写“当时的我 / 现在的我”回信；WebUI 可提前打开，回信写 `capsule` 事件。
+- 时间胶囊（v0.5.4 已落地）：短记按 `capsule_days` 封存，到期自动解锁，LLM 以封存素材写“当时的我 / 现在的我”回信；WebUI 可提前打开，回信写 `capsule` 事件。v0.5.42 起手动打开是后台任务，页面轮询 `GET /capsules_status`；已软删短记的胶囊不进入到期队列，短记恢复后重新可见。
 - 分享沉默率（v0.5.5 已落地）：ShareGate 按 `share_silence_rate` 每天概率“今天不想说”，沉默当天不写分享日志、仅留 `share_silent` 快照供日记体现；手动分享 force 绕过。
 - 季度自我评估（v0.5.6 已落地）：季度首日基于上季度兴趣/情绪轨迹生成带 confidence 的长期总结，失败回退确定性聚合；WebUI 回顾 tab 可对比上一期 diff。
 - LLM 自主更改与回滚（v0.5.7 已落地）：`life_edit_allowed` 白名单内 LLM 可直接改 note/interest，越界落 `pending_owner`；`change_log` 记录 old/new，owner 在 WebUI 批准/拒绝/回滚，回滚追加审计条目并写事件链。

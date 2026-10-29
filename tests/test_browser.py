@@ -567,6 +567,43 @@ class BrowserServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows[first]["status"], "replied")
         self.assertEqual(rows[second]["status"], "sealed")
 
+    async def test_capsules_manual_open_ignores_future_unlock(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 10, 0)
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://cap-future", "Capsule future",
+            "s", url_hash="cb-future",
+        )
+        capsule_id = self.db.seal_capsule(
+            "shelly", note_id, "2099-01-01 00:00:00",
+            sealed_at="2026-08-12 09:00:00",
+        )
+        self.service.llm = _FakeLLM(payload={
+            "reply_text": "提前打开也可以回信。", "mood": "calm",
+        })
+        result = await self.service.run_capsules("shelly", only_id=capsule_id)
+        self.assertEqual(result["opened"], 1)
+        self.assertEqual(result["replied"], 1)
+        row = self.db.get_capsule("shelly", capsule_id)
+        self.assertEqual(row["status"], "replied")
+        self.assertEqual(row["unlock_at"], "2099-01-01 00:00:00")
+
+    async def test_capsules_manual_open_skips_deleted_note(self):
+        self.service.now_fn = lambda: datetime(2026, 8, 12, 10, 0)
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://cap-deleted", "Capsule deleted",
+            "s", url_hash="cb-deleted",
+        )
+        capsule_id = self.db.seal_capsule(
+            "shelly", note_id, "2099-01-01 00:00:00",
+            sealed_at="2026-08-12 09:00:00",
+        )
+        self.db.soft_delete_note("shelly", note_id)
+        result = await self.service.run_capsules("shelly", only_id=capsule_id)
+        self.assertEqual(result["opened"], 0)
+        self.assertEqual(result["replied"], 0)
+        self.assertEqual(self.db.get_capsule("shelly", capsule_id)["status"],
+                         "sealed")
+
     async def test_capsules_llm_failure_marks_unlocked(self):
         self.service.now_fn = lambda: datetime(2026, 8, 12, 10, 0)
         note_id = self.db.add_note(

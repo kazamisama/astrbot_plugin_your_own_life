@@ -2,6 +2,20 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.42] - 2026-10-29
+
+### Fixed
+
+- WebUI 手动打开胶囊改为后台任务：POST /capsules_open 只启动任务并返回 started，新增 GET /capsules_status 供页面轮询；不再让 Dashboard 请求等待一次 LLM 调用，也不再在全表 due 列表上串行回信。
+- 软删短记的胶囊不再成为永久僵尸：capsules_due 与短记表 JOIN，已删除短记不进入到期队列；手动打开前检查短记存在，不存在直接返回 capsule note deleted；短记恢复后胶囊重新可见。页面把 note_missing 显示为“短记已删除”并隐藏打开按钮。
+- 季度情绪统计改为 SQL GROUP BY，记忆总览的日记数改为 COUNT，不再把全部日记载入内存。
+
+### Notes
+
+- 全量测试 364 条（skipped=1；test_config 与生产 AstrBot 混装的已知环境错误除外）。
+- 页面日期初始值仍使用浏览器本地日期；后端按配置时区解释日期，跨时区/午夜附近可能默认查询错日，尚未改。
+- 统一记忆宿主“宿主已写、本地失败”的跨系统孤儿仍受 engram_core 无删除 API 限制。
+
 ## [0.5.41] - 2026-10-29
 
 ### Fixed

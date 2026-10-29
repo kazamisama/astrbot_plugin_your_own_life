@@ -180,6 +180,7 @@ def _build_read_handlers(
                 "title": note.get("title") or "",
                 "summary": note.get("summary") or "",
                 "url": note.get("url") or "",
+                "note_missing": not bool(note),
             })
         return {"capsules": items}
 
@@ -422,7 +423,7 @@ def _build_action_handlers(
     config: Any,
 ) -> dict[str, Callable]:
     running: dict[str, asyncio.Task] = {}
-    capsules_running: set[str] = set()
+    capsules_running: dict[str, asyncio.Task] = {}
 
     async def _run_browse_task(persona: str) -> None:
         try:
@@ -431,6 +432,14 @@ def _build_action_handlers(
             logger.exception("manual browse failed for %s", persona)
         finally:
             running.pop(persona, None)
+
+    async def _run_capsule_task(persona: str, capsule_id: int) -> None:
+        try:
+            await service.run_capsules(persona, capsule_id)
+        except Exception:
+            logger.exception("manual capsule failed for %s", persona)
+        finally:
+            capsules_running.pop(persona, None)
 
     async def run():
         args = await _json_body()
@@ -465,25 +474,37 @@ def _build_action_handlers(
         capsule = db.get_capsule(persona, capsule_id)
         if capsule is None:
             return {"ok": False, "error": "capsule not found"}
+        if not db.get_note(int(capsule["note_id"])):
+            return {"ok": False, "capsule_id": capsule_id,
+                    "error": "capsule note deleted"}
         if service is None:
             db.open_capsule_now(persona, capsule_id)
-            return {"ok": True, "capsule_id": capsule_id,
+            return {"ok": True, "started": False, "capsule_id": capsule_id,
                     "status": "unlocked", "reply": ""}
         if persona in capsules_running:
             return {"ok": False, "capsule_id": capsule_id,
                     "error": "capsule run already in progress"}
-        capsules_running.add(persona)
-        try:
-            db.open_capsule_now(persona, capsule_id)
-            result = await service.run_capsules(persona, capsule_id)
-        finally:
-            capsules_running.discard(persona)
+        capsules_running[persona] = asyncio.create_task(
+            _run_capsule_task(persona, capsule_id)
+        )
+        return {"ok": True, "started": True, "capsule_id": capsule_id,
+                "status": "pending"}
+
+
+    async def capsules_status():
+        args = await _query_args()
+        persona = str(args.get("persona") or _first_persona(config))
+        capsule_id = _int_arg(args.get("capsule_id"), 0, 1)
+        if capsule_id <= 0:
+            return {"ok": False, "error": "capsule_id required"}
         row = db.get_capsule(persona, capsule_id)
+        if row is None:
+            return {"ok": False, "error": "capsule not found"}
         return {
-            "ok": True, "capsule_id": capsule_id,
-            "status": (row or {}).get("status") or "unlocked",
-            "reply": (row or {}).get("reply") or "",
-            "result": result,
+            "ok": True, "persona_id": persona, "capsule_id": capsule_id,
+            "running": persona in capsules_running,
+            "status": row.get("status") or "",
+            "reply": row.get("reply") or "",
         }
 
 
@@ -657,6 +678,7 @@ def _build_action_handlers(
         "run": run,
         "run_status": run_status,
         "capsules_open": capsules_open,
+        "capsules_status": capsules_status,
         "life_edits_approve": life_edits_approve,
         "life_edits_reject": life_edits_reject,
         "life_edits_rollback": life_edits_rollback,
@@ -690,6 +712,7 @@ def register_api(context: Any, db: Any, service: Any, share_gate: Any,
         (f"{API_PREFIX}/memory_search", "memory_search", ["GET"], "Search life memory"),
         (f"{API_PREFIX}/capsules", "capsules", ["GET"], "Time capsules"),
         (f"{API_PREFIX}/capsules_open", "capsules_open", ["POST"], "Open a time capsule"),
+        (f"{API_PREFIX}/capsules_status", "capsules_status", ["GET"], "Time capsule status"),
         (f"{API_PREFIX}/reviews", "reviews", ["GET"], "Generated reviews"),
         (f"{API_PREFIX}/reviews_diff", "reviews_diff", ["GET"], "Review diff view"),
         (f"{API_PREFIX}/life_edits", "life_edits", ["GET"], "LLM/owner change log"),

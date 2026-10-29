@@ -302,7 +302,7 @@
 - 依赖：统一记忆库。
 - 模块：`life/browser.py`（`run_capsules` 解锁/回信）、`life/db.py`（`time_capsules` 表）、`life/prompts.py`（`build_capsule_reply_prompt`）、`life/webui.py` + `pages/life/index.html`（胶囊 tab 与手动打开）。
 - 配置：`capsule_days`（默认 30，最小 1）。
-- 验收：到期自动解锁（已满足，夜间复盘调用 `run_capsules` 检查到期胶囊）；回信标注“当时的我/现在的我”（已满足，prompt 强制两部分结构）；可手动提前打开（已满足，WebUI `POST /capsules_open`）。
+- 验收：到期自动解锁（已满足，夜间复盘调用 `run_capsules` 检查到期胶囊）；回信标注“当时的我/现在的我”（已满足，prompt 强制两部分结构）；可手动提前打开（已满足，WebUI `POST /capsules_open` 后台启动，`GET /capsules_status` 轮询；已删除短记的胶囊不进入到期队列）。
 
 ### L2-06 分享沉默率
 

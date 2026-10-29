@@ -1672,11 +1672,17 @@ function loadCapsules() {
     .then(function (data) {
       var items = data.capsules || [];
       document.getElementById("capsuleSealed").textContent =
-        items.filter(function (c) { return c.status === "sealed"; }).length;
+        items.filter(function (c) {
+          return !c.note_missing && c.status === "sealed";
+        }).length;
       document.getElementById("capsuleUnlocked").textContent =
-        items.filter(function (c) { return c.status === "unlocked"; }).length;
+        items.filter(function (c) {
+          return !c.note_missing && c.status === "unlocked";
+        }).length;
       document.getElementById("capsuleReplied").textContent =
-        items.filter(function (c) { return c.status === "replied"; }).length;
+        items.filter(function (c) {
+          return !c.note_missing && c.status === "replied";
+        }).length;
       document.getElementById("capsuleEmpty").hidden = items.length > 0;
       list.textContent = "";
       items.forEach(function (c) {
@@ -1687,8 +1693,9 @@ function loadCapsules() {
         line.appendChild(title);
         var chip = document.createElement("span");
         chip.className = "chip";
-        chip.textContent = c.status === "replied" ? "已回信"
-          : (c.status === "unlocked" ? "待回信" : "封存中");
+        chip.textContent = c.note_missing ? "短记已删除"
+          : (c.status === "replied" ? "已回信"
+            : (c.status === "unlocked" ? "待回信" : "封存中"));
         line.appendChild(chip);
         li.appendChild(line);
         var meta = document.createElement("div");
@@ -1706,11 +1713,11 @@ function loadCapsules() {
           reply.textContent = c.reply;
           li.appendChild(reply);
         }
-        if (c.status !== "replied") {
+        if (!c.note_missing && c.status !== "replied") {
           var btn = document.createElement("button");
           btn.className = "btn small";
           btn.textContent = "提前打开";
-          btn.addEventListener("click", function () { openCapsule(c.id); });
+          btn.addEventListener("click", function () { openCapsule(c.id, btn); });
           li.appendChild(btn);
         }
         list.appendChild(li);
@@ -1781,10 +1788,50 @@ function renderTrashList(id, rows, entity) {
   });
 }
 
-function openCapsule(capsuleId) {
+function openCapsule(capsuleId, btn) {
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "回信中…";
+  }
   apiPostChecked("capsules_open", { persona: state.persona, capsule_id: capsuleId })
-    .then(function () { loadCapsules(); })
-    .catch(function () { showError("打开胶囊失败。"); });
+    .then(function (data) {
+      if (!data.started) {
+        loadCapsules();
+        return;
+      }
+      pollCapsule(capsuleId, 0);
+    })
+    .catch(function () {
+      loadCapsules();
+      showError("打开胶囊失败。");
+    });
+}
+
+function pollCapsule(capsuleId, attempt) {
+  if (attempt > 80) {
+    loadCapsules();
+    showError("胶囊回信仍在处理中，请稍后刷新。");
+    return;
+  }
+  apiGet("capsules_status", { persona: state.persona, capsule_id: capsuleId })
+    .then(function (data) {
+      if (data.running) {
+        setTimeout(function () { pollCapsule(capsuleId, attempt + 1); }, 1500);
+        return;
+      }
+      loadCapsules();
+      if (!data.ok) {
+        showError(data.error || "胶囊打开失败。");
+        return;
+      }
+      if (data.status !== "replied") {
+        showError("胶囊回信失败，请稍后重试。");
+      }
+    })
+    .catch(function () {
+      loadCapsules();
+      showError("胶囊状态查询失败。");
+    });
 }
 
 function loadReviews() {

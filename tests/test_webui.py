@@ -276,18 +276,47 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         service = SimpleNamespace(run_capsules=slow_capsules)
         handlers = build_handlers(self.db, service=service, share_gate=None,
                                   personas=None, config=self.config)
+        query = AsyncMock(return_value={"persona": "shelly",
+                                        "capsule_id": capsule_id})
         with patch("life.webui._json_body",
                    new=AsyncMock(return_value={"persona": "shelly",
                                                "capsule_id": capsule_id})):
-            first_task = asyncio.create_task(handlers["capsules_open"]())
-            await asyncio.sleep(0)
+            first = await handlers["capsules_open"]()
+            with patch("life.webui._query_args", new=query):
+                running = await handlers["capsules_status"]()
             second = await handlers["capsules_open"]()
             gate.set()
-            first = await first_task
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            with patch("life.webui._query_args", new=query):
+                finished = await handlers["capsules_status"]()
         self.assertTrue(first["ok"])
+        self.assertTrue(first["started"])
+        self.assertTrue(running["running"])
         self.assertFalse(second["ok"])
         self.assertEqual(second["error"], "capsule run already in progress")
+        self.assertFalse(finished["running"])
         self.assertEqual(started, [("shelly", capsule_id)])
+
+    async def test_capsules_open_rejects_deleted_note(self):
+        note_id = self.db.add_note(
+            "shelly", None, "hn", "https://cap", "C", "s", url_hash="cap2"
+        )
+        capsule_id = self.db.seal_capsule(
+            "shelly", note_id, "2099-01-01 00:00:00",
+            sealed_at="2026-01-01 00:00:00",
+        )
+        self.db.soft_delete_note("shelly", note_id)
+        handlers = build_handlers(self.db, service=None, share_gate=None,
+                                  personas=None, config=self.config)
+        with patch("life.webui._json_body",
+                   new=AsyncMock(return_value={"persona": "shelly",
+                                               "capsule_id": capsule_id})):
+            result = await handlers["capsules_open"]()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "capsule note deleted")
+        self.assertEqual(self.db.get_capsule("shelly", capsule_id)["status"],
+                         "sealed")
 
     async def test_personas_list_hides_system_prompt(self):
         class _FakePersonas:
@@ -412,6 +441,7 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/astrbot_plugin_your_own_life/api/events", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/capsules", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/capsules_open", routes)
+        self.assertIn("/astrbot_plugin_your_own_life/api/capsules_status", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/reviews", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/reviews_diff", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/life_edits", routes)
@@ -422,7 +452,7 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/astrbot_plugin_your_own_life/api/revisit_chains", routes)
         self.assertIn("/astrbot_plugin_your_own_life/api/run_status", routes)
         self.assertNotIn("/astrbot_plugin_your_own_life/api/change_log", routes)
-        self.assertEqual(len(routes), 35)
+        self.assertEqual(len(routes), 36)
 
     async def test_share_note_invalid_body_returns_error(self):
         handlers = build_handlers(self.db, service=None, share_gate=None,
@@ -439,6 +469,13 @@ class WebUITest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("window.confirm(", html)
         self.assertIn("function askConfirm", html)
         self.assertIn("confirm-overlay", html)
+
+    def test_plugin_page_polls_capsule_status(self):
+        page = (Path(__file__).resolve().parents[1] / "pages" / "life" / "index.html")
+        html = page.read_text(encoding="utf-8")
+        self.assertIn("function pollCapsule", html)
+        self.assertIn('"capsules_status"', html)
+        self.assertIn("note_missing", html)
 
     def test_plugin_page_heatmap_captures_clicked_day(self):
         page = (Path(__file__).resolve().parents[1] / "pages" / "life" / "index.html")
