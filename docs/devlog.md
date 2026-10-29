@@ -2,6 +2,17 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-29 结构重构第四批：清理 life_plans.started_at 死列（v0.5.34）
+- 目标：移除 `life_plans` 建表里的 `started_at` 死列，减少新库 schema 噪音；不改变计划状态机、排期板接口或 WebUI。
+- 已确认决策：
+  - grep 全仓确认 `life_plans.started_at` 没有读取/写入调用；其他 `started_at` 命中都属于 `browse_sessions`、会话返回、presence 或 `main.py` 的会话展示，保留不动。
+  - 新库从 `_SCHEMA` 的 `life_plans` 建表中删除该列；旧库在启动时调用 `_drop_dead_column` 尝试 `ALTER TABLE ... DROP COLUMN`。
+  - 旧版 SQLite 不支持 DROP COLUMN 或列被依赖时只记录 warning 并保留未用列；不重建表、不复制计划数据，避免升级路径承担额外风险。
+- 改动：`life/db.py`、`tests/test_db.py`、`README.md`、`CHANGELOG.md`、`metadata.yaml`、`life/__init__.py`；版本 v0.5.33 → v0.5.34。
+- 验证：test_db 74 全绿（新增旧库含 `started_at` 的迁移测试，确认列删除且计划行保留）；全量 343 条，仅 `test_config` 已知环境错误（skipped=1）；ruff F,E9、compileall、`git diff --check` 通过。
+- 遗留：`change_log`/`life_edits` 兼容端点、页面 archive/interests 独立视图仍未动。
+- 下一步：提交 `chore(release): v0.5.34 ...`；随后收口兼容端点或补页面视图。
+
 ## 2026-10-28 结构重构第三批：回顾生命周期收敛（v0.5.33）
 - 目标：把 `run_review`（月度/年度）与 `run_quarterly_review` 的重复生命周期收敛到一个私有实现，保留两个公开入口的错误语义与季度 confidence 字段。
 - 已确认决策：

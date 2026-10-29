@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 import uuid
@@ -17,6 +18,8 @@ from life.timeutil import (
     normalize_timezone,
     to_local,
 )
+
+logger = logging.getLogger("your_own_life.db")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS browse_sessions (
@@ -155,7 +158,6 @@ CREATE TABLE IF NOT EXISTS life_plans (
     reason TEXT DEFAULT '',
     budget_used REAL DEFAULT 0,
     scheduled_at TEXT DEFAULT '',
-    started_at TEXT DEFAULT '',
     finished_at TEXT DEFAULT '',
     UNIQUE(persona_id, plan_date, task_id)
 );
@@ -373,6 +375,7 @@ class LifeDB:
             self._ensure_column("staging_seen", "digest", "digest TEXT DEFAULT ''")
             self._ensure_column("seen_items", "digest", "digest TEXT DEFAULT ''")
             self._ensure_column("seen_items", "last_seen_at", "last_seen_at TEXT DEFAULT ''")
+            self._drop_dead_column("life_plans", "started_at")
             self._migrate_notes_unique()
             self._conn.commit()
         self.recover_stale_runs()
@@ -457,6 +460,18 @@ class LifeDB:
     def _ensure_column(self, table: str, column: str, ddl: str) -> None:
         if column not in self._column_names(table):
             self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+
+    def _drop_dead_column(self, table: str, column: str) -> None:
+        """Drop a column no code reads anymore; old SQLite keeps it harmlessly."""
+        if column not in self._column_names(table):
+            return
+        try:
+            self._conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+        except sqlite3.OperationalError as exc:
+            logger.warning(
+                "could not drop dead column %s.%s; leaving it unused: %s",
+                table, column, exc,
+            )
 
     def _is_legacy(self) -> bool:
         if not self._table_exists("notes"):

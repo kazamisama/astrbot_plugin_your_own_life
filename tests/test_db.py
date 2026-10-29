@@ -976,6 +976,47 @@ class LifeDBTest(unittest.TestCase):
         self.assertEqual(summary["pending"], 1)
         self.assertEqual(summary["budget_used"], 12.5)
 
+    def test_life_plans_started_at_dead_column_is_dropped(self):
+        path = Path(self.tmp.name) / "old_plans.db"
+        raw = sqlite3.connect(path)
+        raw.executescript(
+            """
+            CREATE TABLE life_plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                persona_id TEXT NOT NULL DEFAULT 'default',
+                plan_date TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                fixed INTEGER NOT NULL DEFAULT 0,
+                reason TEXT DEFAULT '',
+                budget_used REAL DEFAULT 0,
+                scheduled_at TEXT DEFAULT '',
+                started_at TEXT DEFAULT '',
+                finished_at TEXT DEFAULT '',
+                UNIQUE(persona_id, plan_date, task_id)
+            );
+            INSERT INTO life_plans
+                (persona_id, plan_date, task_id, kind, status, started_at)
+            VALUES
+                ('shelly', '2026-08-12', 'old-task', 'browse', 'done',
+                 '2026-08-12 09:00:00');
+            """
+        )
+        raw.commit()
+        raw.close()
+
+        migrated = LifeDB(path)
+        rows = migrated.list_plans("shelly", "2026-08-12")
+        self.assertEqual(len(rows), 1)
+        self.assertNotIn("started_at", rows[0].keys())
+        migrated.close()
+
+        check = sqlite3.connect(path)
+        cols = [row[1] for row in check.execute("PRAGMA table_info('life_plans')")]
+        check.close()
+        self.assertNotIn("started_at", cols)
+
     def test_ensure_plan_is_idempotent(self):
         self.db.ensure_plan("shelly", "2026-08-12", "browse-10-00", "browse")
         again = self.db.ensure_plan("shelly", "2026-08-12", "browse-10-00", "browse")

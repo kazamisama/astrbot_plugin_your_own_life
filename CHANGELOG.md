@@ -2,6 +2,19 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.34] - 2026-10-29
+
+### Changed
+
+- 清理 `life_plans.started_at` 死列：该列在 `life_plans` 建表中存在，但全仓没有任何读取或写入；新库建表不再声明它。
+- 旧库打开时尝试 `ALTER TABLE life_plans DROP COLUMN started_at`；SQLite 版本不支持或列被依赖时只记录 warning 并保留未用列，不阻断启动，也不迁移计划数据。
+
+### Notes
+
+- 只清理 schema，计划状态机、排期板接口与 WebUI 行为不变。
+- 全量测试 343 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 新增旧库 `life_plans` 含 `started_at` 的迁移测试，确认列被删除且原有计划行保留。
+
 ## [0.5.33] - 2026-10-28
 
 ### Changed
