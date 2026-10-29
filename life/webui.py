@@ -448,10 +448,6 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
             return {"ok": False, "error": "entity must be note or diary"}
         return {"ok": ok, "persona_id": persona, "entity": entity}
 
-    async def change_log():
-        persona = await _persona_arg()
-        return {"persona_id": persona, "logs": db.list_change_log(persona)}
-
     async def plans():
         args = await _query_args()
         persona = str(args.get("persona") or _first_persona(config))
@@ -592,7 +588,6 @@ def build_handlers(db: Any, service: Any, share_gate: Any, personas: Any,
         "trash": trash,
         "trash_add": trash_add,
         "trash_restore": trash_restore,
-        "change_log": change_log,
         "injection_log": injection_log,
         "plans": plans,
         "events": events,
@@ -651,7 +646,6 @@ def register_api(context: Any, db: Any, service: Any, share_gate: Any,
         (f"{API_PREFIX}/trash", "trash", ["GET"], "Trash list"),
         (f"{API_PREFIX}/trash_add", "trash_add", ["POST"], "Move note/diary to trash"),
         (f"{API_PREFIX}/trash_restore", "trash_restore", ["POST"], "Restore a trashed item"),
-        (f"{API_PREFIX}/change_log", "change_log", ["GET"], "Change log"),
         (f"{API_PREFIX}/injection_log", "injection_log", ["GET"], "Injection audit log"),
         (f"{API_PREFIX}/plans", "plans", ["GET"], "Daily plan board"),
         (f"{API_PREFIX}/events", "events", ["GET"], "Event chain stream"),

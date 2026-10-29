@@ -2,6 +2,18 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.35] - 2026-10-29
+
+### Changed
+
+- 收口 `change_log` 与 `life_edits` 两个重复端点：删除旧的 `GET /change_log`，统一使用 `GET /life_edits`（同一 `change_log` 表，最多 200 条）。
+- 页面原本只调用 `/life_edits`，界面行为不变；`/change_log` 不再出现在路由表与测试中。
+
+### Notes
+
+- 破坏性变更：仍调用 `/change_log` 的外部脚本会得到 404；返回结构由 `{persona_id, logs}` 变为 `{edits}`。
+- 全量测试 343 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+
 ## [0.5.34] - 2026-10-29
 
 ### Changed

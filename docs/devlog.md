@@ -2,6 +2,17 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-29 结构重构第五批：收口改动记录端点（v0.5.35）
+- 目标：删除 `change_log` 与 `life_edits` 两个返回同一张表数据的兼容端点，只保留页面实际使用的 `GET /life_edits`。
+- 已确认决策：
+  - 页面、命令与 LLM 工具都只调用 `life_edits` 或 `db.list_change_log`；`GET /change_log` 没有调用方。
+  - `life_edits` 已是更完整的形态（最多 200 条），保留它作为唯一 HTTP 入口；`/change_log` 直接删除，不保留无实现的别名。
+  - 这是破坏性接口变更：外部脚本若调用 `/change_log` 会 404，返回结构也从 `logs` 变为 `edits`，在 CHANGELOG 中明确标注。
+- 改动：`life/webui.py`、`tests/test_webui.py`、`docs/design.md`、`README.md`、`CHANGELOG.md`、`metadata.yaml`、`life/__init__.py`；版本 v0.5.34 → v0.5.35。
+- 验证：test_webui 26 全绿；全量 343 条，仅 `test_config` 已知环境错误（skipped=1）；路由数 36 → 35，并断言 `/change_log` 不再注册；ruff F,E9、compileall、`git diff --check` 通过。
+- 遗留：页面 archive/interests 独立视图仍未做。
+- 下一步：提交 `chore(release): v0.5.35 ...`；随后补 archive/interests 页面视图。
+
 ## 2026-10-29 结构重构第四批：清理 life_plans.started_at 死列（v0.5.34）
 - 目标：移除 `life_plans` 建表里的 `started_at` 死列，减少新库 schema 噪音；不改变计划状态机、排期板接口或 WebUI。
 - 已确认决策：
