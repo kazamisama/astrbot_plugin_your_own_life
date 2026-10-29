@@ -2,6 +2,23 @@
 
 每个工作段结束（或上下文可能压缩/跨会话前）追加一条，最新条目放最上面。条目至少包含：目标、已确认决策、改动文件、验证结果、遗留问题、下一步行动。
 
+## 2026-10-29 回收站彻底清除边界与清理重试（v0.5.40）
+- 目标：按“目光放长远、不为旧数据打补丁”的原则，明确回收站彻底清除的派生数据边界，并让调度器清理失败可重试；顺带清掉 v0.5.39 后失去调用者的 `mark_revisits`。
+- 已确认决策：
+  - `reviews` 是独立回顾档案：只从 `source_refs` 移除被清短记/日记的机器引用，保留回顾正文，不因单条短记删除而删整篇回顾。
+  - `share_log` 保留时间/状态/目标用于统计与审计，清空 `note_id` 和 `message`；不直接删行。
+  - 不对历史 `reviews` / `share_log` 回填；新边界只对之后执行的清除生效。
+  - `_purge_expired_trash` 失败不写“当日已清理”，下一轮重试；持续失败会按调度轮次记录 warning。
+- 改动：
+  - `life/db.py`：`purge_trash` 增加 `scrub_review_refs` 与 `share_log` 脱敏；删除 `mark_revisits`。
+  - `life/scheduler.py`：`_purged_trash_dates.add(key)` 移到 `purge_trash` 成功之后。
+  - `life/webui.py`：`build_handlers` 拆成模块级 `_build_read_handlers` / `_build_action_handlers`，只读查询与写操作分组；`build_handlers` 只保留 persona helper 与组合，路由名、handler 行为与返回结构不变。
+  - 测试：扩展 purge 测试覆盖 reviews/share_log；新增调度器失败重试测试；WebUI 27 条全部通过。
+  - 文档/版本：metadata、`life/__init__.py`、README、CHANGELOG、design.md、devlog 升 v0.5.40。
+- 验证：全量 351 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）；扩展的 purge 测试、调度器失败重试测试与 `test_webui` 27 条通过；ruff F,E9、compileall、`git diff --check`、UTF-8 读回通过。
+- 遗留：memory_host 跨系统孤儿仍受 engram_core 无删除 API 限制；真实 AstrBot 端到端未重跑。
+- 下一步：提交 `chore(release): v0.5.40 ...`。
+
 ## 2026-10-29 剩余风险收口：回收站清理、重访事务与工具精力门槛（v0.5.39）
 - 目标：处理上一轮审计剩余问题中可独立闭环的三项：回收站清理不能依赖日记成功、重访标记的崩溃窗口、工具通道排期绕过 ESM 精力门槛；同时把 `purge_trash` 对事件链正文的残留一并清掉。
 - 已确认决策：

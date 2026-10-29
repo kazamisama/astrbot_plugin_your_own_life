@@ -253,16 +253,17 @@ class LifeScheduler:
             key = f"{persona_id}:{day_key}"
             if key in self._purged_trash_dates:
                 continue
-            self._purged_trash_dates.add(key)
             try:
                 purged = self.db.purge_trash(
                     persona_id, self.config.trash_retention_days
                 )
             except Exception as exc:
+                # 失败不记“已清理”，下一轮继续重试。
                 self.log.warning(
                     "trash purge failed for %s: %s", persona_id, exc
                 )
                 continue
+            self._purged_trash_dates.add(key)
             if purged:
                 self.log.info(
                     "purged %s expired trash rows for %s", purged, persona_id

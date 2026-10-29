@@ -2,6 +2,27 @@
 
 本插件版本历史。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.5.40] - 2026-10-29
+
+### Changed
+
+- 明确并收紧回收站“彻底清除”的边界：
+  - 删除引用短记的时间胶囊；
+  - 清空 `change_log` 与 `event_chain` 中的正文引用；
+  - 从 `reviews.source_refs` 移除对应的 `note_id` / `diary_date`，回顾正文保留；
+  - `share_log` 保留时间、状态、目标，清空 `note_id` 与已发送的 `message`。
+- 调度器 `_purge_expired_trash` 只在清理成功后记录“当日已清理”；数据库短暂失败会在下一轮重试，而不是等到下一个本地日。
+- WebUI 的 `build_handlers` 按“只读查询 / 写操作”拆成模块级 `_build_read_handlers` 与 `_build_action_handlers`，`build_handlers` 只负责组合；路由与返回结构不变。
+
+### Removed
+
+- 删除已被 `commit_staged(revisit_of=...)` 取代的 `LifeDB.mark_revisits`。
+
+### Notes
+
+- 全量测试 351 条（skipped=1；`test_config` 与生产 AstrBot 混装的已知环境错误除外）。
+- 不为旧数据打补丁：新边界从当前代码路径生效，不回填历史 `reviews` / `share_log`；需要清理旧数据时应显式执行维护脚本。
+
 ## [0.5.39] - 2026-10-29
 
 ### Fixed

@@ -593,6 +593,29 @@ class SchedulerPlansTest(unittest.TestCase):
         asyncio.run(scheduler._wait_for_target())
         self.assertEqual(len(self.db.list_trash("shelly")["notes"]), 1)
 
+    def test_trash_purge_failure_is_retried(self):
+        class _FlakyDB:
+            def __init__(self):
+                self.calls = 0
+
+            def purge_trash(self, persona_id, retention_days):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RuntimeError("busy")
+                return 1
+
+        flaky = _FlakyDB()
+        scheduler = LifeScheduler(
+            service=_FakeService(flaky),
+            config=LifeConfig(trash_retention_days=30),
+        )
+        scheduler._purge_expired_trash(["shelly"], "2026-08-12")
+        self.assertEqual(flaky.calls, 1)
+        self.assertNotIn("shelly:2026-08-12", scheduler._purged_trash_dates)
+        scheduler._purge_expired_trash(["shelly"], "2026-08-12")
+        self.assertEqual(flaky.calls, 2)
+        self.assertIn("shelly:2026-08-12", scheduler._purged_trash_dates)
+
     def test_scheduler_loop_exits_when_disabled(self):
         class _TrackingService(_FakeService):
             def __init__(self, db):

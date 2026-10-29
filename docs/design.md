@@ -399,6 +399,7 @@ LLM 可自主更改生活数据/计划/记忆，按事件链自主排期，并�
 ### 回收站与回滚
 
 - 删除走软删除（`deleted_at` + tombstone），进回收站，保留 N 天后可彻底清除；过期清理由调度器按本地日期每日执行一次，不依赖夜间复盘是否成功。
+- 彻底清除的边界：删除时间胶囊引用；清空 `change_log` 与 `event_chain` 中的正文引用；从 `reviews.source_refs` 移除对应的 `note_id` / `diary_date`，但保留回顾正文（回顾是独立档案，不因单条短记删除而消失）；`share_log` 保留时间、状态与目标用于统计，清空 `note_id` 与已发送的 `message`。
 - 回滚 = 反向应用账本或恢复实体快照；必须级联处理派生数据（entity_mentions/links/兴趣权重/日记引用），或标记 stale 重新推导。
 - owner 可覆盖任何 LLM 撤销/恢复操作。
 

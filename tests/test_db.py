@@ -329,7 +329,33 @@ class LifeDBTest(unittest.TestCase):
             "WHERE persona_id = ? AND date = ?",
             ("shelly", date),
         )
+        other_id = self.db.add_note(
+            "shelly", None, "hn", "https://keep", "Keep", "s",
+            url_hash="keep-ref",
+        )
+        self.db.upsert_review(
+            "shelly", "monthly", "2026-08-01", "2026-08-31",
+            "review text",
+            source_refs=[
+                {"note_id": note_id, "url": "https://scrub"},
+                {"note_id": other_id, "url": "https://keep"},
+                {"diary_date": date},
+            ],
+        )
+        self.db.log_share_attempt(
+            "shelly", note_id, "sent", message="shared secret"
+        )
         self.assertEqual(self.db.purge_trash("shelly", 0), 2)
+        review = self.db.list_reviews("shelly")[0]
+        self.assertEqual(review["content"], "review text")
+        self.assertEqual(
+            json.loads(review["source_refs"]),
+            [{"note_id": other_id, "url": "https://keep"}],
+        )
+        shares = self.db.list_share_log("shelly")
+        self.assertEqual(len(shares), 1)
+        self.assertIsNone(shares[0]["note_id"])
+        self.assertEqual(shares[0]["message"], "")
         events = self.db.list_events("shelly")
         note_event = next(
             row for row in events

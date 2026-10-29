@@ -762,21 +762,6 @@ class LifeDB:
         )
         return cur.rowcount > 0
 
-    def mark_revisits(self, pairs: list[tuple[int, int]]) -> int:
-        """Mark follow-up notes in one transaction (new_id, original_id)."""
-        if not pairs:
-            return 0
-        with self._transaction():
-            changed = 0
-            for note_id, original_id in pairs:
-                cur = self._execute(
-                    "UPDATE notes SET revisit_of = ? WHERE id = ?",
-                    (int(original_id), int(note_id)),
-                    commit=False,
-                )
-                changed += max(0, cur.rowcount)
-        return changed
-
     def list_revisit_chains(
         self, persona_id: str, limit: int = 50
     ) -> list[dict]:
@@ -2556,6 +2541,35 @@ class LifeDB:
                     (persona_id, pattern, pattern),
                 )
 
+            def scrub_review_refs(field: str, value: Any) -> None:
+                rows = self._conn.execute(
+                    "SELECT id, source_refs FROM reviews WHERE persona_id = ?",
+                    (persona_id,),
+                ).fetchall()
+                for review in rows:
+                    try:
+                        refs = json.loads(review["source_refs"] or "[]")
+                    except (TypeError, ValueError):
+                        continue
+                    if not isinstance(refs, list):
+                        continue
+                    kept = [
+                        ref for ref in refs
+                        if not (
+                            isinstance(ref, dict)
+                            and ref.get(field) == value
+                        )
+                    ]
+                    if len(kept) == len(refs):
+                        continue
+                    self._conn.execute(
+                        "UPDATE reviews SET source_refs = ? WHERE id = ?",
+                        (
+                            json.dumps(kept, ensure_ascii=False, default=str),
+                            int(review["id"]),
+                        ),
+                    )
+
             for row in note_rows:
                 note_id = int(row["id"])
                 self._conn.execute(
@@ -2568,6 +2582,13 @@ class LifeDB:
                     (persona_id, str(note_id)),
                 )
                 scrub_event_refs("note_id", note_id)
+                scrub_review_refs("note_id", note_id)
+                # 分享历史保留状态/时间用于统计，但不保留短记引用和正文。
+                self._conn.execute(
+                    "UPDATE share_log SET note_id = NULL, message = '' "
+                    "WHERE persona_id = ? AND note_id = ?",
+                    (persona_id, note_id),
+                )
                 self._conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
             for row in diary_rows:
                 self._conn.execute(
@@ -2576,6 +2597,7 @@ class LifeDB:
                     (persona_id, str(row["date"])),
                 )
                 scrub_event_refs("date", str(row["date"]))
+                scrub_review_refs("diary_date", str(row["date"]))
                 self._conn.execute(
                     "DELETE FROM diary_entries WHERE persona_id = ? AND date = ?",
                     (persona_id, row["date"]),
